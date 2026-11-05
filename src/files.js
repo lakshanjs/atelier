@@ -55,7 +55,7 @@ function renderPack() {
   }
   h += `<h2>Cut list</h2><table><tr><th>Part</th><th>Numbers</th><th>How many</th><th>Length</th><th>Width</th><th>Thickness</th><th>Board</th><th>Edge banding</th><th>Grain</th><th>Shape</th></tr>`;
   rows.forEach(r => { h += `<tr><td>${esc(r.part)}</td><td>${r.ids.join(', ')}</td><td class="n">${r.qty}</td><td class="n">${n(r.len)}</td><td class="n">${n(r.wid)}</td><td class="n">${n(r.thk)}</td><td>${BOARDS[r.mat].name}</td><td>${r.band}</td><td>${{ any: '—', length: 'Along length', width: 'Across width' }[r.grain]}</td><td>${esc(r.note || '—')}</td></tr>`; });
-  h += `</table><h2>Cutting plan</h2><p class="note" style="font-size:15px">Rip each sheet into strips along its length, then cross-cut the parts. Allows 4 mm for each saw cut. Grey is offcut. Arrows mark parts where the grain matters: sheet grain is taken to run along the sheet's length. Shaped parts are shown as the rectangle they're cut from.</p>`;
+  h += `</table><h2>Cutting plan</h2><p class="note" style="font-size:15px">Rip each sheet into strips along its length, then cross-cut the parts. Allows ${esc(fmt(mach('kerf')))} for each saw cut. Grey is offcut. Arrows mark parts where the grain matters: sheet grain is taken to run along the sheet's length. Shaped parts are shown as the rectangle they're cut from.</p>`;
   stocks(rows).forEach(([t, c]) => {
     const { sheets, over } = packSheets(rows, t, c);
     h += `<h3>${n(t)} ${BOARDS[c].name}: ${sheets.length} ${sheets.length === 1 ? 'sheet' : 'sheets'}</h3><div class="sheets">`;

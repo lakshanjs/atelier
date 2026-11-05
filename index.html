@@ -20,8 +20,8 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
         <button data-do="new">New…</button><button data-do="open">Open…</button><button data-do="importsh3d">Import Sweet Home 3D…</button><button data-do="libimport">Import to library…</button><button data-do="libexport">Export library…</button><button data-do="save">Save<kbd>Ctrl+S</kbd></button><button data-do="saveas">Save as…<kbd>Ctrl+Shift+S</kbd></button><hr>
         <div id="recentList"></div>
         <button data-do="history">Version history…</button><hr>
-        <button data-do="plans">Cut list and plans</button><button data-do="print">Print or save PDF</button><hr>
-        <button data-do="picture">Save picture of 3D view</button><button data-do="dxf">Export cut parts for CNC (DXF)</button><button data-do="stl">Export 3D model (STL)</button>
+        <button data-do="plans">Cut list and plans</button><button data-do="drawings">Workshop drawings</button><button data-do="print">Print or save PDF</button><hr>
+        <button data-do="picture">Save picture of 3D view</button><button data-do="cnc">Export for CNC (DXF and G-code)</button><button data-do="dxf">Export cut parts (DXF)</button><button data-do="stl">Export 3D model (STL)</button>
       </div></div>
       <div class="menu"><button class="mbtn">Edit</button><div class="mlist" hidden>
         <button data-do="undo">Undo<kbd>Ctrl+Z</kbd></button><button data-do="redo">Redo<kbd>Ctrl+Y</kbd></button><hr>
@@ -118,6 +118,20 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
   <div id="histList"></div>
 </dialog>
 
+<section id="draw" aria-label="Workshop drawings">
+  <div id="drawTop">
+    <button class="btn line" id="drawBack">Back to design</button>
+    <label class="drfield">Paper<select id="dr_paper"><option value="A3">A3</option><option value="A4">A4</option></select></label>
+    <label class="drfield">Client<input id="dr_client"></label>
+    <label class="drfield">Drawn by<input id="dr_by"></label>
+    <label class="drfield">Revision<input id="dr_rev" placeholder="A" style="width:44px"></label>
+    <span class="grow"></span>
+    <button class="btn line" id="drawPrint">Print</button>
+    <button class="btn main" id="drawPdf">Save PDF</button>
+  </div>
+  <div id="drawBody"></div>
+</section>
+
 <section id="pack" aria-label="Cut list and plans">
   <div id="packTop">
     <button class="btn line" id="packBack">Back to design</button><span class="grow"></span>
@@ -139,8 +153,10 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
 <script src="src/flat.js"></script>
 <script src="src/properties.js"></script>
 <script src="src/cutlist.js"></script>
+<script src="src/machining.js"></script>
 <script src="src/library.js"></script>
 <script src="src/files.js"></script>
+<script src="src/drawings.js"></script>
 <script src="src/safety.js"></script>
 <script src="src/ui.js"></script>
 </body>

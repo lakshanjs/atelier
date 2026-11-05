@@ -23,6 +23,9 @@ function sessionBegin() {
 }
 ipcMain.on("session:crashed", (e) => { e.returnValue = lastRunCrashed; lastRunCrashed = false; });
 
+// Saves whatever the page's print styles lay out. The page sets the paper size with @page.
+ipcMain.handle("print:pdf", (e) => e.sender.printToPDF({ preferCSSPageSize: true, printBackground: true, margins: { marginType: "none" } }));
+
 const fileIn = (argv) => argv.slice(1).find((a) => /\.atlr$/i.test(a) && fs.existsSync(a));
 function sendFile(file) {
   if (!win || !file) return;

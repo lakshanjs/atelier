@@ -54,40 +54,6 @@ function stlBytes() {
   }
   return buf;
 }
-// DXF (R12, the most widely read version), in millimetres: every part where it sits on its sheet
-function dxfText() {
-  const out = [], f = v => (Math.round(v * 1000) / 1000).toString(), line = (...a) => a.forEach(x => out.push(String(x)));
-  const rows = cutRows(), mmName = v => String(Math.round(v * 100) / 100).replace('.', '_') + 'MM', ths = [...new Set(rows.map(r => r.thk))];
-  const LAYERS = [['SHEET', 8], ['LABELS', 3], ...ths.flatMap(v => [[`CUT_${mmName(v)}`, 7], [`HOLES_${mmName(v)}`, 1]])];
-  line(0, 'SECTION', 2, 'HEADER', 9, '$ACADVER', 1, 'AC1009', 9, '$INSUNITS', 70, 4, 0, 'ENDSEC');
-  line(0, 'SECTION', 2, 'TABLES', 0, 'TABLE', 2, 'LAYER', 70, LAYERS.length); LAYERS.forEach(([n, c]) => line(0, 'LAYER', 2, n, 70, 0, 62, c, 6, 'CONTINUOUS')); line(0, 'ENDTAB', 0, 'ENDSEC');
-  line(0, 'SECTION', 2, 'ENTITIES');
-  const poly = (pts, layer) => { line(0, 'POLYLINE', 8, layer, 66, 1, 70, 1); pts.forEach(p => line(0, 'VERTEX', 8, layer, 10, f(p[0]), 20, f(p[1]), 30, 0)); line(0, 'SEQEND', 8, layer); };
-  let oy = 0;
-  const part = (q, ox, oyy) => {
-    const it = byId(q.id); if (!it) return;
-    const turn = Math.abs(it.l - q.l) > .01, cx = ox + q.x + q.l / 2, cy = oyy + q.y + q.w / 2, map = p => turn ? [cx + p[1], cy + p[0]] : [cx + p[0], cy + p[1]];
-    const depth = mmName(r2(it.t));
-    poly(outlinePts(it).map(map), `CUT_${depth}`);
-    if (it.shape) it.shape.holes.filter(h => holeFits(it, h)).forEach(h => {
-      if (h.k === 'circle') { const c = map([h.x, h.z]); line(0, 'CIRCLE', 8, `HOLES_${depth}`, 10, f(c[0]), 20, f(c[1]), 30, 0, 40, f(h.w / 2)); }
-      else poly(holePts(h).map(map), `HOLES_${depth}`);
-    });
-    line(0, 'TEXT', 8, 'LABELS', 10, f(cx), 20, f(cy), 30, 0, 40, f(Math.min(40, q.w / 3)), 1, `${it.name} ${it.id}`);
-  };
-  stocks(rows).forEach(([t, m]) => {
-    const { sheets, over } = packSheets(rows, t, m), { sl, sw } = stockOf(m);
-    sheets.forEach((sh, i) => {
-      poly([[0, oy], [sl, oy], [sl, oy + sw], [0, oy + sw]], 'SHEET');
-      line(0, 'TEXT', 8, 'LABELS', 10, 0, 20, f(oy + sw + 20), 30, 0, 40, 40, 1, `${BOARDS[m].name} ${t} mm, sheet ${i + 1}`);
-      sh.strips.forEach(st => st.parts.forEach(q => part(q, 0, oy)));
-      oy += sw + 200;
-    });
-    if (over.length) { line(0, 'TEXT', 8, 'LABELS', 10, 0, 20, f(oy + 20), 30, 0, 40, 40, 1, `Too big for one ${BOARDS[m].name} sheet`); oy += 100; let x = 0; over.forEach(pc => { part({ id: pc.id, x, y: 0, l: pc.l, w: pc.w }, 0, oy); x += pc.l + 50; }); oy += Math.max(...over.map(o => o.w)) + 200; }
-  });
-  line(0, 'ENDSEC', 0, 'EOF');
-  return out.join('\r\n') + '\r\n';
-}
 function downloadBlob(name, data, type) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type })); a.download = name; a.click(); }
 
 // ---------- right-click menu ----------
@@ -144,7 +110,7 @@ menus.forEach(m => {
 window.addEventListener('pointerdown', e => { if (!e.target.closest('.menu')) closeMenus(); });
 const DO = {
   new: () => document.getElementById('bNew').click(), open: () => document.getElementById('bOpen').click(), save: () => document.getElementById('bSave').click(),
-  history: openHistory, resizable: () => { if (selected().length) edit(fxMakeResizable); else toast('Select the parts first.', true); },
+  drawings: () => { if (panelsOnly().length) openDrawings(); else toast('There are no panels to draw yet.', true); }, cnc: exportCnc, history: openHistory, resizable: () => { if (selected().length) edit(fxMakeResizable); else toast('Select the parts first.', true); },
   plans: () => document.getElementById('bPack').click(), print: () => { renderPack(); window.print(); },
   undo, redo, dup: () => { if (sel.length) edit(duplicateSel); }, del: () => { if (sel.length) edit(removeSel); }, all: () => { sel = shown().filter(i => !i.locked).map(i => i.id); render(); },
   layouts: () => toggleLayPop(true), layreset: resetLayout,

@@ -182,7 +182,8 @@ function fxCheck(text, groupId) {   // returns an error message, or null when th
 function fxFromBox(s, groupId) {   // what a box's text means: { formula } or { value }, or { error }
   const t = String(s).trim();
   if (t[0] === '=') { const e = t.slice(1).trim(); if (!e) return { error: 'the formula is empty' }; const bad = fxCheck(e, groupId); return bad ? { error: bad } : { formula: { e, u: unitKey() } }; }
-  const v = parseLen(t); if (isFinite(v)) return { value: v };
+  const sum = /[+*()]|\d\s*-\s*[\d.]+\s*$/.test(t) || /[a-z]{2,}/i.test(t.replace(/\b(mm|cm|in|inch|inches|ft|feet|foot|yd|yds|yard|yards)\b/gi, ''));   // the plain reader would stop at the first sign
+  const v = parseLen(t); if (!sum && isFinite(v)) return { value: v };
   if (fxCheck(t, groupId)) return { error: `"${t}" isn't a size` };
   return { value: fxLenOf(fxEval(t, unitKey(), fxLook(groupId)), unitKey()) };   // sums like 800-36 work out once, with no formula kept
 }

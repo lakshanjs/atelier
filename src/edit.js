@@ -1,6 +1,6 @@
 // ---------- undo ----------
 function pushUndo() { undoS.push(JSON.stringify(P)); if (undoS.length > 200) undoS.shift(); redoS.length = 0; }
-function persist() { fxUpdate(); if (typeof autosave === 'function') autosave(); if (typeof markSaved === 'function') markSaved(true); }
+function persist() { fxUpdate(); if (typeof machInvalidate === 'function') machInvalidate(); if (typeof autosave === 'function') autosave(); if (typeof markSaved === 'function') markSaved(true); }
 function edit(fn) { pushUndo(); fn(); persist(); render(); }
 function undo() { if (!undoS.length) return; redoS.push(JSON.stringify(P)); P = JSON.parse(undoS.pop()); after(); }
 function redo() { if (!redoS.length) return; undoS.push(JSON.stringify(P)); P = JSON.parse(redoS.pop()); after(); }

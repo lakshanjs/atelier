@@ -74,10 +74,11 @@ function renderSide() {
       h += sec('shape', `Shape${hasShape(it) ? ': shaped' : ''}`, sb);
       const role = roleOf(it);
       let fb = `<label class="field">This panel is<select id="role">${[['panel', 'A plain panel'], ['shelf', 'A shelf'], ['door', 'A door'], ['drawer', 'A drawer front']].map(([v, n]) => `<option value="${v}" ${role === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
-      if (role === 'door') fb += `<label class="field">Hinges<input type="text" id="hingeN" value="${it.hinges ?? defaultHinges(it)}"></label>`;
+      if (role === 'door') fb += `<label class="field">Hinges<input type="text" id="hingeN" value="${it.hinges ?? defaultHinges(it)}"></label><label class="field">Hangs from<select id="hingeSide">${[['', 'Work it out'], ['low', 'Left or bottom'], ['high', 'Right or top']].map(([v, n]) => `<option value="${v}" ${(it.hingeSide || '') === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
       if (role === 'drawer') { fb += lenF('Slide length', slideLength(it), 'slideL'); handlers.slideL = num(v => edit(() => { it.slide = v; }), 50); }
       if (role === 'shelf') fb += `<label class="check"><input type="checkbox" id="adjust" ${it.adjustable ? 'checked' : ''}>Adjustable, on 4 shelf pins</label>`;
       h += sec('fit', 'Fittings', fb);
+      h += machSectionHtml(it);
     }
     h += repeatHtml() + actions();
   } else if (list.length > 1) {
@@ -129,6 +130,7 @@ function renderSide() {
       handlers[`hw${i}`] = v => { const c = parseFloat(String(v).replace(/,/g, '')); edit(() => { P.hwPrices = P.hwPrices || {}; if (c > 0) P.hwPrices[label] = c; else delete P.hwPrices[label]; }); };
     });
     h += sec('fit', 'Fittings', fb);
+    h += machSettingsHtml() + cncSettingsHtml();
   }
   if (tool !== 'measure' && list.length) h += dimListHtml(true);
   side.innerHTML = h; side.scrollTop = keep;
@@ -164,6 +166,7 @@ function renderSide() {
     edit(() => { d.axis = k; });
   }; });
   if (q('curr')) { q('curr').onkeydown = e => e.stopPropagation(); q('curr').onchange = e => edit(() => { P.currency = e.target.value.trim().slice(0, 6) || 'Rs'; }); }
+  if (q('cncClimb')) q('cncClimb').onchange = e => edit(() => { (P.cncTool = P.cncTool || {}).climb = e.target.checked; });
   if (q('jointSel')) q('jointSel').onchange = e => edit(() => { P.joint = e.target.value; });
   if (q('dimAll')) q('dimAll').onclick = () => edit(() => { P.dims = []; });
   if (q('dimVis')) q('dimVis').onclick = () => { P.hideDims = !P.hideDims; persist(); render(); };
@@ -200,6 +203,8 @@ function renderSide() {
     side.querySelectorAll('[data-hdel]').forEach(b => b.onclick = () => edit(() => { shapeOf(it).holes.splice(+b.dataset.hdel, 1); }));
     if (q('role')) q('role').onchange = e => edit(() => { it.role = e.target.value; });
     if (q('hingeN')) { q('hingeN').onkeydown = e => e.stopPropagation(); q('hingeN').onchange = e => { const v = parseInt(e.target.value, 10); if (v >= 0 && v <= 12) edit(() => { it.hinges = v; }); else renderSide(); }; }
+    if (q('hingeSide')) q('hingeSide').onchange = e => edit(() => { if (e.target.value) it.hingeSide = e.target.value; else delete it.hingeSide; });
+    if (it.kind === 'panel') machBind(it);
     if (q('adjust')) q('adjust').onchange = e => edit(() => { it.adjustable = e.target.checked; });
   }
   if (q('dup')) q('dup').onclick = () => edit(duplicateSel);

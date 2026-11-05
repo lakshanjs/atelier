@@ -59,6 +59,7 @@ function panelPreview(it, interactive) {
   const path = pts => 'M' + pts.map(p => `${X(p[0]).toFixed(1)} ${Y(p[1]).toFixed(1)}`).join('L') + 'Z';
   const e = edgesOf(it), L = it.l / 2, Wd = it.w / 2, g = it.grain || 'any';
   let s = `<path d="${path(outlinePts(it))}${(it.shape ? it.shape.holes : []).map(h => path(holePts(h))).join('')}" fill="${MAT[panelColor(it)].f}" fill-rule="evenodd" stroke="#20262a"/>`;
+  opsOf(it).forEach(o => { if (o.k === 'hole' && isFace(o.face)) s += `<circle cx="${X(o.x).toFixed(1)}" cy="${Y(o.z).toFixed(1)}" r="${Math.max(o.d / 2 * k, 1).toFixed(1)}" fill="${o.through ? '#20262a' : 'none'}" stroke="#20262a"${o.face === 'bottom' && !o.through ? ' stroke-dasharray="2 1.5"' : ''}/>`; else if (o.k === 'groove') s += `<line x1="${X(o.x0).toFixed(1)}" y1="${Y(o.z0).toFixed(1)}" x2="${X(o.x1).toFixed(1)}" y2="${Y(o.z1).toFixed(1)}" stroke="#20262a" stroke-width="${Math.max(o.width * k, 1).toFixed(1)}" stroke-opacity=".35"/>`; });
   [['a', [-L, -Wd], [L, -Wd]], ['b', [-L, Wd], [L, Wd]], ['c', [-L, -Wd], [-L, Wd]], ['d', [L, -Wd], [L, Wd]]].forEach(([n, p, q]) => {
     if (e[n]) s += `<line x1="${X(p[0])}" y1="${Y(p[1])}" x2="${X(q[0])}" y2="${Y(q[1])}" stroke="#e5a900" stroke-width="5"/>`;
     if (interactive) s += `<line data-edge="${n}" x1="${X(p[0])}" y1="${Y(p[1])}" x2="${X(q[0])}" y2="${Y(q[1])}" stroke="transparent" stroke-width="14" style="cursor:pointer"><title>Click to band this edge</title></line>`;
@@ -87,18 +88,7 @@ function slideLength(it) {   // a drawer's slides match the side of its box, whe
   const b = bounds(it), box = panelsOnly().find(p => p.name === 'Drawer box side' && (() => { const q = bounds(p); return q.min[0] >= b.min[0] - 1 && q.max[0] <= b.max[0] + 1 && q.min[1] >= b.min[1] - 1 && q.max[1] <= b.max[1] + 1; })());
   return box ? Math.round(Math.max(box.l, box.w)) : 400;
 }
-function jointFixings() {   // about one fixing every 200 mm along each place two straight panels touch; never fewer than two
-  const list = panelsOnly().filter(p => isStraight(p) && !p.adjustable && !['door', 'drawer'].includes(roleOf(p))).map(bounds); let n = 0;
-  for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
-    const a = list[i], b = list[j];
-    for (let k = 0; k < 3; k++) {
-      if (Math.abs(a.max[k] - b.min[k]) > 1 && Math.abs(b.max[k] - a.min[k]) > 1) continue;
-      const others = [0, 1, 2].filter(x => x !== k).map(x => Math.min(a.max[x], b.max[x]) - Math.max(a.min[x], b.min[x]));
-      if (others.every(v => v > 2)) { n += Math.max(2, Math.floor(Math.max(...others) / 200) + 1); break; }
-    }
-  }
-  return n;
-}
+const jointFixings = () => machining().fixings;   // the same joints the drawings and CNC files use
 function hardwareLines() {
   const out = [], ps = panelsOnly();
   const doors = ps.filter(p => roleOf(p) === 'door'), hinges = doors.reduce((a, d) => a + (d.hinges ?? defaultHinges(d)), 0);
@@ -120,8 +110,8 @@ function cutRows() {
   return [...m.values()];
 }
 const stocks = rows => { const m = new Map(); rows.forEach(r => m.set(r.thk + '|' + r.mat, [r.thk, r.mat])); return [...m.values()].sort((a, b) => b[0] - a[0]); };
-function packSheets(rows, thk, mat) {
-  const k = 4, { sl: SL, sw: SW } = stockOf(mat), pieces = [];
+function packSheets(rows, thk, mat, o = {}) {   // o.gap and o.margin are for machines that need more room than a saw
+  const k = o.gap ?? mach('kerf'), st = stockOf(mat), trim = (o.margin || 0) * 2, SL = st.sl - trim, SW = st.sw - trim, pieces = [];
   // the sheet's grain runs along its length: "along" keeps a part's length that way, "across" turns it, otherwise it may turn to fit
   rows.filter(r => r.thk === thk && r.mat === mat).forEach(r => r.ids.forEach(id => {
     let l = r.len, w = r.wid;
@@ -180,5 +170,6 @@ function checks() {
   });
   P.items.forEach(it => { if (it.type !== 'floor' && bounds(it).min[1] < -.5) w.push(`${it.kind === 'panel' ? 'Panel ' + it.id : it.name} goes below the floor.`); });
   fxIssues.forEach(t => w.push(t));
+  machChecks().forEach(t => w.push(t));
   return [...new Set(w)];
 }
