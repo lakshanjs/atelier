@@ -8,6 +8,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "test": "node --test --test-concurrency=1 test/*.test.js",
     "dist": "electron-builder --publish never",
     "release": "electron-builder --publish never && node scripts/publish-local.js"
   },
@@ -19,6 +20,7 @@
       "main.js",
       "preload.js",
       "index.html",
+      "src/**/*",
       "lib/**/*"
     ],
     "fileAssociations": [
