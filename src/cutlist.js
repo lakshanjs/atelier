@@ -179,5 +179,6 @@ function checks() {
     }
   });
   P.items.forEach(it => { if (it.type !== 'floor' && bounds(it).min[1] < -.5) w.push(`${it.kind === 'panel' ? 'Panel ' + it.id : it.name} goes below the floor.`); });
+  fxIssues.forEach(t => w.push(t));
   return [...new Set(w)];
 }

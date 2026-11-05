@@ -281,6 +281,15 @@ details.sec[open] { padding-bottom: 8px; }
 
 
 dialog { background: var(--panel); border: 0; border-radius: 4px; padding: 22px; width: min(880px, calc(100vw - 32px)); box-shadow: 0 8px 40px rgba(20, 30, 35, .3); color: var(--ink); }
+.hasfx { text-decoration: underline dotted; text-underline-offset: 2px; }
+.fxbad { color: var(--danger); font-size: 12px; margin: 4px 0; }
+.prm { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 22px; gap: 4px; align-items: center; margin-bottom: 4px; }
+.prm input { min-width: 0; width: 100%; padding: 3px 6px; border: 1px solid var(--line); border-radius: 3px; background: var(--field); color: inherit; }
+.prm .ic { width: 22px; height: 22px; }
+#histList { max-height: 56vh; overflow-y: auto; margin-top: 10px; }
+.histrow { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-top: 1px solid var(--line); }
+.histwhen { width: 130px; flex: none; font-variant-numeric: tabular-nums; }
+.histwhat { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 dialog::backdrop { background: rgba(32, 38, 42, .45); }
 #cat { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-top: 12px; }
 .card { text-align: left; background: var(--canvas); border: 1px solid transparent; border-radius: 3px; padding: 10px; cursor: pointer; }

@@ -19,13 +19,14 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
       <div class="menu"><button class="mbtn">File</button><div class="mlist" hidden>
         <button data-do="new">New…</button><button data-do="open">Open…</button><button data-do="importsh3d">Import Sweet Home 3D…</button><button data-do="libimport">Import to library…</button><button data-do="libexport">Export library…</button><button data-do="save">Save<kbd>Ctrl+S</kbd></button><button data-do="saveas">Save as…<kbd>Ctrl+Shift+S</kbd></button><hr>
         <div id="recentList"></div>
+        <button data-do="history">Version history…</button><hr>
         <button data-do="plans">Cut list and plans</button><button data-do="print">Print or save PDF</button><hr>
         <button data-do="picture">Save picture of 3D view</button><button data-do="dxf">Export cut parts for CNC (DXF)</button><button data-do="stl">Export 3D model (STL)</button>
       </div></div>
       <div class="menu"><button class="mbtn">Edit</button><div class="mlist" hidden>
         <button data-do="undo">Undo<kbd>Ctrl+Z</kbd></button><button data-do="redo">Redo<kbd>Ctrl+Y</kbd></button><hr>
         <button data-do="copy">Copy<kbd>Ctrl+C</kbd></button><button data-do="cut">Cut<kbd>Ctrl+X</kbd></button><button data-do="paste">Paste<kbd>Ctrl+V</kbd></button><button data-do="dup">Duplicate<kbd>Ctrl+D</kbd></button><button data-do="del">Delete<kbd>Del</kbd></button><button data-do="all">Select all<kbd>Ctrl+A</kbd></button><hr>
-        <button data-do="group">Make a layer</button><button data-do="spin">Spin 90°<kbd>R</kbd></button>
+        <button data-do="group">Make a layer</button><button data-do="resizable">Make resizable</button><button data-do="spin">Spin 90°<kbd>R</kbd></button>
       </div></div>
       <div class="menu"><button class="mbtn">View</button><div class="mlist" hidden>
         <button data-do="fit">Fit everything<kbd>F</kbd></button><button data-do="cam">Reset 3D view</button><hr>
@@ -110,6 +111,13 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
   <div id="cat"></div>
 </dialog>
 
+<dialog id="histDlg">
+  <div style="display:flex;align-items:center"><h2 style="margin:0">Version history</h2><span class="grow"></span><button class="btn line" id="histClose">Close</button></div>
+  <p class="note">A version is kept every few minutes and each time you save. Going back can be undone.</p>
+  <div class="libsave"><input id="histName" placeholder="Name for this version" aria-label="Name for this version"><button class="btn line" id="histSave">Keep this version</button></div>
+  <div id="histList"></div>
+</dialog>
+
 <section id="pack" aria-label="Cut list and plans">
   <div id="packTop">
     <button class="btn line" id="packBack">Back to design</button><span class="grow"></span>
@@ -125,6 +133,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
 <script src="lib/icons.js"></script>
 <script src="src/base.js"></script>
 <script src="src/model.js"></script>
+<script src="src/formulas.js"></script>
 <script src="src/edit.js"></script>
 <script src="src/view3d.js"></script>
 <script src="src/flat.js"></script>
@@ -132,6 +141,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
 <script src="src/cutlist.js"></script>
 <script src="src/library.js"></script>
 <script src="src/files.js"></script>
+<script src="src/safety.js"></script>
 <script src="src/ui.js"></script>
 </body>
 </html>

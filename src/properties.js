@@ -1,16 +1,17 @@
 // ---------- properties ----------
 const side = document.getElementById('side');
-let handlers = {}, pendingFocus = null; const openSec = { size: true, pos: true, board: true, edge: true, angle: false, shape: false, fit: false, copies: false };
+let handlers = {}, pendingFocus = null; const openSec = { params: true, size: true, pos: true, board: true, edge: true, angle: false, shape: false, fit: false, copies: false };
 const field = (label, val, id, type) => `<label class="field">${label}<input type="text" data-f="${id}" value="${esc(val)}"></label>`;
 const lenF = (label, mm, id) => `<label class="field">${label}<input type="text" data-f="${id}" data-len="1" value="${esc(bare(mm))}"></label>`;
-const triF = cells => `<div class="tri">${cells.map(([n, mm, id]) => `<label>${n}<input type="text" data-f="${id}" data-len="1" value="${esc(bare(mm))}"></label>`).join('')}</div>`;
+const triF = cells => `<div class="tri">${cells.map(([n, mm, id, fx]) => `<label>${n}<input type="text" class="${fx ? 'hasfx' : ''}" data-f="${id}" data-len="1" ${fx ? `data-fxtext="${esc(fx)}" title="${esc(fx)}"` : ''} value="${esc(bare(mm))}"></label>`).join('')}</div>`;
 const sec = (key, title, body) => `<details class="sec" data-sec="${key}" ${openSec[key] ? 'open' : ''}><summary>${title}</summary>${body}</details>`;
 function bindFields() {
   side.querySelectorAll('details[data-sec]').forEach(d => d.addEventListener('toggle', () => { openSec[d.dataset.sec] = d.open; }));
   side.querySelectorAll('[data-f]').forEach(inp => {
     const commit = () => { if (inp.value === inp.defaultValue) return false; inp.defaultValue = inp.value; const f = handlers[inp.dataset.f]; if (f) f(inp.value); return true; };   // runs once per edit, however it's confirmed
     inp.addEventListener('change', commit);
-    inp.addEventListener('focus', () => inp.select());
+    inp.addEventListener('focus', () => { if (inp.dataset.fxtext && inp.value !== inp.dataset.fxtext) { inp.dataset.plain = inp.value; inp.value = inp.defaultValue = inp.dataset.fxtext; } inp.select(); });   // focus also fires on coming back to the window
+    inp.addEventListener('blur', () => { if (inp.dataset.fxtext && inp.value === inp.dataset.fxtext) inp.value = inp.defaultValue = inp.dataset.plain; });
     inp.addEventListener('keydown', e => {
       e.stopPropagation();
       const all = () => [...side.querySelectorAll('[data-f]')], at = all().indexOf(inp);
@@ -47,8 +48,10 @@ function renderSide() {
       const thick = (() => { const opts = BOARDS[it.mat].thick, known = opts.some(o => Math.abs(o[0] - it.t) < .01); return (known ? '' : `<option value="${it.t}" selected>${esc(bare(it.t))}${unitMark()}</option>`) + opts.map(([v, n]) => `<option value="${v}" ${Math.abs(v - it.t) < .01 ? 'selected' : ''}>${n}</option>`).join(''); })();
       h += sec('board', 'Board', `<label class="field">Type<select id="itMat">${Object.entries(BOARDS).map(([k, m]) => `<option value="${k}" ${it.mat === k ? 'selected' : ''}>${m.name}</option>`).join('')}</select></label><label class="field">Thickness<select id="itThick">${thick}</select></label><label class="field">Grain<select id="grain">${[['any', "Doesn't matter"], ['length', 'Along the length'], ['width', 'Across the width']].map(([v, n]) => `<option value="${v}" ${(it.grain || 'any') === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>${swatches(panelColor(it))}`);
     }
-    h += sec('size', 'Size', triF((isP ? [['Length', 'l'], ['Width', 'w'], ['Thick', 't']] : [['Width', 'l'], ['Height', 't'], ['Depth', 'w']]).map(([n, k]) => { handlers['s' + k] = num(v => edit(() => setSize(it, k, v)), 1); return [n, it[k], 's' + k]; })));
-    h += sec('pos', 'Position', triF([['From left', 0], ['From floor', 1], ['From back', 2]].map(([n, a]) => { handlers['p' + a] = num(v => edit(() => { it.pos[a] += v - bounds(it).min[a]; })); return [n, b.min[a], 'p' + a]; })));
+    h += sec('size', 'Size', triF((isP ? [['Length', 'l'], ['Width', 'w'], ['Thick', 't']] : [['Width', 'l'], ['Height', 't'], ['Depth', 'w']]).map(([n, k]) => { handlers['s' + k] = fxField(it, k, v => setSize(it, k, v), 1); return [n, it[k], 's' + k, fxText(it, k)]; })));
+    h += sec('pos', 'Position', triF([['From left', 0], ['From floor', 1], ['From back', 2]].map(([n, a]) => { handlers['p' + a] = fxField(it, FX_POS[a], v => { it.pos[a] += v - bounds(it).min[a]; }); return [n, b.min[a], 'p' + a, fxText(it, FX_POS[a])]; })));
+    fxItemIssues(it).forEach(t => { h += `<p class="fxbad">${esc(t)}</p>`; });
+    if (it.group && (groupOf(it) || {}).params) h += paramsHtml(it.group, `Parameters: ${esc(groupOf(it).name)}`);
     h += sec('angle', 'Angle', turnButtons() + [['Spin', 1], ['Tip', 0], ['Roll', 2]].map(([n, a]) => `<div class="angle"><span>${n}</span><input type="range" min="-180" max="180" step="1" value="${eu[a]}" data-ang="${a}" aria-label="${n}"><input type="text" value="${eu[a]}" data-angt="${a}" aria-label="${n} in degrees"></div>`).join(''));
     if (isP) {
       h += sec('edge', `Edge banding: ${esc(bandLabel(it))}`, `${panelPreview(it, !it.locked)}<p class="note" style="margin:2px 0 0">Click an edge to band it. ${bare(bandLen(it))}${unitMark()} in total.</p>`);
@@ -96,6 +99,7 @@ function renderSide() {
     }
     h += `<div class="rowb" style="margin-top:8px"><button class="btn line" id="grp">Make a layer</button><button class="ic" id="eyeAll" title="Hide all" aria-label="Hide all">${ic('eye')}</button><button class="ic" id="lockAll" title="${allLocked ? 'Unlock all' : 'Lock all'}" aria-label="${allLocked ? 'Unlock all' : 'Lock all'}">${ic(allLocked ? 'lock' : 'lock-open')}</button></div>`;
     if (list.some(i => i.locked)) h += `<p class="note">Locked items in this selection stay where they are.</p>`;
+    { const gs = [...new Set(list.map(i => i.group))], g = gs.length === 1 && gs[0] ? groupOf(list[0]) : null; if (g && g.params && g.params.length) h += paramsHtml(g.id, `Parameters: ${esc(g.name)}`); else h += `<div class="rowb" style="margin-top:8px"><button class="btn line" id="fxMake" title="Adds Width, Height and Depth, and works out how each part follows them">Make resizable</button></div>`; }
     h += repeatHtml() + actions();
   } else {
     h += `<p class="note" style="margin-top:0">Click something to change it. These settings are for the whole project.</p>`;
@@ -116,6 +120,8 @@ function renderSide() {
     });
     bb += `<label class="field">Banding, per metre<input type="text" data-f="bandP" value="${P.bandPrice || ''}" placeholder="Not set"></label>`;
     handlers.bandP = v => { const n = parseFloat(String(v).replace(/,/g, '')); edit(() => { P.bandPrice = n > 0 ? n : 0; }); };
+    h += paramsHtml(null, 'Project parameters');
+    P.groups.filter(g => g.params && g.params.length).forEach(g => { h += paramsHtml(g.id, `Parameters: ${esc(g.name)}`); });
     h += sec('board', 'Boards and prices', bb);
     let fb = `<label class="field">Panels join with<select id="jointSel">${Object.entries(JOINTS).map(([k, n]) => `<option value="${k}" ${(P.joint || 'confirmat') === k ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
     hardwareLines().forEach(([label, n], i) => {
@@ -126,7 +132,7 @@ function renderSide() {
   }
   if (tool !== 'measure' && list.length) h += dimListHtml(true);
   side.innerHTML = h; side.scrollTop = keep;
-  bindFields();
+  bindFields(); fxBindPanel();
   if (pendingFocus != null) {   // editing redraws this panel: stay in the same box, or go on to the next one
     const all = [...side.querySelectorAll('[data-f]')], el = typeof pendingFocus === 'number' ? all[pendingFocus] : side.querySelector(`[data-f="${pendingFocus}"]`);
     pendingFocus = null; if (el) { el.focus(); el.select(); }

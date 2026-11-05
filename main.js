@@ -5,6 +5,24 @@ const { app, BrowserWindow, ipcMain, Menu, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
 
+// Problems in the page go in errors.log next to the app's data, cut down when it gets long.
+ipcMain.on("log:error", (e, text) => {
+  try {
+    const f = path.join(app.getPath("userData"), "errors.log");
+    if (fs.existsSync(f) && fs.statSync(f).size > 1000000) fs.writeFileSync(f, fs.readFileSync(f, "utf8").slice(-500000));
+    fs.appendFileSync(f, `${new Date().toISOString()} v${app.getVersion()} ${String(text).slice(0, 4000)}\n`);
+  } catch (err) { console.error(err); }
+});
+
+// A note on disk while the app runs. If it's still there at the next start, the last run didn't end properly.
+// (The page's own storage can't tell: it's written lazily, so a hard stop can lose it.)
+let lastRunCrashed = false;
+const lockFile = () => path.join(app.getPath("userData"), "running.lock");
+function sessionBegin() {
+  try { lastRunCrashed = fs.existsSync(lockFile()); fs.writeFileSync(lockFile(), String(process.pid)); } catch (err) { console.error(err); }
+}
+ipcMain.on("session:crashed", (e) => { e.returnValue = lastRunCrashed; lastRunCrashed = false; });
+
 const fileIn = (argv) => argv.slice(1).find((a) => /\.atlr$/i.test(a) && fs.existsSync(a));
 function sendFile(file) {
   if (!win || !file) return;
@@ -47,6 +65,12 @@ function createWindow() {
   win.webContents.on("will-navigate", (e, url) => {
     if (!url.startsWith("file:")) { e.preventDefault(); shell.openExternal(url); }
   });
+  // If the page itself dies, come straight back: autosave has the work.
+  win.webContents.on("render-process-gone", (e, details) => {
+    console.error("page stopped:", details.reason);
+    lastRunCrashed = true;
+    if (win && details.reason !== "clean-exit") win.loadFile(path.join(__dirname, "index.html"));
+  });
   win.on("closed", () => { win = null; });
 }
 
@@ -58,6 +82,7 @@ if (!app.requestSingleInstanceLock()) {
   });
   app.whenReady().then(() => {
     if (process.platform === "win32") app.setAppUserModelId("com.lakshan.atelier");
+    sessionBegin();
     Menu.setApplicationMenu(null);   // the app draws its own menu bar
     createWindow();
     if (autoUpdater && app.isPackaged) {
@@ -68,4 +93,5 @@ if (!app.requestSingleInstanceLock()) {
     }
   });
   app.on("window-all-closed", () => app.quit());
+  app.on("will-quit", () => { try { fs.unlinkSync(lockFile()); } catch (err) {} });
 }

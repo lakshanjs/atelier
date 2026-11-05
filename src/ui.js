@@ -144,6 +144,7 @@ menus.forEach(m => {
 window.addEventListener('pointerdown', e => { if (!e.target.closest('.menu')) closeMenus(); });
 const DO = {
   new: () => document.getElementById('bNew').click(), open: () => document.getElementById('bOpen').click(), save: () => document.getElementById('bSave').click(),
+  history: openHistory, resizable: () => { if (selected().length) edit(fxMakeResizable); else toast('Select the parts first.', true); },
   plans: () => document.getElementById('bPack').click(), print: () => { renderPack(); window.print(); },
   undo, redo, dup: () => { if (sel.length) edit(duplicateSel); }, del: () => { if (sel.length) edit(removeSel); }, all: () => { sel = shown().filter(i => !i.locked).map(i => i.id); render(); },
   layouts: () => toggleLayPop(true), layreset: resetLayout,
@@ -267,12 +268,18 @@ ctxEl.addEventListener('click', e => { const b = e.target.closest('[data-tbx]');
 renderToolbar();
 
 // ---------- start ----------
+const crashedLastTime = sessionStart();
 let saved = null;
-try { saved = JSON.parse(localStorage.getItem('furniture-panels-2')); } catch (e) {}
+try { saved = JSON.parse(localStorage.getItem(AUTOSAVE_KEY)); } catch (e) {}
 P = saved && Array.isArray(saved.items) ? ensureFloor(saved) : TEMPLATES[1].make();
 renderGallery();
 libStart();
 size3D();
 applyLayout();
 render();
-if (!saved) { fillCatalog(); dlg.showModal(); }
+(async () => {
+  const fromDb = await autosaveRestore();
+  if (!saved && !fromDb) { fillCatalog(); dlg.showModal(); }
+  if (crashedLastTime && (saved || fromDb)) toast("Atelier didn't close properly last time. Your work is back as it was. File > Version history has earlier versions.", true);
+  snapQuiet('When Atelier started');
+})();

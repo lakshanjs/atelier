@@ -1,6 +1,6 @@
 // ---------- undo ----------
 function pushUndo() { undoS.push(JSON.stringify(P)); if (undoS.length > 200) undoS.shift(); redoS.length = 0; }
-function persist() { try { localStorage.setItem('furniture-panels-2', JSON.stringify(P)); } catch (e) {} if (typeof markSaved === 'function') markSaved(true); }
+function persist() { fxUpdate(); if (typeof autosave === 'function') autosave(); if (typeof markSaved === 'function') markSaved(true); }
 function edit(fn) { pushUndo(); fn(); persist(); render(); }
 function undo() { if (!undoS.length) return; redoS.push(JSON.stringify(P)); P = JSON.parse(undoS.pop()); after(); }
 function redo() { if (!redoS.length) return; undoS.push(JSON.stringify(P)); P = JSON.parse(redoS.pop()); after(); }
@@ -114,14 +114,14 @@ function pasteClip() {
   if (!clip) return;
   edit(() => {
     const off = P.grid * Math.max(2, Math.round(50 / P.grid));
-    sel = clip.map(it => { const c = JSON.parse(JSON.stringify(it)); c.id = nextId(); c.pos[0] += off; c.pos[2] += off; delete c.locked; if (c.group && !P.groups.some(g => g.id === c.group)) delete c.group; P.items.push(c); return c.id; });
+    const pairs = []; sel = clip.map(it => { const c = JSON.parse(JSON.stringify(it)); c.id = nextId(); c.pos[0] += off; c.pos[2] += off; delete c.locked; if (c.group && !P.groups.some(g => g.id === c.group)) delete c.group; P.items.push(c); pairs.push([it, c]); return c.id; }); fxDetachCopies(pairs);
     clip.forEach(it => { it.pos[0] += off; it.pos[2] += off; });
   });
 }
 function repeatSel() {
   const list = selected(); if (!list.length) return;
   const made = [];
-  for (let i = 1; i <= rep.n; i++) list.forEach(it => { const c = JSON.parse(JSON.stringify(it)); c.id = nextId(); c.pos[rep.axis] += rep.step * i; delete c.locked; P.items.push(c); made.push(c.id); });
+  for (let i = 1; i <= rep.n; i++) { const pairs = []; list.forEach(it => { const c = JSON.parse(JSON.stringify(it)); c.id = nextId(); c.pos[rep.axis] += rep.step * i; delete c.locked; P.items.push(c); made.push(c.id); pairs.push([it, c]); }); fxDetachCopies(pairs); }
   sel = made;
 }
 function alignSel(axis, mode) {   // lines the selection up with its own outer edge; locked items stay and act as the guide
@@ -287,7 +287,8 @@ function removeSel() { const s = new Set(sel), n = P.items.length; P.items = P.i
 function duplicateSel() {
   const list = selected(); if (!list.length) return;
   const u = unionBounds(list), dx = u.max[0] - u.min[0] + 20;
-  const made = list.map(it => { const c = JSON.parse(JSON.stringify(it)); c.id = nextId(); c.pos[0] += dx; delete c.locked; P.items.push(c); return c.id; });
+  const pairs = [], made = list.map(it => { const c = JSON.parse(JSON.stringify(it)); c.id = nextId(); c.pos[0] += dx; delete c.locked; P.items.push(c); pairs.push([it, c]); return c.id; });
+  fxDetachCopies(pairs);
   sel = made;
 }
 function dropDown() {   // rests the selection on whatever is below it, or the floor
@@ -301,7 +302,12 @@ function addFromGallery(key, at) {
     const entry = LIB.items.find(e => e.id === key.slice(4)); if (!entry) return;
     const list = realItems(), c = list.length ? unionBounds(list) : null, base = at || { x: c ? c.max[0] + 100 + entry.size[0] / 2 : 700, y: 0, z: c ? c.min[2] + entry.size[2] / 2 : 40 + entry.size[2] / 2 };
     const made = entry.items.map(src => { const it = JSON.parse(JSON.stringify(src)); it.pos = [src.pos[0] + base.x, src.pos[1] + (base.y ?? 0), src.pos[2] + base.z]; it.id = nextId(); delete it.group; delete it.locked; P.items.push(it); return it; });
-    if (made.length > 1) { const g = { id: nextId(), name: entry.name, hidden: false, open: false }; P.groups.push(g); made.forEach(i => { i.group = g.id; }); }
+    if (entry.layer) {   // a resizable design: this copy gets its own layer and parameters, starting where it was placed
+      const g = { id: nextId(), name: entry.name, hidden: false, open: false, params: JSON.parse(JSON.stringify(entry.layer.params)) }, map = new Map(entry.items.map((s, i) => [s.id, made[i].id])), add = { left: base.x, floor: base.y ?? 0, back: base.z };
+      g.params.forEach(p => { const n = p.name.toLowerCase(); if (n in add) { p.e = `${r2p(parseFloat(p.e) + add[n])}mm`; p.u = 'mm'; } });
+      P.groups.push(g);
+      made.forEach(i => { i.group = g.id; delete i.fxv; if (i.fx) Object.values(i.fx).forEach(f => { f.e = f.e.replace(/#(\d+)/g, (m, n) => (map.has(+n) ? '#' + map.get(+n) : m)); }); });
+    } else if (made.length > 1) { const g = { id: nextId(), name: entry.name, hidden: false, open: false }; P.groups.push(g); made.forEach(i => { i.group = g.id; }); }
     sel = made.map(i => i.id); setTimeout(ensureModels); return;   // its model may still be in the database
   }
   const board = key.startsWith('board:') ? key.split(':') : null;

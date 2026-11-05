@@ -16,7 +16,10 @@ function libAdd(name) {
   const list = selected().filter(i => !isRoomPart(i)); if (!list.length) return false;
   const u = unionBounds(list), cx = (u.min[0] + u.max[0]) / 2, cz = (u.min[2] + u.max[2]) / 2;
   const items = list.map(i => { const c = JSON.parse(JSON.stringify(i)); edgesOf(i); c.edges = c.edges || i.edges; delete c.band; c.pos = [i.pos[0] - cx, i.pos[1] - u.min[1], i.pos[2] - cz]; return c; });
-  LIB.items.push({ id: libId(), name, items, size: [u.max[0] - u.min[0], u.max[1] - u.min[1], u.max[2] - u.min[2]] });
+  items.forEach(c => { delete c.fxv; });
+  const entry = { id: libId(), name, items, size: [u.max[0] - u.min[0], u.max[1] - u.min[1], u.max[2] - u.min[2]] }, g = list[0].group && groupOf(list[0]);
+  if (g && g.params && g.params.length && P.items.every(i => i.group !== g.id || list.includes(i))) { const shift = { left: -cx, floor: -u.min[1], back: -cz }; entry.layer = { name: g.name, params: g.params.map(p => { const n = p.name.toLowerCase(); if (n in shift) { try { return { name: p.name, e: `${r2p(fxLenOf(fxParamValue(p, g.id), p.u) + shift[n])}mm`, u: 'mm' }; } catch (e) {} } return { ...p }; }) }; }
+  LIB.items.push(entry);
   libSave(); return true;
 }
 const libFrom = e => (e.items.some(i => i.model || i.type === 'imported') ? 'imported' : 'mine');
