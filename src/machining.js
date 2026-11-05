@@ -11,17 +11,13 @@ const MACH_DEFAULTS = {
   camHousing: 15, camDepth: 13, camInset: 34, camBolt: 5, camBoltDepth: 12, camEdge: 8,
   pocketD: 9.5,
   pilotD: 3, pilotEdge: 2.5, pilotDepth: 20,
-  cupD: 35, cupDepth: 12.5, cupInset: 22.5, hingeEnds: 100, plateD: 3, plateDepth: 12, plateFrom: 37, platePitch: 32,
   pinD: 5, pinDepth: 12, pinFrom: 37, pinRows: 5, pinPitch: 32,
-  slideD: 3, slideDepth: 10, slideFrom: 37, slidePitch: 128,
 };
 const mach = k => { const m = P.mach; return m && m[k] != null ? m[k] : MACH_DEFAULTS[k]; };
 const MACH_FIELDS = [
   ['Saw cuts', [['kerf', 'Saw cut width']]],
   ['Joints', [['jointFirst', 'First fixing from the end'], ['jointEvery', 'Fixings about every'], ['confFace', 'Confirmat: through hole'], ['confEdge', 'Confirmat: edge hole'], ['confDepth', 'Confirmat: edge depth'], ['dowelD', 'Dowel diameter'], ['dowelFace', 'Dowel: face depth'], ['dowelEdge', 'Dowel: edge depth'], ['camHousing', 'Cam: housing diameter'], ['camDepth', 'Cam: housing depth'], ['camInset', 'Cam: housing from the end'], ['camBolt', 'Cam: bolt hole'], ['camBoltDepth', 'Cam: bolt depth'], ['camEdge', 'Cam: edge hole'], ['pocketD', 'Pocket hole mark'], ['thinBack', 'Boards thinner than this get screws']]],
-  ['Hinges', [['cupD', 'Cup diameter'], ['cupDepth', 'Cup depth'], ['cupInset', 'Cup centre from the edge'], ['hingeEnds', 'First hinge from the end'], ['plateD', 'Plate screw hole'], ['plateDepth', 'Plate screw depth'], ['plateFrom', 'Plate from the front'], ['platePitch', 'Plate screw spacing']]],
   ['Shelf pins', [['pinD', 'Hole diameter'], ['pinDepth', 'Hole depth'], ['pinFrom', 'From front and back'], ['pinRows', 'Holes in each column', 'count'], ['pinPitch', 'Spacing up the column']]],
-  ['Drawer slides', [['slideD', 'Screw hole'], ['slideDepth', 'Screw depth'], ['slideFrom', 'First from the front'], ['slidePitch', 'Screw spacing']]],
 ];
 const CNC_DEFAULTS = { cutter: 6, drillMax: 12, feed: 3000, plunge: 800, rpm: 18000, step: 6, safeZ: 10, skin: .3, margin: 10, climb: false };
 const cnc = k => { const m = P.cncTool; return m && m[k] != null ? m[k] : CNC_DEFAULTS[k]; };
@@ -122,7 +118,7 @@ function machining() {
   // doors: cups in the door, plate screws in the panel beside it
   const doors = panels.filter(p => roleOf(p) === 'door');
   doors.forEach(door => {
-    const n = door.hinges ?? defaultHinges(door); if (!n) return;
+    const n = door.hinges ?? defaultHinges(door), hw = hwFor(door, 'hinge'); if (!n) return;
     const dBox = bounds(door), normalAxis = [0, 1, 2].find(a => fxLocalKey(door, a) === 't');
     const inWard = centre[normalAxis] > door.pos[normalAxis] ? 1 : -1;
     const along = door.l >= door.w ? 'l' : 'w', runA = [0, 1, 2].find(a => fxLocalKey(door, a) === along), acrossA = [0, 1, 2].find(a => a !== normalAxis && a !== runA);
@@ -133,15 +129,16 @@ function machining() {
     const low = near(-1), high = near(1);
     if (!side && handle) side = handle.pos[acrossA] > door.pos[acrossA] ? -1 : 1;
     if (!side) side = low && (!high || Math.min(low.gap, low.other) <= Math.min(high.gap, high.other)) ? -1 : 1;
-    const edgeAt = side < 0 ? dBox.min[acrossA] : dBox.max[acrossA], ends = Math.min(mach('hingeEnds'), (dBox.max[runA] - dBox.min[runA]) / 3);
+    const edgeAt = side < 0 ? dBox.min[acrossA] : dBox.max[acrossA], ends = Math.min(hw.ends, (dBox.max[runA] - dBox.min[runA]) / 3);
     const faceIn = unitAxis(normalAxis, inWard), host = side < 0 ? low : high;
     for (let i = 0; i < n; i++) {
       const at = n === 1 ? door.pos[runA] : dBox.min[runA] + ends + (dBox.max[runA] - dBox.min[runA] - 2 * ends) * i / (n - 1), w = [];
-      w[normalAxis] = inWard > 0 ? dBox.max[normalAxis] : dBox.min[normalAxis]; w[runA] = at; w[acrossA] = edgeAt - side * mach('cupInset');
-      add(door, hole(door, w, faceIn, mach('cupD'), mach('cupDepth'), 'Hinge cup'));
+      w[normalAxis] = inWard > 0 ? dBox.max[normalAxis] : dBox.min[normalAxis]; w[runA] = at; w[acrossA] = edgeAt - side * hw.cupInset;
+      add(door, hole(door, w, faceIn, hw.cupD, hw.cupDepth, 'Hinge cup'));
+      if (hw.cupScrewD > 0) [-1, 1].forEach(s => { const q = w.slice(); q[runA] += s * hw.cupScrewPitch / 2; q[acrossA] -= side * hw.cupScrewOffset; add(door, hole(door, q, faceIn, hw.cupScrewD, Math.min(hw.plateDepth, door.t - 3), 'Hinge cup screw')); });
       if (host) {
         const front = inWard > 0 ? host.b.min[normalAxis] : host.b.max[normalAxis], hostFace = unitAxis(acrossA, door.pos[acrossA] >= host.p.pos[acrossA] ? 1 : -1);
-        [-1, 1].forEach(s => { const q = []; q[acrossA] = door.pos[acrossA] >= host.p.pos[acrossA] ? host.b.max[acrossA] : host.b.min[acrossA]; q[runA] = at + s * mach('platePitch') / 2; q[normalAxis] = front + inWard * mach('plateFrom'); if (q[runA] > host.b.min[runA] && q[runA] < host.b.max[runA] && (inWard > 0 ? q[normalAxis] < host.b.max[normalAxis] : q[normalAxis] > host.b.min[normalAxis])) add(host.p, hole(host.p, q, hostFace, mach('plateD'), mach('plateDepth'), 'Hinge plate', { to: door.id })); });
+        [-1, 1].forEach(s => { const q = []; q[acrossA] = door.pos[acrossA] >= host.p.pos[acrossA] ? host.b.max[acrossA] : host.b.min[acrossA]; q[runA] = at + s * hw.platePitch / 2; q[normalAxis] = front + inWard * hw.plateFrom; if (q[runA] > host.b.min[runA] && q[runA] < host.b.max[runA] && (inWard > 0 ? q[normalAxis] < host.b.max[normalAxis] : q[normalAxis] > host.b.min[normalAxis])) add(host.p, hole(host.p, q, hostFace, hw.plateD, hw.plateDepth, 'Hinge plate', { to: door.id })); });
       }
     }
     if (!host) notes.push(`Door ${door.id} has nothing beside it to hang from, so its plate screws aren't drawn.`);
@@ -170,15 +167,22 @@ function machining() {
   // drawers: slide screws in the panels each side
   panels.filter(p => roleOf(p) === 'drawer').forEach(front => {
     const fBox = bounds(front), normalAxis = [0, 1, 2].find(a => fxLocalKey(front, a) === 't'), inWard = centre[normalAxis] > front.pos[normalAxis] ? 1 : -1;
-    const across = [0, 1, 2].filter(a => a !== normalAxis), acrossA = fBox.max[across[0]] - fBox.min[across[0]] >= fBox.max[across[1]] - fBox.min[across[1]] ? across[0] : across[1], upA = across.find(a => a !== acrossA), L = slideLength(front);
+    const across = [0, 1, 2].filter(a => a !== normalAxis), acrossA = fBox.max[across[0]] - fBox.min[across[0]] >= fBox.max[across[1]] - fBox.min[across[1]] ? across[0] : across[1], upA = across.find(a => a !== acrossA), L = slideLength(front), hw = hwFor(front, 'slide'), boxes = drawerBoxSides(front).map(p => ({ p, b: bounds(p) }));
     [-1, 1].forEach(s => {
       const edge = s < 0 ? fBox.min[acrossA] : fBox.max[acrossA];
       const host = panels.filter(p => p !== front && fxLocalKey(p, acrossA) === 't' && !['door', 'drawer'].includes(roleOf(p)) && !/Drawer/.test(p.name)).map(p => ({ p, b: bounds(p) })).filter(({ b }) => b.min[upA] <= front.pos[upA] && b.max[upA] >= front.pos[upA] && (s < 0 ? b.max[acrossA] <= edge + 25 : b.min[acrossA] >= edge - 25) && Math.abs(s < 0 ? b.max[acrossA] - edge : b.min[acrossA] - edge) < 60).sort((x, y) => Math.abs((s < 0 ? x.b.max[acrossA] : x.b.min[acrossA]) - edge) - Math.abs((s < 0 ? y.b.max[acrossA] : y.b.min[acrossA]) - edge))[0];
       if (!host) { notes.push(`Drawer ${front.id} has nothing to carry its slide on one side, so those screws aren't drawn.`); return; }
       const start = inWard > 0 ? host.b.min[normalAxis] : host.b.max[normalAxis];
-      for (let d = mach('slideFrom'); d <= L - 10; d += mach('slidePitch')) {
+      (hw.holes || []).filter(d => d <= L - 10).forEach(d => {
         const w = []; w[acrossA] = s < 0 ? host.b.max[acrossA] : host.b.min[acrossA]; w[upA] = front.pos[upA]; w[normalAxis] = start + inWard * d;
-        if (inWard > 0 ? w[normalAxis] < host.b.max[normalAxis] : w[normalAxis] > host.b.min[normalAxis]) add(host.p, hole(host.p, w, unitAxis(acrossA, -s), mach('slideD'), mach('slideDepth'), 'Slide screw', { to: front.id }));
+        if (inWard > 0 ? w[normalAxis] < host.b.max[normalAxis] : w[normalAxis] > host.b.min[normalAxis]) add(host.p, hole(host.p, w, unitAxis(acrossA, -s), hw.screwD, hw.screwDepth, 'Slide screw', { to: front.id }));
+      });
+      // the drawer box: screws on its outer face, and the gap the slide needs
+      const box = boxes.filter(o => (o.p.pos[acrossA] < front.pos[acrossA]) === (s < 0))[0];
+      if (box) {
+        const face = s < 0 ? box.b.min[acrossA] : box.b.max[acrossA], gap = Math.abs(face - (s < 0 ? host.b.max[acrossA] : host.b.min[acrossA])), boxStart = inWard > 0 ? box.b.min[normalAxis] : box.b.max[normalAxis];
+        if (Math.abs(gap - hw.clearance) > 1) notes.push(`Drawer ${front.id}: the box leaves ${fmt(gap)} for a slide that needs ${fmt(hw.clearance)}.`);
+        (hw.boxHoles || []).filter(d => d <= L - 10).forEach(d => { const w = []; w[acrossA] = face; w[upA] = Math.min(Math.max(front.pos[upA], box.b.min[upA] + 5), box.b.max[upA] - 5); w[normalAxis] = boxStart + inWard * d; if (inWard > 0 ? w[normalAxis] < box.b.max[normalAxis] : w[normalAxis] > box.b.min[normalAxis]) add(box.p, hole(box.p, w, unitAxis(acrossA, s), hw.screwD, Math.min(hw.screwDepth, box.p.t - 3), 'Slide screw', { to: front.id })); });
       }
     });
   });

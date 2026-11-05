@@ -31,7 +31,7 @@ There is no framework or bundler. The scripts in `src/` are plain scripts loaded
 | `src/app.css` | All styles |
 | `src/model.js`, `edit.js`, `formulas.js` | Items, undo and units; parameters, formulas and Make resizable |
 | `src/view3d.js`, `flat.js`, `properties.js` | 3D, flat views, the side panel |
-| `src/cutlist.js`, `machining.js`, `drawings.js` | Cut list and checks; holes, DXF and G-code; workshop drawings |
+| `src/cutlist.js`, `machining.js`, `hardware.js`, `drawings.js` | Cut list and checks; holes, DXF and G-code; hinges and slides; workshop drawings |
 | `src/library.js`, `files.js`, `safety.js`, `ui.js` | My items; saving and imports; autosave and versions; menus and start-up |
 | `test/` | Tests that drive the real app (`npm test`), each with its own empty data folder |
 | `main.js` | Electron window, single-instance lock, auto-update, opening a double-clicked `.atlr` |
@@ -101,6 +101,7 @@ A saved library, written by `libPackBytes()` and read by `libTakePack()`. A zip 
 - **CNC:** File > Export for CNC gives a zip with a DXF and G-code per sheet, plus a CSV of what must be done by hand: edge holes and the other side. The DXF's layer names say what to do, like `DRILL_D5_Z12`.
 - **Workshop drawings:** A3 or A4 (`P.drawing.paper`): views, sections, exploded view with parts list, and each different part with its holes. Save PDF uses `printToPDF`.
 - **Version history:** File > Version history.
+- **Hardware catalogue:** File > Hardware catalogue lists hinges and slides with their drilling, lengths and prices, kept in IndexedDB (`hardware`). Choose per project or per door and drawer. Each project keeps a copy of what it uses (`P.hwUsed`), so files stay correct on another computer. The starting entries are generic values, not any maker's specification.
 - **Library:** File > Import to library takes an OBJ model in a zip, a `.sh3f` furniture library, a `.sh3d` home or an `.atlib`, without touching the open project. Pieces already there are skipped. Folders can be added, renamed by double-click, and items dragged onto them. The gallery filter shows all, stock, imported or saved items, and works with search. An entry counts as imported if it uses a 3D model.
 - **Toolbar:** drag any menu item onto it, drag along it to reorder, drag off to remove. Right-click for separators. **View > Reset toolbar** restores it. Stored per user in localStorage (`atelier-toolbar`).
 - **Window:** no Windows title bar. The app's title bar uses real Windows buttons drawn over it (`titleBarOverlay`, `BAR_HEIGHT` in `main.js`, 33 px under a 34 px bar so the border shows).
@@ -117,6 +118,7 @@ A saved library, written by `libPackBytes()` and read by `libTakePack()`. A zip 
 - Rectangular and round cut-outs and corners stay measured from the panel's centre when it's resized.
 - Part drawings show holes on the top and bottom faces from above, and edge holes as ticks. There's no separate edge view.
 - G-code machines one side. Edge holes and the other side are listed in the CSV. Parts are held by a thin skin, not tabs.
+- Slides are modelled as side-mounted, with screws in a line at the drawer's mid height. Undermount slides aren't.
 - Baseboards aren't imported. The test house has none.
 - Textures set on a whole piece use the model's own mapping, so some may look a different scale than in Sweet Home 3D.
 - Selected thickness names stay as written (like `3/4"`) in every unit.

@@ -78,26 +78,18 @@ function sheetLines() {
 }
 const bandTotalMm = () => panelsOnly().reduce((a, p) => a + bandLen(p), 0) * 1.1;
 const bandCost = () => (P.bandPrice || 0) * bandTotalMm() / 1000;
-const hwPrice = label => (P.hwPrices || {})[label] || 0;
-const hwCost = () => Object.keys(P.hwPrices || {}).length ? hardwareLines().reduce((a, [label, n]) => a + n * hwPrice(label), 0) : 0;
+const hwPrice = label => (P.hwPrices || {})[label] || hwCatalogPrice(label);   // a price typed for this project wins over the catalogue's
+const hwCost = () => hardwareLines().reduce((a, [label, n]) => a + n * hwPrice(label), 0);
 const totalCost = () => sheetLines().reduce((a, s) => a + s.cost, 0) + bandCost() + hwCost();
 const JOINTS = { confirmat: 'Confirmat screws', dowel: 'Dowels and glue', pocket: 'Pocket screws', cam: 'Cam fittings' };
 const defaultHinges = it => { const h = Math.max(it.l, it.w); return h <= 900 ? 2 : h <= 1500 ? 3 : h <= 2000 ? 4 : 5; };
-function slideLength(it) {   // a drawer's slides match the side of its box, when it has one nearby
-  if (it.slide) return it.slide;
-  const b = bounds(it), box = panelsOnly().find(p => p.name === 'Drawer box side' && (() => { const q = bounds(p); return q.min[0] >= b.min[0] - 1 && q.max[0] <= b.max[0] + 1 && q.min[1] >= b.min[1] - 1 && q.max[1] <= b.max[1] + 1; })());
-  return box ? Math.round(Math.max(box.l, box.w)) : 400;
-}
 const jointFixings = () => machining().fixings;   // the same joints the drawings and CNC files use
 function hardwareLines() {
   const out = [], ps = panelsOnly();
-  const doors = ps.filter(p => roleOf(p) === 'door'), hinges = doors.reduce((a, d) => a + (d.hinges ?? defaultHinges(d)), 0);
-  if (hinges) out.push(['Hinges', hinges, `for ${doors.length} ${doors.length === 1 ? 'door' : 'doors'}`]);
-  const slides = {}; ps.filter(p => roleOf(p) === 'drawer').forEach(d => { const l = slideLength(d); slides[l] = (slides[l] || 0) + 1; });
-  Object.entries(slides).forEach(([l, n]) => out.push([`Drawer slides, ${fmt(+l)}`, n, n === 1 ? 'pair' : 'pairs']));
+  out.push(...hwLines());
   const handles = P.items.filter(i => i.type === 'handle').length; if (handles) out.push(['Handles', handles, '']);
   const pins = ps.filter(p => p.adjustable).length * 4; if (pins) out.push(['Shelf pins', pins, '4 per adjustable shelf']);
-  const j = jointFixings(); if (j) out.push([JOINTS[P.joint || 'confirmat'], j, 'estimate, about one every 200 mm']);
+  const j = jointFixings(); if (j) out.push([JOINTS[P.joint || 'confirmat'], j, 'worked out from the joints']);
   return out;
 }
 function cutRows() {

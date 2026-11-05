@@ -19,7 +19,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
       <div class="menu"><button class="mbtn">File</button><div class="mlist" hidden>
         <button data-do="new">New…</button><button data-do="open">Open…</button><button data-do="importsh3d">Import Sweet Home 3D…</button><button data-do="libimport">Import to library…</button><button data-do="libexport">Export library…</button><button data-do="save">Save<kbd>Ctrl+S</kbd></button><button data-do="saveas">Save as…<kbd>Ctrl+Shift+S</kbd></button><hr>
         <div id="recentList"></div>
-        <button data-do="history">Version history…</button><hr>
+        <button data-do="history">Version history…</button><button data-do="hwcat">Hardware catalogue…</button><hr>
         <button data-do="plans">Cut list and plans</button><button data-do="drawings">Workshop drawings</button><button data-do="print">Print or save PDF</button><hr>
         <button data-do="picture">Save picture of 3D view</button><button data-do="cnc">Export for CNC (DXF and G-code)</button><button data-do="dxf">Export cut parts (DXF)</button><button data-do="stl">Export 3D model (STL)</button>
       </div></div>
@@ -118,6 +118,12 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
   <div id="histList"></div>
 </dialog>
 
+<dialog id="hwDlg">
+  <div style="display:flex;align-items:center"><h2 style="margin:0">Hardware catalogue</h2><span class="grow"></span><button class="btn line" id="hwClose">Close</button></div>
+  <p class="note">Sizes and drilling for the hardware you buy, used in every project. The starting values are generic, so check them against your hardware's own drilling sheet before cutting.</p>
+  <div id="hwList"></div>
+</dialog>
+
 <section id="draw" aria-label="Workshop drawings">
   <div id="drawTop">
     <button class="btn line" id="drawBack">Back to design</button>
@@ -154,6 +160,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
 <script src="src/properties.js"></script>
 <script src="src/cutlist.js"></script>
 <script src="src/machining.js"></script>
+<script src="src/hardware.js"></script>
 <script src="src/library.js"></script>
 <script src="src/files.js"></script>
 <script src="src/drawings.js"></script>

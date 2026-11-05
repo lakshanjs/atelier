@@ -74,9 +74,10 @@ function renderSide() {
       h += sec('shape', `Shape${hasShape(it) ? ': shaped' : ''}`, sb);
       const role = roleOf(it);
       let fb = `<label class="field">This panel is<select id="role">${[['panel', 'A plain panel'], ['shelf', 'A shelf'], ['door', 'A door'], ['drawer', 'A drawer front']].map(([v, n]) => `<option value="${v}" ${role === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
-      if (role === 'door') fb += `<label class="field">Hinges<input type="text" id="hingeN" value="${it.hinges ?? defaultHinges(it)}"></label><label class="field">Hangs from<select id="hingeSide">${[['', 'Work it out'], ['low', 'Left or bottom'], ['high', 'Right or top']].map(([v, n]) => `<option value="${v}" ${(it.hingeSide || '') === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
-      if (role === 'drawer') { fb += lenF('Slide length', slideLength(it), 'slideL'); handlers.slideL = num(v => edit(() => { it.slide = v; }), 50); }
+      if (role === 'door') fb += `<label class="field">Hinges<input type="text" id="hingeN" value="${it.hinges ?? defaultHinges(it)}"></label><label class="field">Hinge type<select id="hwHinge">${hwOptions('hinge', it.hingeType, true)}</select></label><label class="field">Hangs from<select id="hingeSide">${[['', 'Work it out'], ['low', 'Left or bottom'], ['high', 'Right or top']].map(([v, n]) => `<option value="${v}" ${(it.hingeSide || '') === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
+      if (role === 'drawer') { fb += `<label class="field">Slide type<select id="hwSlide">${hwOptions('slide', it.slideType, true)}</select></label>` + lenF('Slide length', slideLength(it), 'slideL'); handlers.slideL = num(v => edit(() => { it.slide = v; }), 50); }
       if (role === 'shelf') fb += `<label class="check"><input type="checkbox" id="adjust" ${it.adjustable ? 'checked' : ''}>Adjustable, on 4 shelf pins</label>`;
+      if (role === 'door' || role === 'drawer') fb += hwEditBtn();
       h += sec('fit', 'Fittings', fb);
       h += machSectionHtml(it);
     }
@@ -125,6 +126,7 @@ function renderSide() {
     P.groups.filter(g => g.params && g.params.length).forEach(g => { h += paramsHtml(g.id, `Parameters: ${esc(g.name)}`); });
     h += sec('board', 'Boards and prices', bb);
     let fb = `<label class="field">Panels join with<select id="jointSel">${Object.entries(JOINTS).map(([k, n]) => `<option value="${k}" ${(P.joint || 'confirmat') === k ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
+    fb += `<label class="field">Hinges<select id="hwDefHinge">${hwOptions('hinge', hwDefault('hinge').id)}</select></label><label class="field">Drawer slides<select id="hwDefSlide">${hwOptions('slide', hwDefault('slide').id)}</select></label>${hwEditBtn()}`;
     hardwareLines().forEach(([label, n], i) => {
       fb += `<label class="field">${esc(label)} (${n}), each<input type="text" data-f="hw${i}" value="${hwPrice(label) || ''}" placeholder="Not set"></label>`;
       handlers[`hw${i}`] = v => { const c = parseFloat(String(v).replace(/,/g, '')); edit(() => { P.hwPrices = P.hwPrices || {}; if (c > 0) P.hwPrices[label] = c; else delete P.hwPrices[label]; }); };
@@ -134,7 +136,7 @@ function renderSide() {
   }
   if (tool !== 'measure' && list.length) h += dimListHtml(true);
   side.innerHTML = h; side.scrollTop = keep;
-  bindFields(); fxBindPanel();
+  bindFields(); fxBindPanel(); hwBindPanel();
   if (pendingFocus != null) {   // editing redraws this panel: stay in the same box, or go on to the next one
     const all = [...side.querySelectorAll('[data-f]')], el = typeof pendingFocus === 'number' ? all[pendingFocus] : side.querySelector(`[data-f="${pendingFocus}"]`);
     pendingFocus = null; if (el) { el.focus(); el.select(); }

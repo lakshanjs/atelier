@@ -36,7 +36,7 @@ function renderChrome() {
   q('hint3d').textContent = tool === 'measure' ? (mEdit ? 'Drop this end where it should go. Esc cancels.' : measA ? 'Click the second point. The line stays on X, Y or Z. Esc cancels.' : 'Click a corner or a panel edge to start measuring. Tab picks another point nearby. Drag a dot to change a measurement, or click it to measure on from there. Drag elsewhere to look around.') : selected().length ? `${tips[tool]} Ctrl + drag rotates the view.` : 'Click something to select it. Ctrl + drag rotates the view.';
 }
 function render() { hoverBox.visible = false; renderChrome(); renderSide(); renderStatus(); dirty = true; }
-function loadProject(p) { if (P && typeof snapQuiet === 'function' && P.items.some(i => !isRoomPart(i))) snapQuiet(`Before opening ${p.name || 'another project'}`); openedName = null; setTimeout(ensureModels); P = ensureFloor(p); sel = []; undoS = []; redoS = []; camSet = false; Object.keys(vt).forEach(n => { vt[n] = {}; }); fileHandle = null; sect.on = false; updateSection(); syncSection(); persist(); markSaved(false); render(); }
+function loadProject(p) { if (P && typeof snapQuiet === 'function' && P.items.some(i => !isRoomPart(i))) snapQuiet(`Before opening ${p.name || 'another project'}`); openedName = null; setTimeout(ensureModels); P = ensureFloor(p); hwAdopt(); sel = []; undoS = []; redoS = []; camSet = false; Object.keys(vt).forEach(n => { vt[n] = {}; }); fileHandle = null; sect.on = false; updateSection(); syncSection(); persist(); markSaved(false); render(); }
 
 // ---------- plans ----------
 function renderPack() {
