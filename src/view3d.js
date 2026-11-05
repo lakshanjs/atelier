@@ -247,6 +247,7 @@ function draw3D() {
     cap.onAfterRender = r => r.clearStencil(); group.add(cap);
   }
   const vis = shown(), ext = vis.length ? unionBounds(vis) : { min: [0, 0, 0], max: [1500, 0, 800] };
+  guidesDraw3D(group); snapHighlight3D(group);
   guides.forEach(g => {
     const mn = ext.min.slice(), mx = ext.max.slice(); mn[g.axis] = mx[g.axis] = g.at;
     [0, 1, 2].filter(a => a !== g.axis).forEach(a => { mn[a] -= 150; mx[a] += 150; });
@@ -352,18 +353,19 @@ function rayAt(e) {
   return ray;
 }
 const readoutEl = document.getElementById('readout');
-function readout(t) { readoutEl.hidden = !t; if (t) readoutEl.textContent = t; }
+function readout(t) { if (precBuffer) { const at = precTarget(); if (at) t = precPrompt(at); } else if (t && snapHits.length) t += snapNote(); readoutEl.hidden = !t; if (t) readoutEl.textContent = t; }
 // shared move: base positions + delta, snapped on the given axes
 function applyMove(drag, delta, axes, active, thr) {
-  const ignore = new Set(sel), nowGuides = [];
+  const ignore = new Set(sel), nowGuides = [], hits = [];
   if (!movable().length) return;
+  if (precAxis != null) { delta = [0, 1, 2].map(i => (i === precAxis ? delta[i] || 0 : 0)); axes = axes.includes(precAxis) ? [precAxis] : []; }
   drag.base.forEach(b => { const it = byId(b.id); it.pos = b.pos.map((p, i) => p + (delta[i] || 0)); });
   axes.forEach(a => {
     const u = unionBounds(movable()), s = snapAxis(a, u.min[a], u.max[a], ignore, thr, active);
     if (s.d) movable().forEach(it => { it.pos[a] += s.d; });
-    if (s.at != null) nowGuides.push({ axis: a, at: s.at });
+    if (s.at != null) { nowGuides.push({ axis: a, at: s.at }); hits.push(s); }
   });
-  guides = nowGuides;
+  guides = nowGuides; snapHits = hits;
 }
 let d3 = null;
 const cv = renderer.domElement;
@@ -431,7 +433,7 @@ cv.addEventListener('pointerdown', e => {
       const view = V3().subVectors(camera.position, c), n = V3().crossVectors(axisV, V3().crossVectors(view, axisV)).normalize();
       d3 = { type: 'axis', axis: gh.object.userData.axis, axisV, plane: new THREE.Plane().setFromNormalAndCoplanarPoint(n, c), base, down, start: null, moved: false };
     } else {
-      d3 = { type: 'turn', axisV, c, plane: new THREE.Plane().setFromNormalAndCoplanarPoint(axisV, c), base, down, start: null, moved: false };
+      d3 = { type: 'turn', axisV, c, plane: new THREE.Plane().setFromNormalAndCoplanarPoint(axisV, c), base: base.filter(b => !byId(b.id).lockAngle), down, start: null, moved: false };
     }
     return;
   }
@@ -446,7 +448,7 @@ cv.addEventListener('pointerdown', e => {
   pushUndo();
   if (tool !== 'select') {
     const u = unionBounds(movable()), c = V3((u.min[0] + u.max[0]) / 2, (u.min[1] + u.max[1]) / 2, (u.min[2] + u.max[2]) / 2);
-    d3 = tool === 'rotate' ? { type: 'spin', base, down, c, axisV: V3(0, 1, 0), moved: false }
+    d3 = tool === 'rotate' ? { type: 'spin', base: base.filter(b => !byId(b.id).lockAngle), down, c, axisV: V3(0, 1, 0), moved: false }
       : { type: 'scale', base: movable().map(it => ({ id: it.id, pos: it.pos.slice(), q: it.q.slice(), l: it.l, t: it.t, w: it.w })), down, anchor: [c.x, u.min[1], c.z], center: [c.x, u.min[1], c.z], corner: u.min.slice(), moved: false };
     return;
   }
@@ -461,7 +463,8 @@ window.addEventListener('pointermove', e => {
   const ray = rayAt(e), p = V3(), active = P.snap && !e.altKey, thr = camera.position.distanceTo(controls.target) * .009;
   if (d3.type === 'spin') {
     let ang = (e.clientX - d3.down[0]) * .6;
-    if (active) ang = Math.round(ang / 15) * 15;
+    if (active) ang = snapAngle(ang, e);
+    d3.lastAng = ang;
     const r = new THREE.Quaternion().setFromAxisAngle(d3.axisV, ang * Math.PI / 180);
     d3.base.forEach(b => { const it = byId(b.id), q0 = new THREE.Quaternion(...b.q), pp = V3(...b.pos).sub(d3.c).applyQuaternion(r).add(d3.c); it.pos = [pp.x, pp.y, pp.z]; setQ(it, r.clone().multiply(q0)); });
     readout(`${Math.round(ang)}°`);
@@ -476,11 +479,11 @@ window.addEventListener('pointermove', e => {
     let size = Math.max(d3.ext * .02, d3.ext + (along - d3.start) * d3.side * (e.shiftKey ? 2 : 1));
     const hit = active ? stretchSnap(d3.axis, size, d3.side, d3.fixed, d3.mid, e.shiftKey, new Set(sel), thr) : null;
     if (hit) size = hit.size; else if (active) size = Math.max(P.grid, Math.round(size / P.grid) * P.grid);
-    guides = hit ? [{ axis: d3.axis, at: hit.at }] : [];
+    guides = hit ? [{ axis: d3.axis, at: hit.at }] : []; snapHits = hit ? [hit.same ? { id: hit.same.id } : hit] : [];
     d3.anchor[d3.axis] = e.shiftKey ? d3.mid : d3.fixed;
     applyScale(d3, size / d3.ext, d3.axis); readout(`${bare(size)}${sizeNote(hit)}${e.shiftKey ? ', both ways' : ''}`);
   } else if (d3.type === 'plane') {
-    if (e.shiftKey) {
+    if (e.shiftKey || precAxis === 1) {
       const c = d3.start, view = V3().subVectors(camera.position, c); view.y = 0; view.normalize();
       const pl = new THREE.Plane().setFromNormalAndCoplanarPoint(view, c);
       if (!ray.ray.intersectPlane(pl, p)) return;
@@ -498,7 +501,8 @@ window.addEventListener('pointermove', e => {
     if (!ray.ray.intersectPlane(d3.plane, p)) return;
     const v = p.clone().sub(d3.c); if (!d3.start) { d3.start = v.clone(); return; }
     let ang = Math.atan2(V3().crossVectors(d3.start, v).dot(d3.axisV), d3.start.dot(v)) * 180 / Math.PI;
-    if (active) ang = Math.round(ang / 15) * 15;
+    if (active) ang = snapAngle(ang, e);
+    d3.lastAng = ang;
     const r = new THREE.Quaternion().setFromAxisAngle(d3.axisV, ang * Math.PI / 180);
     d3.base.forEach(b => { const it = byId(b.id), q0 = new THREE.Quaternion(...b.q), pp = V3(...b.pos).sub(d3.c).applyQuaternion(r).add(d3.c); it.pos = [pp.x, pp.y, pp.z]; setQ(it, r.clone().multiply(q0)); });
     readout(`${Math.round(ang * 10) / 10}°`);
@@ -509,7 +513,7 @@ window.addEventListener('pointermove', e => {
 window.addEventListener('pointerup', e => {
   controls.enabled = true;
   if (!d3) return;
-  const t = d3; d3 = null; guides = []; readout('');
+  const t = d3; d3 = null; guides = []; snapHits = []; readout('');
   if (t.type === 'mdrag') {
     cv.style.cursor = '';
     if (Math.hypot(e.clientX - t.down[0], e.clientY - t.down[1]) >= 4) { if (e.target === cv) addMeasurePoint(mHover && mCands.includes(mHover) ? mHover : point3D(e)); else cancelMeasure(); } else startFromGrabbed();
@@ -525,6 +529,6 @@ window.addEventListener('pointerup', e => {
   }
   if (t.type === 'empty') { if (Math.hypot(e.clientX - t.down[0], e.clientY - t.down[1]) < 4 && e.target === cv) { sel = []; render(); } return; }
   if (!t.moved) { undoS.pop(); return; }
-  persist(); render();
+  persist(); precRemember(t); render();
 });
 document.getElementById('bView').onclick = resetCam;

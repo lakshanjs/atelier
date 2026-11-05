@@ -78,6 +78,7 @@ async function openApp({ port = 9400 + Math.floor(Math.random() * 400), userData
     },
   };
   await app.ready();
+  await sleep(500);   // the starting-piece window opens just after start-up
   await app.run("const d = document.querySelector('dialog[open]'); if (d) d.close();");
   return app;
 }

@@ -56,16 +56,17 @@ const r2 = v => Math.round(v * 100) / 100;
 
 // ---------- snapping ----------
 // Faces of other items and of the room win over the grid, so boards line up exactly.
-function snapTargets(axis, ignore) {
+function snapTargets(axis, ignore) {   // [{ at, id }] or [{ at, guide: true }]
   const out = [];
-  shown().forEach(it => { if (ignore.has(it.id)) return; const b = bounds(it); out.push(b.min[axis], b.max[axis]); });
+  shown().forEach(it => { if (ignore.has(it.id)) return; const b = bounds(it); out.push({ at: b.min[axis], id: it.id }, { at: b.max[axis], id: it.id }); });
+  guideTargets(axis).forEach(g => out.push({ at: g.at, guide: true }));
   return out;
 }
 function snapAxis(axis, min, max, ignore, thr, active) {
   if (!active) return { d: 0 };
   let best = null;
   const edges = [min, max];
-  snapTargets(axis, ignore).forEach(t => edges.forEach(e => { const g = t - e; if (Math.abs(g) < thr && (!best || Math.abs(g) < Math.abs(best.d))) best = { d: g, at: t }; }));
+  snapTargets(axis, ignore).forEach(t => edges.forEach(e => { const g = t.at - e; if (Math.abs(g) < thr && (!best || Math.abs(g) < Math.abs(best.d))) best = { d: g, at: t.at, id: t.id, guide: t.guide }; }));
   if (best) return best;
   const g = P.grid, a = Math.round(min / g) * g - min;
   return { d: a };
@@ -76,8 +77,8 @@ function stretchSnap(axis, size, side, fixed, mid, both, ignore, thr) {
   const faceOf = v => (both ? mid + side * v / 2 : fixed + side * v), face = faceOf(size);
   let best = null;
   snapTargets(axis, ignore).forEach(t => {
-    const gap = Math.abs(t - face), v = both ? Math.abs(t - mid) * 2 : (t - fixed) * side;
-    if (gap < thr && v > 0 && (!best || gap < best.gap)) best = { gap, size: v, at: t };
+    const gap = Math.abs(t.at - face), v = both ? Math.abs(t.at - mid) * 2 : (t.at - fixed) * side;
+    if (gap < thr && v > 0 && (!best || gap < best.gap)) best = { gap, size: v, at: t.at, id: t.id, guide: t.guide };
   });
   shown().forEach(it => {
     if (ignore.has(it.id) || isRoomPart(it)) return;
@@ -100,7 +101,7 @@ function pick(id, add, wholeGroup) {
   else sel = ids;
 }
 function rotateSel(axisV, deg) {
-  const list = movable(); if (!list.length) return;
+  const list = turnable(); if (!list.length) { if (movable().length) toast('That angle is locked.', true); return; }
   const u = unionBounds(list), c = V3((u.min[0] + u.max[0]) / 2, (u.min[1] + u.max[1]) / 2, (u.min[2] + u.max[2]) / 2);
   const r = new THREE.Quaternion().setFromAxisAngle(axisV, deg * Math.PI / 180);
   list.forEach(it => {

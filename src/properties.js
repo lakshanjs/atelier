@@ -30,7 +30,7 @@ function eulerOf(it) { const e = new THREE.Euler().setFromQuaternion(Q(it), 'YXZ
 function setEuler(it, deg) { const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(deg[0] * Math.PI / 180, deg[1] * Math.PI / 180, deg[2] * Math.PI / 180, 'YXZ')); setQ(it, q); }
 function bandOptions(v) { return [['none', 'None'], ['one', 'One long edge'], ['two', 'Both long edges'], ['all', 'All four edges']].map(([k, n]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${n}</option>`).join(''); }
 function swatches(cur_) { return `<div class="swatches">${Object.entries(MAT).map(([k, m]) => `<button class="sw" title="${m.name}" aria-label="${m.name}" aria-pressed="${cur_ === k}" data-c="${k}" style="background:${m.f}"></button>`).join('')}</div>`; }
-const turnButtons = () => `<div class="rowb"><button class="btn line" data-rot="1,90" title="Spin 90° (R)">Spin</button><button class="btn line" data-rot="0,90" title="Tip forward 90°">Tip</button><button class="btn line" data-rot="2,90" title="Roll 90°">Roll</button></div>`;
+const turnButtons = () => `<div class="rowb"><button class="btn line" data-rot="1" title="Spin (R turns it 90°)">Spin</button><button class="btn line" data-rot="0" title="Tip forward">Tip</button><button class="btn line" data-rot="2" title="Roll">Roll</button></div>`;
 const actions = () => `<div class="acts"><button class="btn line" id="dup" title="Duplicate (Ctrl+D)">Duplicate</button><button class="btn line" id="drop" title="Move down until it rests on something">Set down</button><button class="btn bad" id="del" title="Delete (Del)">Delete</button></div>`;
 const repeatHtml = () => sec('copies', 'Make copies', `<label class="field">How many<input type="text" id="repN" value="${rep.n}"></label><label class="field">Direction<select id="repAxis">${[[0, 'Across'], [1, 'Up'], [2, 'Deep']].map(([v, n]) => `<option value="${v}" ${rep.axis === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>${lenF('Distance between', rep.step, 'repStep')}<div class="rowb"><button class="btn line" id="repGo">Make copies</button></div>`);
 function renderSide() {
@@ -52,7 +52,8 @@ function renderSide() {
     h += sec('pos', 'Position', triF([['From left', 0], ['From floor', 1], ['From back', 2]].map(([n, a]) => { handlers['p' + a] = fxField(it, FX_POS[a], v => { it.pos[a] += v - bounds(it).min[a]; }); return [n, b.min[a], 'p' + a, fxText(it, FX_POS[a])]; })));
     fxItemIssues(it).forEach(t => { h += `<p class="fxbad">${esc(t)}</p>`; });
     if (it.group && (groupOf(it) || {}).params) h += paramsHtml(it.group, `Parameters: ${esc(groupOf(it).name)}`);
-    h += sec('angle', 'Angle', turnButtons() + [['Spin', 1], ['Tip', 0], ['Roll', 2]].map(([n, a]) => `<div class="angle"><span>${n}</span><input type="range" min="-180" max="180" step="1" value="${eu[a]}" data-ang="${a}" aria-label="${n}"><input type="text" value="${eu[a]}" data-angt="${a}" aria-label="${n} in degrees"></div>`).join(''));
+    h += moveByHtml();
+    h += sec('angle', 'Angle', turnButtons() + angleToolsHtml(it) + [['Spin', 1], ['Tip', 0], ['Roll', 2]].map(([n, a]) => `<div class="angle"><span>${n}</span><input type="range" min="-180" max="180" step="1" value="${eu[a]}" data-ang="${a}" aria-label="${n}"><input type="text" value="${eu[a]}" data-angt="${a}" aria-label="${n} in degrees"></div>`).join(''));
     if (isP) {
       h += sec('edge', `Edge banding: ${esc(bandLabel(it))}`, `${panelPreview(it, !it.locked)}<p class="note" style="margin:2px 0 0">Click an edge to band it. ${bare(bandLen(it))}${unitMark()} in total.</p>`);
       const sp = shapeOf(it);
@@ -93,7 +94,8 @@ function renderSide() {
     }
     h += `<p class="note">${bare(u.max[0] - u.min[0])} wide, ${bare(u.max[1] - u.min[1])} high, ${bare(u.max[2] - u.min[2])} deep</p>`;
     h += sec('pos', 'Position', triF([['From left', 0], ['From floor', 1], ['From back', 2]].map(([n, a]) => { handlers['p' + a] = num(v => edit(() => { const mv = movable(); if (!mv.length) return; const d = v - unionBounds(mv).min[a]; mv.forEach(i => { i.pos[a] += d; }); })); return [n, u.min[a], 'p' + a]; })));
-    h += sec('angle', 'Angle', turnButtons());
+    h += moveByHtml();
+    h += sec('angle', 'Angle', turnButtons() + angleToolsHtml(null));
     if (panels.length) {
       const same = panels.every(p => Math.abs(p.t - panels[0].t) < .01);
       h += sec('board', 'Board', `<label class="field">Type<select id="multiMat"><option value="">Mixed</option>${Object.entries(BOARDS).map(([k, m]) => `<option value="${k}" ${panels.every(p => p.mat === k) ? 'selected' : ''}>${m.name}</option>`).join('')}</select></label>` + lenF('Thickness', same ? panels[0].t : 0, 'thk'));
@@ -122,6 +124,7 @@ function renderSide() {
     });
     bb += `<label class="field">Banding, per metre<input type="text" data-f="bandP" value="${P.bandPrice || ''}" placeholder="Not set"></label>`;
     handlers.bandP = v => { const n = parseFloat(String(v).replace(/,/g, '')); edit(() => { P.bandPrice = n > 0 ? n : 0; }); };
+    h += guidesHtml();
     h += paramsHtml(null, 'Project parameters');
     P.groups.filter(g => g.params && g.params.length).forEach(g => { h += paramsHtml(g.id, `Parameters: ${esc(g.name)}`); });
     h += sec('board', 'Boards and prices', bb);
@@ -136,13 +139,13 @@ function renderSide() {
   }
   if (tool !== 'measure' && list.length) h += dimListHtml(true);
   side.innerHTML = h; side.scrollTop = keep;
-  bindFields(); fxBindPanel(); hwBindPanel();
+  bindFields(); fxBindPanel(); hwBindPanel(); precBindPanel(list.length === 1 ? list[0] : null);
   if (pendingFocus != null) {   // editing redraws this panel: stay in the same box, or go on to the next one
     const all = [...side.querySelectorAll('[data-f]')], el = typeof pendingFocus === 'number' ? all[pendingFocus] : side.querySelector(`[data-f="${pendingFocus}"]`);
     pendingFocus = null; if (el) { el.focus(); el.select(); }
   }
   const q = id => side.querySelector('#' + id);
-  side.querySelectorAll('[data-rot]').forEach(b => b.onclick = () => { const [a, d] = b.dataset.rot.split(',').map(Number); edit(() => rotateSel(AXES[a][0], d)); });
+  side.querySelectorAll('[data-rot]').forEach(b => b.onclick = () => { const a = +b.dataset.rot; edit(() => rotateSel(AXES[a][0], precTurnBy)); });
   side.querySelectorAll('[data-c]').forEach(b => b.onclick = () => edit(() => { const k = b.dataset.c; selected().filter(i => i.kind === 'panel').forEach(p => { p.color = k; }); }));
   side.querySelectorAll('[data-al]').forEach(b => b.onclick = () => { const [a, m] = b.dataset.al.split(','); edit(() => alignSel(+a, m)); });
   side.querySelectorAll('[data-sp]').forEach(b => b.onclick = () => edit(() => spreadSel(+b.dataset.sp)));

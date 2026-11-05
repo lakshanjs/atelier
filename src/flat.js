@@ -116,7 +116,7 @@ function flatString(vn, t, W, H, opts = {}) {
   });
   if (opts.static) s += overallSvg(vn, t, panelsOnly()) + dimsSvg(vn, t, true);
   if (!opts.static) {
-    s += dimsSvg(vn, t, false);
+    s += dimsSvg(vn, t, false) + guidesSvg(vn, t, W, H) + snapHighlightSvg(vn, t);
     guides.forEach(g => {
       const V = VIEWS[vn]; if (g.axis !== V.u && g.axis !== V.v) return;
       const p = [0, 0, 0]; p[g.axis] = g.at; const q = toS(vn, t, p);
@@ -179,7 +179,10 @@ Object.keys(VIEWS).forEach(vn => {
     const [x, y] = pos(e), t = vt[vn];
     if (e.button !== 0) { fd = { type: 'pan', vn, x, y, ox: t.ox, oy: t.oy }; t.auto = false; return; }
     if (tool === 'measure') { const h = dimHandleAt(w => toS(vn, t, w), x, y); if (h) { grabDimEnd(h); fd = { type: 'mdrag', vn, x, y, moved: false }; return; } const near = mHover && mCands.includes(mHover) ? mHover : flatPoint(vn, x, y); addMeasurePoint(near); readout(''); return; }
+    if (y < RULER || x < RULER) { fd = { type: 'newguide', vn, axis: y < RULER ? V.v : V.u, moved: false, x, y }; return; }
+    const gi = guideAt(vn, x, y), onItem = gi >= 0 ? null : undefined;
     const g = grips(vn).find(q => Math.hypot(q.p[0] - x, q.p[1] - y) < 9);
+    if (gi >= 0 && !g && onItem === null) { pushUndo(); fd = { type: 'guide', vn, index: gi, axis: cguides()[gi].axis, moved: false, x, y }; return; }
     if (g) {
       const it = selected()[0], b = bounds(it), la = localAxisFor(it, g.axis);
       pushUndo();
@@ -200,13 +203,22 @@ Object.keys(VIEWS).forEach(vn => {
     if (fd.type === 'pan') { t.ox = fd.ox + x - fd.x; t.oy = fd.oy + y - fd.y; dirty = true; return; }
     if (fd.type === 'box') { if (Math.hypot(x - fd.x, y - fd.y) > 3) fd.moved = true; flatBox = { vn, x0: fd.x, y0: fd.y, x1: x, y1: y }; dirty = true; return; }
     const w = worldOf(vn, x, y), thr = 7 / t.k;
+    if (fd.type === 'newguide' || fd.type === 'guide') {
+      fd.moved = fd.moved || Math.hypot(x - fd.x, y - fd.y) > 2;
+      let at = fd.axis === V.u ? w.u : w.v;
+      if (active) { const s = snapAxis(fd.axis, at, at, new Set(), thr, true); at += s.d; }
+      fd.at = at; fd.off = fd.type === 'guide' && (y < RULER || x < RULER);
+      if (fd.type === 'guide') cguides()[fd.index].at = at;
+      guides = fd.type === 'newguide' ? [{ axis: fd.axis, at }] : [];
+      readout(fd.off ? 'Let go to delete this guide' : `Guide: ${bare(at)}`); dirty = true; return;
+    }
     if (fd.type === 'size') {
       fd.moved = true; const it = byId(fd.id), ig = new Set([it.id]), raw = fd.axis === V.u ? w.u : w.v;
       const s = snapAxis(fd.axis, raw, raw, ig, thr, active), face = raw + s.d;
       const rawSize = e.shiftKey ? Math.abs(raw - fd.mid) * 2 : fd.side > 0 ? raw - fd.fixed : fd.fixed - raw, hit = active ? stretchSnap(fd.axis, rawSize, fd.side, fd.fixed, fd.mid, e.shiftKey, ig, thr) : null;
       const size = hit ? Math.max(5, hit.size) : Math.max(5, e.shiftKey ? Math.abs(face - fd.mid) * 2 : fd.side > 0 ? face - fd.fixed : fd.fixed - face);
       it[fd.key] = size; it.pos[fd.axis] = e.shiftKey ? fd.mid : fd.side > 0 ? fd.fixed + size / 2 : fd.fixed - size / 2;
-      guides = hit ? [{ axis: fd.axis, at: hit.at }] : [];
+      guides = hit ? [{ axis: fd.axis, at: hit.at }] : []; snapHits = hit ? [hit.same ? { id: hit.same.id } : hit] : [];
       readout(`${bare(size)}${sizeNote(hit)}`); dirty = true; return;
     }
     if (!fd.moved && Math.hypot(x - fd.x, y - fd.y) < 3) return;
@@ -218,8 +230,10 @@ Object.keys(VIEWS).forEach(vn => {
   });
   const end = () => {
     if (!fd || fd.vn !== vn) return;
-    const f = fd; fd = null; guides = []; readout('');
+    const f = fd; fd = null; guides = []; snapHits = []; readout('');
     if (f.type === 'pan') return;
+    if (f.type === 'newguide') { if (f.moved && f.at != null) edit(() => { cguides().push({ axis: f.axis, at: f.at }); P.hideGuides = false; }); return; }
+    if (f.type === 'guide') { if (!f.moved) { undoS.pop(); return; } if (f.off) cguides().splice(f.index, 1); persist(); render(); return; }
     if (f.type === 'mdrag') { if (f.moved) addMeasurePoint(mHover); else startFromGrabbed(); return; }
     if (f.type === 'box') {
       const b = flatBox; flatBox = null;
@@ -229,7 +243,7 @@ Object.keys(VIEWS).forEach(vn => {
       sel = f.add ? [...new Set([...sel, ...inside])] : inside; if (sel.length) setTab('props'); render(); return;
     }
     if (!f.moved) { undoS.pop(); return; }
-    persist(); render();
+    persist(); precRemember(f); render();
   };
   el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
   el.addEventListener('dblclick', e => { if (!hitFlat(vn, ...pos(e))) { fitView(vn); dirty = true; } });
