@@ -2,7 +2,7 @@
 
 A personal desktop furniture design app for Windows. Everything is a free panel or object: add boards, move and rotate them in 3D or flat views with snapping, then get a cut list, cutting plan and shopping list. It also imports whole houses from Sweet Home 3D to design furniture inside.
 
-For one user (Lakshan), not hosted. Current version: **1.0.26**.
+For one user (Lakshan), not hosted. Current version: **1.0.27**.
 
 ## Start here (next session)
 
@@ -32,7 +32,7 @@ There is no framework or bundler. The scripts in `src/` are plain scripts loaded
 | `src/model.js`, `edit.js`, `formulas.js` | Items, undo and units; parameters, formulas and Make resizable |
 | `src/view3d.js`, `flat.js`, `precision.js`, `render.js`, `properties.js` | 3D, flat views, typed moves and guides, photoreal pictures, the side panel |
 | `src/cutlist.js`, `machining.js`, `hardware.js`, `drawings.js` | Cut list and checks; holes, DXF and G-code; hinges and slides; workshop drawings |
-| `src/library.js`, `files.js`, `safety.js`, `ui.js` | My items; saving and imports; autosave and versions; menus and start-up |
+| `src/library.js`, `files.js`, `safety.js`, `ui.js`, `commands.js` | My items; saving and imports; autosave and versions; menus and start-up; command list and shortcuts |
 | `test/` | Tests that drive the real app (`npm test`), each with its own empty data folder |
 | `main.js` | Electron window, single-instance lock, auto-update, opening a double-clicked `.atlr` |
 | `preload.js` | Bridge for title bar colours and file opening (`window.atelierWin`) |
@@ -104,6 +104,7 @@ A saved library, written by `libPackBytes()` and read by `libTakePack()`. A zip 
 - **Hardware catalogue:** File > Hardware catalogue lists hinges and slides with their drilling, lengths and prices, kept in IndexedDB (`hardware`). Choose per project or per door and drawer. Each project keeps a copy of what it uses (`P.hwUsed`), so files stay correct on another computer. The starting entries are generic values, not any maker's specification.
 - **Precision:** during a drag, or right after it, type a number and press Enter for an exact move, size, turn or scale. X, Y or Z holds a move to that direction, and Esc cancels a drag. Move by and Turn by are in Properties, with an angle snap setting (Shift gives 90°) and Lock this angle. Guides (`P.cguides`) come from dragging off a flat view's ruler; drag one back onto a ruler to delete it. The readout names what a drag snapped to, and that item is outlined.
 - **Photoreal picture:** File > Photoreal picture path-traces the current 3D view on the graphics card (`src/render.js`). It takes everything the 3D view draws, from `group`. Daylight or Studio light, sun position, optional room, up to 4K. The picture sharpens as samples add up, and work is sent in small bands so the app stays responsive.
+- **Commands and shortcuts:** Ctrl+K finds any menu command or tool by name, most recent first. Help > Keyboard shortcuts edits the keys, kept in localStorage (`atelier-keys`). A key that's already in use moves to the new command, and the menus and tooltips show the current keys. Arrows, Esc, Tab and Enter stay fixed. All key handling is in `src/commands.js`, apart from those fixed ones in `src/files.js`.
 - **Library:** File > Import to library takes an OBJ model in a zip, a `.sh3f` furniture library, a `.sh3d` home or an `.atlib`, without touching the open project. Pieces already there are skipped. Folders can be added, renamed by double-click, and items dragged onto them. The gallery filter shows all, stock, imported or saved items, and works with search. An entry counts as imported if it uses a 3D model.
 - **Toolbar:** drag any menu item onto it, drag along it to reorder, drag off to remove. Right-click for separators. **View > Reset toolbar** restores it. Stored per user in localStorage (`atelier-toolbar`).
 - **Window:** no Windows title bar. The app's title bar uses real Windows buttons drawn over it (`titleBarOverlay`, `BAR_HEIGHT` in `main.js`, 33 px under a 34 px bar so the border shows).
@@ -140,7 +141,8 @@ A saved library, written by `libPackBytes()` and read by `libTakePack()`. A zip 
 ## Keeping it smooth
 
 - The 3D view draws only when something changes (`loop` in `src/view3d.js`). With nothing happening it checks about 12 times a second, and any mouse or key wakes it. Anything that changes the picture must set `dirty`.
-- Photoreal pictures send the graphics card small pieces and rest between them (`REND_PIECE_MS` in `src/render.js`), so they take longer but don't stall the computer.
+- Photoreal pictures send the graphics card small pieces (`REND_PIECE_MS` in `src/render.js`). On a shared chip they rest between pieces so the desktop stays smooth. On a dedicated card they barely rest.
+- On laptops with two graphics chips, Atelier asks for the fast one (`force_high_performance_gpu` in `main.js`, `powerPreference` on every WebGL context). Without that, Chromium picks the slow built-in one.
 - Scenes over `BIG_SCENE` triangles combine small objects sharing a material (`batchSmall`), because drawing hundreds of separate things is what's slow, on Intel graphics especially. The originals stay hidden in `group`, because clicks test them.
 - Shadows are recalculated only when the design changes (`renderer.shadowMap.needsUpdate` in `draw3D`), not when the camera moves.
 - Scenes over `BIG_SCENE` triangles hide small, detailed models while the camera moves, and bring them back as soon as it stops.

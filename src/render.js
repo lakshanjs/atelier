@@ -291,7 +291,7 @@ function rendLight(o) {
 }
 async function rendStart(canvas, opts, cam, onProgress, job = { stop: false }) {
   Object.assign(job, { sample: 0, spp: opts.spp, done: false, canvas });
-  const gl = canvas.getContext('webgl2', { antialias: false, preserveDrawingBuffer: true, alpha: false }); if (!gl) throw new Error('this computer has no WebGL2');
+  const gl = canvas.getContext('webgl2', { antialias: false, preserveDrawingBuffer: true, alpha: false, powerPreference: 'high-performance' }); if (!gl) throw new Error('this computer has no WebGL2');
   if (!gl.getExtension('EXT_color_buffer_float')) throw new Error("this graphics card can't do it");
   job.gl = gl;
   const [W, H] = opts.size; canvas.width = W; canvas.height = H;
@@ -323,6 +323,8 @@ async function rendStart(canvas, opts, cam, onProgress, job = { stop: false }) {
   gl.useProgram(prog);
   const display = () => { gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.useProgram(show); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, A.t); gl.disable(gl.SCISSOR_TEST); gl.viewport(0, 0, W, H); gl.uniform1f(uExp, job.exposure); gl.drawArrays(gl.TRIANGLES, 0, 3); gl.useProgram(prog); };
   job.display = display;
+  // A shared chip also draws the desktop, so it needs long rests. A dedicated card can work almost flat out without the computer noticing.
+  const dbg = gl.getExtension('WEBGL_debug_renderer_info'), chip = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : ''; job.chip = chip; job.dedicated = /nvidia|geforce|rtx|radeon rx|arc a/i.test(chip);
   const started = performance.now(); let lastShow = 0;
   // A piece of the picture at a time, taking REND_PIECE_MS or a little more. After each, the card rests for a while.
   let tile = 32;
@@ -341,7 +343,7 @@ async function rendStart(canvas, opts, cam, onProgress, job = { stop: false }) {
         if (ms < REND_PIECE_MS) tile = Math.min(512, Math.ceil(tile * 1.3)); else if (ms > REND_PIECE_MS * 2) tile = Math.max(16, Math.floor(tile * .7));   // the card only reports back every 16 to 33 ms, so anything quicker can't be told apart
         job.gpuMs = (job.gpuMs || 0) + ms;
         if (performance.now() - lastShow > 500) { display(); lastShow = performance.now(); const secs = (performance.now() - started) / 1000, left = job.sample > 1 ? secs / job.sample * (job.spp - job.sample) : 0; onProgress(`Sample ${job.sample + 1} of ${job.spp}${left > 90 ? `, about ${Math.round(left / 60)} min left` : left > 5 ? `, about ${Math.round(left)} s left` : ''}`); }
-        await rendRest(Math.max(4, Math.round(ms * .6)));
+        await rendRest(Math.max(job.dedicated ? 1 : 4, Math.round(ms * (job.dedicated ? .05 : .6))));
       }
       y += rows;
     }

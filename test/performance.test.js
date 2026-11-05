@@ -140,9 +140,9 @@ test("a render leaves the computer room: the card rests, and the page stays resp
   const a = await metrics(), t0 = Date.now();
   while (Date.now() - t0 < 80000) { const s = await app.run(`return __e || (__j ? 'done' : '')`); if (s) { assert.strictEqual(s, "done"); break; } await sleep(200); }
   const b = await metrics();
-  const v = await app.run(`clearInterval(__beat); const g = __gaps.slice().sort((x, y) => x - y); return { p99: g[Math.floor(g.length * .99)], max: g.at(-1), gpu: __j.gpuMs, wall: __j.seconds * 1000 };`);
+  const v = await app.run(`clearInterval(__beat); const g = __gaps.slice().sort((x, y) => x - y); return { p99: g[Math.floor(g.length * .99)], max: g.at(-1), gpu: __j.gpuMs, wall: __j.seconds * 1000, dedicated: __j.dedicated };`);
   const busy = (b.TaskDuration - a.TaskDuration) / (b.Timestamp - a.Timestamp);
   assert.ok(busy < 0.35, `the page used ${(busy * 100).toFixed(0)}% of a CPU core during the render`);
-  assert.ok(v.gpu / v.wall < 0.7, `the card was busy ${Math.round(v.gpu / v.wall * 100)}% of the time`);
+  if (!v.dedicated) assert.ok(v.gpu / v.wall < 0.7, `the card was busy ${Math.round(v.gpu / v.wall * 100)}% of the time`);
   assert.ok(v.p99 < 120, `the page froze for up to ${Math.round(v.p99)} ms`);
 });

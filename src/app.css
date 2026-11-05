@@ -322,6 +322,24 @@ dialog { background: var(--panel); border: 0; border-radius: 4px; padding: 22px;
 #rendState { font-variant-numeric: tabular-nums; }
 #rendBody { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 14px; }
 #rendCanvas { max-width: 100%; max-height: 100%; display: block; background: #2a2f33; }
+#cmdDlg { padding: 0; width: min(560px, calc(100vw - 32px)); margin-top: 12vh; overflow: hidden; }
+#cmdQ { width: 100%; padding: 12px 14px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: inherit; font: inherit; font-size: 15px; outline: none; }
+#cmdList { max-height: 50vh; overflow-y: auto; padding: 4px; }
+.cmdrow { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; border: 0; border-radius: 3px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.cmdrow span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmdrow small { color: var(--soft); }
+.cmdrow:hover, .cmdrow.on { background: var(--canvas); }
+.cmdrow kbd { font: inherit; font-size: 12px; color: var(--soft); min-width: 44px; text-align: right; }
+#keysQ { width: 100%; margin-top: 10px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--field); color: inherit; font: inherit; }
+#keysNote { min-height: 18px; margin: 6px 0; }
+#keysList { max-height: 56vh; overflow-y: auto; }
+.keyrow { display: flex; align-items: center; gap: 8px; padding: 3px 0; border-top: 1px solid var(--line); }
+.keyname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.keyrow small { color: var(--soft); width: 48px; }
+.keybtn { min-width: 130px; justify-content: center; font-variant-numeric: tabular-nums; }
+.keybtn.wait { box-shadow: inset 0 0 0 1px var(--ink); }
+.keyrow .ic { width: 24px; height: 24px; }
+.keyrow .ic:disabled { opacity: .3; }
 dialog::backdrop { background: rgba(32, 38, 42, .45); }
 #cat { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-top: 12px; }
 .card { text-align: left; background: var(--canvas); border: 1px solid transparent; border-radius: 3px; padding: 10px; cursor: pointer; }

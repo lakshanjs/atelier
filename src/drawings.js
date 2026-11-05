@@ -144,7 +144,7 @@ function sectionsSheet(n, of) {
 // ---------- sheet 3: exploded view and parts list ----------
 let drawGL = null;
 function explodedPicture(list, pxW, pxH) {
-  if (!drawGL) { drawGL = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true }); drawGL.setClearColor(0, 0); }
+  if (!drawGL) { drawGL = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true, powerPreference: 'high-performance' }); drawGL.setClearColor(0, 0); }
   drawGL.setPixelRatio(1); drawGL.setSize(pxW, pxH, false);
   const u = unionBounds(list), mid = u.min.map((v, i) => (v + u.max[i]) / 2), size = u.max.map((v, i) => v - u.min[i]), spread = .55;
   const sc = new THREE.Scene(), trash = [];

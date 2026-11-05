@@ -110,7 +110,7 @@ menus.forEach(m => {
 window.addEventListener('pointerdown', e => { if (!e.target.closest('.menu')) closeMenus(); });
 const DO = {
   new: () => document.getElementById('bNew').click(), open: () => document.getElementById('bOpen').click(), save: () => document.getElementById('bSave').click(),
-  render: openRender, hwcat: openCatalogue, drawings: () => { if (panelsOnly().length) openDrawings(); else toast('There are no panels to draw yet.', true); }, cnc: exportCnc, history: openHistory, resizable: () => { if (selected().length) edit(fxMakeResizable); else toast('Select the parts first.', true); },
+  palette: () => openPalette(), keys: () => openKeys(), render: openRender, hwcat: openCatalogue, drawings: () => { if (panelsOnly().length) openDrawings(); else toast('There are no panels to draw yet.', true); }, cnc: exportCnc, history: openHistory, resizable: () => { if (selected().length) edit(fxMakeResizable); else toast('Select the parts first.', true); },
   plans: () => document.getElementById('bPack').click(), print: () => { renderPack(); window.print(); },
   undo, redo, dup: () => { if (sel.length) edit(duplicateSel); }, del: () => { if (sel.length) edit(removeSel); }, all: () => { sel = shown().filter(i => !i.locked).map(i => i.id); render(); },
   layouts: () => toggleLayPop(true), layreset: resetLayout,

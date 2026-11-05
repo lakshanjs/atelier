@@ -32,7 +32,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
         <button data-do="fit">Fit everything<kbd>F</kbd></button><button data-do="cam">Reset 3D view</button><hr>
         <button data-do="dims">Show or hide dimensions</button><button data-do="theme">Dark interface on or off</button><button data-do="floorgrid">Floor grid on or off</button><button data-do="real">Realistic materials on or off</button><button data-do="section">Section view</button><hr><button data-do="layouts">Arrange views</button><button data-do="layreset">Reset view sizes</button><hr><button data-do="tbsep">Add toolbar separator</button><button data-do="tbreset">Reset toolbar</button><hr><button data-do="big:3d">Full size 3D view</button><button data-do="big:top">Full size top view</button><button data-do="big:front">Full size front view</button><button data-do="big:side">Full size side view</button>
       </div></div>
-      <div class="menu"><button class="mbtn">Help</button><div class="mlist" hidden><button data-do="help">Keyboard and mouse<kbd>F1</kbd></button></div></div>
+      <div class="menu"><button class="mbtn">Help</button><div class="mlist" hidden><button data-do="palette">Find a command…</button><button data-do="keys">Keyboard shortcuts…</button><button data-do="help">Keyboard and mouse<kbd>F1</kbd></button></div></div>
     </nav>
     <div id="docTitle"><input id="pname" aria-label="Project name" title="Click to rename"><span id="saveState" aria-live="polite"></span></div>
     </div>
@@ -100,7 +100,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
 
 <div id="warnPop" hidden></div><div id="ctx" hidden role="menu"></div><div id="toast" hidden role="status"></div>
 <dialog id="helpDlg">
-  <div style="display:flex;align-items:center"><h2 style="margin:0">Keyboard and mouse</h2><span class="grow"></span><button class="btn line" id="helpClose">Close</button></div>
+  <div style="display:flex;align-items:center"><h2 style="margin:0">Keyboard and mouse</h2><span class="grow"></span><button class="btn line" id="helpKeys" style="margin-right:6px">Change shortcuts</button><button class="btn line" id="helpClose">Close</button></div>
   <h3>Looking around</h3><dl class="keys"><dt>Ctrl + drag, middle drag</dt><dd>Rotate the view</dd><dt>Drag empty space</dt><dd>Rotate the view</dd><dt>Right drag</dt><dd>Slide the view</dd><dt>Wheel</dt><dd>Zoom</dd><dt>F</dt><dd>Fit everything</dd></dl>
   <h3>Selecting</h3><dl class="keys"><dt>Click</dt><dd>Select one item</dd><dt>Shift + click</dt><dd>Select more</dd><dt>Double-click</dt><dd>Select its whole layer</dd><dt>Drag empty flat view</dt><dd>Box select</dd><dt>Shift + drag empty 3D</dt><dd>Box select</dd><dt>Right-click</dt><dd>Menu for what's under the mouse</dd></dl>
   <h3>Changing things</h3><dl class="keys"><dt>V, E, S, M</dt><dd>Select, Rotate, Scale, Measure</dd><dt>Drag</dt><dd>Move along the floor</dd><dt>Shift + drag</dt><dd>Move up or down</dd><dt>Shift + stretch</dt><dd>Grow both ways</dd><dt>Alt + drag</dt><dd>Turn snapping off</dd><dt>G</dt><dd>Snapping on or off</dd><dt>R, Shift + R</dt><dd>Spin 90°</dd><dt>Arrow keys</dt><dd>Nudge by one grid step</dd><dt>Up or down in a size box</dt><dd>Change it by one grid step</dd></dl>
@@ -122,6 +122,18 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
   <div style="display:flex;align-items:center"><h2 style="margin:0">Hardware catalogue</h2><span class="grow"></span><button class="btn line" id="hwClose">Close</button></div>
   <p class="note">Sizes and drilling for the hardware you buy, used in every project. The starting values are generic, so check them against your hardware's own drilling sheet before cutting.</p>
   <div id="hwList"></div>
+</dialog>
+
+<dialog id="cmdDlg" aria-label="Find a command">
+  <input id="cmdQ" placeholder="Type what you want to do" aria-label="Find a command" autocomplete="off" spellcheck="false">
+  <div id="cmdList"></div>
+</dialog>
+
+<dialog id="keysDlg">
+  <div style="display:flex;align-items:center"><h2 style="margin:0">Keyboard shortcuts</h2><span class="grow"></span><button class="btn line" id="keysReset" style="margin-right:6px">Reset all</button><button class="btn line" id="keysClose">Close</button></div>
+  <input id="keysQ" placeholder="Find a command or key" aria-label="Find a shortcut" autocomplete="off" spellcheck="false">
+  <p class="note" id="keysNote" aria-live="polite"></p>
+  <div id="keysList"></div>
 </dialog>
 
 <section id="rend" aria-label="Photoreal picture">
@@ -186,5 +198,6 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
 <script src="src/render.js"></script>
 <script src="src/safety.js"></script>
 <script src="src/ui.js"></script>
+<script src="src/commands.js"></script>
 </body>
 </html>

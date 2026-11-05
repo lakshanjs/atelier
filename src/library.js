@@ -39,7 +39,7 @@ async function thumbTexture(key) {
 }
 async function libMakeThumb(entry) {
   if (!entry.items.length) return null;
-  if (!thumbGL) { thumbGL = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true }); thumbGL.setSize(168, 120, false); thumbGL.setClearColor(0, 0); }
+  if (!thumbGL) { thumbGL = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true, powerPreference: 'high-performance' }); thumbGL.setSize(168, 120, false); thumbGL.setClearColor(0, 0); }
   const sc = new THREE.Scene(), geos = [], mats = [], maps = {};
   sc.add(new THREE.HemisphereLight(0xffffff, 0x8a9296, .85)); const key = new THREE.DirectionalLight(0xffffff, .5); key.position.set(1, 2, 1.5); sc.add(key);
   const add = (geo, mat, pos, quat, scale) => { const m = new THREE.Mesh(geo, mat); geos.push(geo); mats.push(mat); m.position.copy(pos); if (quat) m.quaternion.copy(quat); if (scale) m.scale.copy(scale); m.frustumCulled = false; sc.add(m); };

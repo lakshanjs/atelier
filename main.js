@@ -66,6 +66,9 @@ ipcMain.on("win:bar", (e, { color, symbolColor }) => {
   if (w) w.setTitleBarOverlay({ color, symbolColor, height: BAR_HEIGHT });
 });
 
+// Laptops have two graphics chips, and Chromium picks the slow power-saving one unless told otherwise.
+app.commandLine.appendSwitch("force_high_performance_gpu");
+
 let autoUpdater = null;
 try { ({ autoUpdater } = require("electron-updater")); } catch (e) { console.error("electron-updater unavailable:", e && e.message); }
 

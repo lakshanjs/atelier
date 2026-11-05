@@ -12,6 +12,11 @@ test("starts with no script errors", async () => {
   assert.ok(await app.run("return P.items.length > 0"));
 });
 
+test("asks for the fast graphics chip, not the power-saving one", async () => {
+  const v = await app.run(`const gl = renderer.getContext(); return gl.getContextAttributes().powerPreference;`);
+  assert.strictEqual(v, "high-performance");
+});
+
 test("every starting piece builds, draws and gives a cut list", async () => {
   const out = await app.run(`
     const res = [];

@@ -554,7 +554,6 @@ pname.onchange = () => { if (pname.value.trim()) edit(() => { P.name = pname.val
 pname.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') pname.blur(); };
 
 window.addEventListener('keydown', e => {
-  if (e.key === 'F1') { e.preventDefault(); DO.help(); return; }
   if (e.key === 'Escape' && !ctxEl.hidden) { closeCtx(); return; }
   if (e.key === 'Escape' && document.querySelector('.menu.open')) { closeMenus(); return; }
   if (e.key === 'Escape' && !document.getElementById('layPop').hidden) { toggleLayPop(false); return; }
@@ -564,22 +563,9 @@ window.addEventListener('keydown', e => {
   if (document.querySelector('dialog[open], #pack.open, #draw.open, #rend.open') || typing) return;
   const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
   if (k === 'tab' && tool === 'measure' && mCands.length > 1) { e.preventDefault(); mIdx = (mIdx + 1) % mCands.length; mHover = mCands[mIdx]; if (measA && mCur) mHover = lockAxis(mHover); else if (measA && mFlat) mHover = flatLock(mHover, mFlat.vn, mFlat.x, mFlat.y); readout(pointName(mHover)); dirty = true; return; }
-  if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
-  if (mod && k === 'y') { e.preventDefault(); redo(); return; }
-  if (mod && k === 's') { e.preventDefault(); saveProject(e.shiftKey); return; }
-  if (mod && k === 'a') { e.preventDefault(); DO.all(); return; }
-  if (mod && k === 'c') { e.preventDefault(); copySel(); return; }
-  if (mod && k === 'x') { e.preventDefault(); DO.cut(); return; }
-  if (mod && k === 'v') { e.preventDefault(); pasteClip(); return; }
-  if (mod && k === 'd') { e.preventDefault(); if (sel.length) edit(duplicateSel); return; }
   if (mod || e.altKey) return;
   if (k === 'escape') { if (measA) { cancelMeasure(); return; } sel = []; render(); return; }
-  if (k === 'g') { P.snap = !P.snap; persist(); render(); return; }
-  if (k === 'f') { Object.keys(VIEWS).forEach(fitView); resetCam(); dirty = true; return; }
-  const tk = TOOLS.find(x => x[2].toLowerCase() === k); if (tk) { setTool(tk[0]); return; }
   if (!sel.length) return;
-  if (k === 'delete' || k === 'backspace') { e.preventDefault(); edit(removeSel); return; }
-  if (k === 'r') { edit(() => rotateSel(AXES[1][0], e.shiftKey ? -90 : 90)); return; }
   const nudge = { arrowleft: [0, -1], arrowright: [0, 1], arrowup: e.shiftKey ? [1, 1] : [2, -1], arrowdown: e.shiftKey ? [1, -1] : [2, 1], pageup: [1, 1], pagedown: [1, -1] }[k];
   if (nudge) { e.preventDefault(); edit(() => movable().forEach(i => { i.pos[nudge[0]] += nudge[1] * P.grid; })); }
 });
