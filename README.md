@@ -2,7 +2,7 @@
 
 A personal desktop furniture design app for Windows. Everything is a free panel or object: add boards, move and rotate them in 3D or flat views with snapping, then get a cut list, cutting plan and shopping list. It also imports whole houses from Sweet Home 3D to design furniture inside.
 
-For one user (Lakshan), not hosted. Current version: **1.0.25**.
+For one user (Lakshan), not hosted. Current version: **1.0.26**.
 
 ## Start here (next session)
 
@@ -30,7 +30,7 @@ There is no framework or bundler. The scripts in `src/` are plain scripts loaded
 | `index.html` | The page: its HTML and the list of scripts |
 | `src/app.css` | All styles |
 | `src/model.js`, `edit.js`, `formulas.js` | Items, undo and units; parameters, formulas and Make resizable |
-| `src/view3d.js`, `flat.js`, `properties.js` | 3D, flat views, the side panel |
+| `src/view3d.js`, `flat.js`, `precision.js`, `render.js`, `properties.js` | 3D, flat views, typed moves and guides, photoreal pictures, the side panel |
 | `src/cutlist.js`, `machining.js`, `hardware.js`, `drawings.js` | Cut list and checks; holes, DXF and G-code; hinges and slides; workshop drawings |
 | `src/library.js`, `files.js`, `safety.js`, `ui.js` | My items; saving and imports; autosave and versions; menus and start-up |
 | `test/` | Tests that drive the real app (`npm test`), each with its own empty data folder |
@@ -103,6 +103,7 @@ A saved library, written by `libPackBytes()` and read by `libTakePack()`. A zip 
 - **Version history:** File > Version history.
 - **Hardware catalogue:** File > Hardware catalogue lists hinges and slides with their drilling, lengths and prices, kept in IndexedDB (`hardware`). Choose per project or per door and drawer. Each project keeps a copy of what it uses (`P.hwUsed`), so files stay correct on another computer. The starting entries are generic values, not any maker's specification.
 - **Precision:** during a drag, or right after it, type a number and press Enter for an exact move, size, turn or scale. X, Y or Z holds a move to that direction, and Esc cancels a drag. Move by and Turn by are in Properties, with an angle snap setting (Shift gives 90°) and Lock this angle. Guides (`P.cguides`) come from dragging off a flat view's ruler; drag one back onto a ruler to delete it. The readout names what a drag snapped to, and that item is outlined.
+- **Photoreal picture:** File > Photoreal picture path-traces the current 3D view on the graphics card (`src/render.js`). It takes everything the 3D view draws, from `group`. Daylight or Studio light, sun position, optional room, up to 4K. The picture sharpens as samples add up, and work is sent in small bands so the app stays responsive.
 - **Library:** File > Import to library takes an OBJ model in a zip, a `.sh3f` furniture library, a `.sh3d` home or an `.atlib`, without touching the open project. Pieces already there are skipped. Folders can be added, renamed by double-click, and items dragged onto them. The gallery filter shows all, stock, imported or saved items, and works with search. An entry counts as imported if it uses a 3D model.
 - **Toolbar:** drag any menu item onto it, drag along it to reorder, drag off to remove. Right-click for separators. **View > Reset toolbar** restores it. Stored per user in localStorage (`atelier-toolbar`).
 - **Window:** no Windows title bar. The app's title bar uses real Windows buttons drawn over it (`titleBarOverlay`, `BAR_HEIGHT` in `main.js`, 33 px under a 34 px bar so the border shows).
@@ -120,6 +121,7 @@ A saved library, written by `libPackBytes()` and read by `libTakePack()`. A zip 
 - Part drawings show holes on the top and bottom faces from above, and edge holes as ticks. There's no separate edge view.
 - G-code machines one side. Edge holes and the other side are listed in the CSV. Parts are held by a thin skin, not tabs.
 - Slides are modelled as side-mounted, with screws in a line at the drawer's mid height. Undermount slides aren't.
+- Renders ignore the section slice. Materials are colour, texture and roughness only, with simple glass (no bending of light). There are no lamps, so closed rooms are lit only by what comes through openings, plus Brightness.
 - Baseboards aren't imported. The test house has none.
 - Textures set on a whole piece use the model's own mapping, so some may look a different scale than in Sweet Home 3D.
 - Selected thickness names stay as written (like `3/4"`) in every unit.
@@ -135,7 +137,19 @@ A saved library, written by `libPackBytes()` and read by `libTakePack()`. A zip 
 **In the test house, by design**
 - Only 1 stair hole is cut, because only the straight staircase reaches Level 1. The spiral stops about 26" below that floor, which may be a mistake in the user's original file. They were asked whether it should reach Level 1 and haven't answered.
 
+## Keeping it smooth
+
+- The 3D view draws only when something changes (`loop` in `src/view3d.js`). With nothing happening it checks about 12 times a second, and any mouse or key wakes it. Anything that changes the picture must set `dirty`.
+- Photoreal pictures send the graphics card small pieces and rest between them (`REND_PIECE_MS` in `src/render.js`), so they take longer but don't stall the computer.
+- Scenes over `BIG_SCENE` triangles combine small objects sharing a material (`batchSmall`), because drawing hundreds of separate things is what's slow, on Intel graphics especially. The originals stay hidden in `group`, because clicks test them.
+- Shadows are recalculated only when the design changes (`renderer.shadowMap.needsUpdate` in `draw3D`), not when the camera moves.
+- Scenes over `BIG_SCENE` triangles hide small, detailed models while the camera moves, and bring them back as soon as it stops.
+- `modelGeo` sets bounding spheres by hand, because three.js r128 misreads normalized attributes, which would stop off-screen models being skipped.
+- `test/performance.test.js` checks idle CPU, memory growth and how politely a render behaves.
+
 ## Testing
+
+Run `npm test`. It opens real copies of the app with their own empty data, so it never touches your work, but it does use the graphics card while it runs.
 
 A running copy can be driven and screenshotted over the Chrome DevTools Protocol. To run alongside the user's Atelier, it needs its own data folder, because of the single-instance lock. Make a small launcher folder with this as `main.js` and a `package.json` pointing at it:
 

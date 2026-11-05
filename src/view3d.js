@@ -3,6 +3,7 @@ const host = document.getElementById('view3d');
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.autoUpdate = false;   // shadows are worked out when the design changes, not again for every camera move
 host.appendChild(renderer.domElement);
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0xe4e9e7);
 const camera = new THREE.PerspectiveCamera(36, 1, 10, 60000);
@@ -226,6 +227,7 @@ function drawObject(it, isSel) {
   if (isSel) { const g = new THREE.BoxGeometry(it.l + 6, it.t + 6, it.w + 6), l = new THREE.LineSegments(new THREE.EdgesGeometry(g), new THREE.LineBasicMaterial({ color: 0xe5a900 })); l.position.set(...it.pos); l.quaternion.copy(q); group.add(l); }
 }
 function draw3D() {
+  renderer.shadowMap.needsUpdate = true; detailHidden = false;
   applyLight();
   while (group.children.length) { const c = group.children.pop(); if (c.geometry && !c.userData.keepGeo) c.geometry.dispose(); }
   pickable = [];
@@ -262,6 +264,8 @@ function draw3D() {
     if (measA && mHover) { const a = ptWorld(measA), b = mEndWorld(); if (a && b) dimLine(a, b, mAxis != null ? AXES[mAxis][1] : undefined); }
     if (mHover) { const w = measA ? mEndWorld() : ptWorld(mHover); if (w) { const m = new THREE.Mesh(new THREE.SphereGeometry(camera.position.distanceTo(controls.target) * .006, 12, 10), new THREE.MeshBasicMaterial({ color: 0xffc928, depthTest: false })); m.position.set(w[0], w[1], w[2]); m.renderOrder = 12; group.add(m); } }
   }
+  sceneTris = 0; group.children.forEach(o => { if (o.isMesh && o.visible) { const g = o.geometry; sceneTris += (g.index ? g.index.count : g.attributes.position ? g.attributes.position.count : 0) / 3; } });
+  if (sceneTris > BIG_SCENE && !batchOff && !sect.on) batchSmall();
   updateGizmo();
   if (!camSet) resetCam();
 }
@@ -338,15 +342,85 @@ function updateGizmo() {
   [0, 1, 2].forEach(a => { const off = list.length === 1 && list[0].kind === 'panel' && sizeKeyFor(list[0], a) === 't'; stretchParts[a].forEach(o => { o.visible = !off; }); });
 }
 function size3D() { const r = host.getBoundingClientRect(); if (!r.width) return; renderer.setSize(r.width, r.height); camera.aspect = r.width / r.height; camera.updateProjectionMatrix(); }
-(function loop() {
-  requestAnimationFrame(loop);
+// Draws only when something has changed. A big house is hundreds of thousands of triangles with shadows,
+// and redrawing that all the time, with nothing moving, would slow the whole computer.
+let lastView = '', lastFrame = 0, sceneTris = 0, detailHidden = false, lastMove = 0, batchOff = false;
+// Drawing hundreds of small things one at a time is what's slow on a big scene, far more than the number of triangles.
+// So small ones sharing a material are combined. The originals stay, hidden, because clicks still test them.
+const BATCH_MAX_TRIS = 2000;
+function batchSmall() {
+  const groups = new Map(), v = V3(), n = V3(), nm = new THREE.Matrix3();
+  group.children.forEach(o => {
+    if (!o.isMesh || !o.visible || o.renderOrder) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material]; if (mats.some(m => m.transparent || m.isMeshBasicMaterial)) return;
+    const g = o.geometry, pa = g.attributes.position; if (!pa || !g.attributes.normal) return;
+    const count = g.index ? g.index.count : pa.count; if (count / 3 >= BATCH_MAX_TRIS) return;
+    // a wall's faces can each have their own material, so each face joins its own batch
+    const parts = Array.isArray(o.material) ? g.groups.map(r => ({ start: r.start, count: Math.min(r.count, count - r.start), mat: o.material[r.materialIndex] })).filter(r => r.mat) : [{ start: 0, count, mat: o.material }];
+    parts.forEach(r => { const key = r.mat.uuid + (o.castShadow ? '|s' : '|'), rec = groups.get(key) || groups.set(key, { mat: r.mat, cast: o.castShadow, list: [], total: 0, meshes: new Set() }).get(key); rec.list.push({ o, start: r.start, count: r.count }); rec.total += r.count; rec.meshes.add(o); });
+  });
+  groups.forEach(rec => {
+    const pos = new Float32Array(rec.total * 3), nor = new Float32Array(rec.total * 3), uv = new Float32Array(rec.total * 2); let at = 0;
+    rec.list.forEach(({ o, start, count }) => {
+      const g = o.geometry, pa = g.attributes.position, na = g.attributes.normal, ua = g.attributes.uv, idx = g.index ? g.index.array : null;
+      const ps = pa.normalized ? (pa.array instanceof Int16Array ? 1 / 32767 : 1 / 127) : 1, ns = na.normalized ? (na.array instanceof Int8Array ? 1 / 127 : 1 / 32767) : 1;
+      o.updateMatrixWorld(); nm.getNormalMatrix(o.matrixWorld);
+      for (let i = start; i < start + count; i++, at++) {
+        const k = idx ? idx[i] : i;
+        v.set(pa.getX(k) * ps, pa.getY(k) * ps, pa.getZ(k) * ps).applyMatrix4(o.matrixWorld); pos[at * 3] = v.x; pos[at * 3 + 1] = v.y; pos[at * 3 + 2] = v.z;
+        n.set(na.getX(k) * ns, na.getY(k) * ns, na.getZ(k) * ns).applyMatrix3(nm).normalize(); nor[at * 3] = n.x; nor[at * 3 + 1] = n.y; nor[at * 3 + 2] = n.z;
+        if (ua) { uv[at * 2] = ua.getX(k); uv[at * 2 + 1] = ua.getY(k); }
+      }
+      o.userData.batched = true;
+    });
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    rec.meshes.forEach(o => { o.visible = false; });
+    const m = new THREE.Mesh(g, rec.mat); m.castShadow = rec.cast; m.receiveShadow = true; m.userData.batch = true; group.add(m);
+  });
+}
+// On a big scene, small but detailed objects step aside while the camera moves, and come straight back when it stops.
+const BIG_SCENE = 250000, DETAIL_REST_MS = 140;
+function detailStepAside() {
+  const tan = Math.tan(camera.fov * Math.PI / 360), at = V3(); let hid = 0;
+  group.children.forEach(o => {
+    if (!o.isMesh || !o.userData.keepGeo || o.userData.batched) return;
+    const tris = o.geometry.index ? o.geometry.index.count / 3 : 0; if (tris < 500) { o.visible = true; return; }
+    const r = Math.max(Math.abs(o.scale.x), Math.abs(o.scale.y), Math.abs(o.scale.z)), seen = r / (at.copy(o.position).distanceTo(camera.position) * tan || 1);   // how much of the view it fills
+    o.visible = seen >= (tris > 3000 ? .12 : .03); if (!o.visible) hid++;
+  });
+  detailHidden = hid > 0;
+}
+function detailBack() { group.children.forEach(o => { if (o.isMesh && o.userData.keepGeo && !o.userData.batched) o.visible = true; }); detailHidden = false; }
+const viewNow = () => [camera.position.x, camera.position.y, camera.position.z, camera.quaternion.x, camera.quaternion.y, camera.quaternion.z, camera.quaternion.w, camera.aspect, camera.near, camera.far, controls.target.x, controls.target.y, controls.target.z, hoverBox.visible, hoverBox.position.x, hoverBox.position.y, hoverBox.position.z, hoverBox.scale.x, hoverBox.scale.y, hoverBox.scale.z, giz.visible, giz.position.x, giz.position.y, giz.position.z, gizHover ? gizHover.id : 0].join();
+const COVERED = '#pack.open, #draw.open, #rend.open';
+// With nothing happening it only looks a dozen times a second, and any mouse or key wakes it straight away.
+let loopTimer = 0, loopActive = 0;
+function loopNext(now) {
+  if (now - loopActive < 1000) { requestAnimationFrame(loop); return; }
+  loopTimer = setTimeout(() => { loopTimer = 0; requestAnimationFrame(loop); }, 80);
+}
+function loopWake() { loopActive = performance.now(); if (loopTimer) { clearTimeout(loopTimer); loopTimer = 0; requestAnimationFrame(loop); } }
+['pointerdown', 'pointermove', 'pointerup', 'wheel', 'keydown', 'keyup'].forEach(t => window.addEventListener(t, loopWake, { capture: true, passive: true }));
+function loop(now) {
+  if (document.querySelector(COVERED)) { loopNext(now); return; }   // nothing to see behind a full-page window
   controls.update();
-  if (dirty && P) { dirty = false; draw3D(); drawFlats(); }
+  const changed = dirty && P;
+  if (changed) { dirty = false; draw3D(); drawFlats(); }
+  const view = viewNow(), moved = view !== lastView;
+  if (changed || moved) loopActive = now;
+  let detailReturned = false;
+  if (moved) { lastMove = now; if (!changed && sceneTris > BIG_SCENE) detailStepAside(); }
+  else if (detailHidden && now - lastMove > DETAIL_REST_MS) { detailBack(); detailReturned = true; }
+  if (detailReturned) loopActive = now;
+  if (!changed && !moved && !detailReturned && now - lastFrame < 2000) { loopNext(now); return; }   // the odd redraw catches anything that changed quietly, like a picture finishing loading
+  lastView = view; lastFrame = now || 0;
   if (P) placeDimLabels();
   if (giz.visible) giz.scale.setScalar(camera.position.distanceTo(giz.position) * .15);
   if (P) updateFloorGrid();
   renderer.render(scene, camera);
-})();
+  loopNext(now);
+}
+requestAnimationFrame(loop);
 function rayAt(e) {
   const r = renderer.domElement.getBoundingClientRect(), ray = new THREE.Raycaster();
   ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), camera);

@@ -21,7 +21,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
         <div id="recentList"></div>
         <button data-do="history">Version history…</button><button data-do="hwcat">Hardware catalogue…</button><hr>
         <button data-do="plans">Cut list and plans</button><button data-do="drawings">Workshop drawings</button><button data-do="print">Print or save PDF</button><hr>
-        <button data-do="picture">Save picture of 3D view</button><button data-do="cnc">Export for CNC (DXF and G-code)</button><button data-do="dxf">Export cut parts (DXF)</button><button data-do="stl">Export 3D model (STL)</button>
+        <button data-do="render">Photoreal picture…</button><button data-do="picture">Save picture of 3D view</button><button data-do="cnc">Export for CNC (DXF and G-code)</button><button data-do="dxf">Export cut parts (DXF)</button><button data-do="stl">Export 3D model (STL)</button>
       </div></div>
       <div class="menu"><button class="mbtn">Edit</button><div class="mlist" hidden>
         <button data-do="undo">Undo<kbd>Ctrl+Z</kbd></button><button data-do="redo">Redo<kbd>Ctrl+Y</kbd></button><hr>
@@ -124,6 +124,24 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
   <div id="hwList"></div>
 </dialog>
 
+<section id="rend" aria-label="Photoreal picture">
+  <div id="rendTop">
+    <button class="btn line" id="rendBack">Back to design</button>
+    <label class="drfield">Size<select id="rendSize"></select></label>
+    <label class="drfield">Quality<select id="rendQuality"></select></label>
+    <label class="drfield">Light<select id="rendLight"><option value="day">Daylight</option><option value="studio">Studio</option></select></label>
+    <label class="drfield check"><input type="checkbox" id="rendRoom">Show the room</label>
+    <label class="drfield">Sun turn<input type="range" id="rendTurn" min="0" max="360" step="5"></label>
+    <label class="drfield">Sun height<input type="range" id="rendHeight" min="5" max="85" step="5"></label>
+    <label class="drfield">Brightness<input type="range" id="rendExposure" min="0.2" max="3" step="0.05"></label>
+    <span class="grow"></span>
+    <span id="rendState" aria-live="polite"></span>
+    <button class="btn line" id="rendStop">Stop</button>
+    <button class="btn main" id="rendSave">Save PNG</button>
+  </div>
+  <div id="rendBody"><canvas id="rendCanvas"></canvas></div>
+</section>
+
 <section id="draw" aria-label="Workshop drawings">
   <div id="drawTop">
     <button class="btn line" id="drawBack">Back to design</button>
@@ -165,6 +183,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
 <script src="src/library.js"></script>
 <script src="src/files.js"></script>
 <script src="src/drawings.js"></script>
+<script src="src/render.js"></script>
 <script src="src/safety.js"></script>
 <script src="src/ui.js"></script>
 </body>

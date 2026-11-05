@@ -83,7 +83,8 @@ function createWindow() {
     // No Windows title bar: the app's own top bar takes its place, with the real window buttons on it.
     titleBarStyle: "hidden",
     titleBarOverlay: { color: "#eef1f0", symbolColor: "#20262a", height: BAR_HEIGHT },
-    webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, sandbox: true },
+    // no slowing down in the background: a render or PDF should carry on while you use something else
+    webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   win.loadFile(path.join(__dirname, "index.html"));
   win.webContents.once("did-finish-load", () => sendFile(fileIn(process.argv)));

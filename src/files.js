@@ -418,6 +418,7 @@ function modelGeo(key, i) {
   const g = modelGeos[key] || (modelGeos[key] = []); if (g[i]) return g[i];
   const q = MODELS[key].parts[i], b = new THREE.BufferGeometry();
   b.setAttribute('position', new THREE.BufferAttribute(q.p, 3, true)); b.setAttribute('normal', new THREE.BufferAttribute(q.n, 3, true)); b.setIndex(new THREE.BufferAttribute(q.i, 1)); if (q.u) b.setAttribute('uv', new THREE.BufferAttribute(q.u, 2));
+  b.boundingSphere = new THREE.Sphere(new THREE.Vector3(), Math.sqrt(3));   // it fills -1 to 1: worked out by hand, because three.js misreads these packed numbers and would never skip anything off screen
   return g[i] = b;
 }
 function sh3dPieceInfo(f, tag) {   // what a piece asks for beyond its model: its own colour, or colours per material
@@ -560,7 +561,7 @@ window.addEventListener('keydown', e => {
   if (e.key === 'Escape' && !document.getElementById('warnPop').hidden) { document.getElementById('warnPop').hidden = true; return; }
   if (document.getElementById('helpDlg').open) return;
   const a = document.activeElement, typing = a && /INPUT|SELECT/.test(a.tagName) && a.type !== 'checkbox' && a.type !== 'range';
-  if (document.getElementById('pack').classList.contains('open') || dlg.open || typing) return;
+  if (document.querySelector('dialog[open], #pack.open, #draw.open, #rend.open') || typing) return;
   const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
   if (k === 'tab' && tool === 'measure' && mCands.length > 1) { e.preventDefault(); mIdx = (mIdx + 1) % mCands.length; mHover = mCands[mIdx]; if (measA && mCur) mHover = lockAxis(mHover); else if (measA && mFlat) mHover = flatLock(mHover, mFlat.vn, mFlat.x, mFlat.y); readout(pointName(mHover)); dirty = true; return; }
   if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
