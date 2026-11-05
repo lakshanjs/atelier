@@ -1,0 +1,1239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Furniture Designer</title>
+<style>
+@font-face { font-family: Barlow; font-weight: 400; src: url(lib/fonts/barlow-400.woff2) format('woff2'); }
+@font-face { font-family: Barlow; font-weight: 500; src: url(lib/fonts/barlow-500.woff2) format('woff2'); }
+@font-face { font-family: Barlow; font-weight: 600; src: url(lib/fonts/barlow-600.woff2) format('woff2'); }
+:root {
+  --ink: #20262a; --soft: #5c686e; --canvas: #e4e9e7; --panel: #fbfcfb; --line: #c7cfcc;
+  --tape: #ffc928; --tape-deep: #e5a900; --danger: #b93a1a; --opening: #f6f8f7;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { font: 400 15px/1.35 Barlow, 'Segoe UI', system-ui, sans-serif; color: var(--ink); background: var(--canvas); }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+h2 { font-size: 17px; font-weight: 600; margin: 0 0 10px; }
+h3 { font-size: 14px; font-weight: 600; margin: 18px 0 8px; }
+
+#app { height: 100%; display: grid; grid-template: 52px minmax(0, 1fr) 34px / 76px minmax(0, 1fr) 292px; grid-template-areas: 'top top top' 'tools work side' 'foot foot foot'; }
+#top { grid-area: top; display: flex; align-items: center; gap: 6px; padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+#pname { font-weight: 600; font-size: 17px; width: 220px; border: 1px solid transparent; background: none; padding: 4px 6px; border-radius: 3px; }
+#pname:hover { border-color: var(--line); }
+.sep { width: 1px; height: 24px; background: var(--line); margin: 0 6px; }
+.grow { flex: 1; }
+.btn { background: none; border: 1px solid transparent; border-radius: 3px; padding: 5px 10px; cursor: pointer; white-space: nowrap; }
+.btn:hover:not(:disabled) { background: var(--canvas); }
+.btn:disabled { color: #a3adb0; cursor: default; }
+.btn.line { border-color: var(--line); background: #fff; }
+.btn.main { background: var(--ink); color: #fff; font-weight: 500; padding: 7px 14px; }
+.btn.main:hover:not(:disabled) { background: #39434a; }
+.btn.bad { color: var(--danger); border-color: var(--line); background: #fff; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; background: #fff; }
+.seg button { border: 0; background: none; padding: 4px 10px; cursor: pointer; }
+.seg button[aria-pressed=true] { background: var(--ink); color: #fff; }
+
+#tools { grid-area: tools; background: var(--panel); border-right: 1px solid var(--line); padding: 8px 6px; display: flex; flex-direction: column; gap: 3px; }
+.tool { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0 6px; border: 0; border-radius: 3px; background: none; cursor: pointer; font-size: 13px; font-weight: 500; }
+.tool:hover { background: var(--canvas); }
+.tool[aria-pressed=true] { background: var(--tape); }
+.tool svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+#work { grid-area: work; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 1px; background: var(--line); min-height: 0; }
+.pane { position: relative; background: var(--canvas); min-height: 0; min-width: 0; overflow: hidden; }
+#hint { position: absolute; left: 12px; bottom: 10px; right: 12px; font-size: 14px; color: var(--soft); pointer-events: none; }
+#unitTabs { position: absolute; top: 8px; left: 12px; right: 12px; display: flex; gap: 4px; align-items: center; z-index: 2; }
+.tab { border: 1px solid var(--line); background: #fff; border-radius: 3px; padding: 3px 10px; cursor: pointer; }
+.tab[aria-pressed=true] { background: var(--ink); color: #fff; border-color: var(--ink); }
+#front { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; user-select: none; }
+#front * { pointer-events: none; }
+#view3d { position: absolute; inset: 0; }
+#view3d canvas { display: block; }
+#opts3d { position: absolute; top: 8px; left: 10px; right: 10px; display: flex; gap: 12px; flex-wrap: wrap; font-size: 14px; align-items: center; }
+#opts3d label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+#opts3d .btn { margin-left: auto; }
+
+#side { grid-area: side; background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; padding: 14px; }
+.field { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.field input[type=text], .field select { width: 112px; padding: 4px 7px; border: 1px solid var(--line); border-radius: 3px; background: #fff; font-variant-numeric: tabular-nums; }
+.check { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; cursor: pointer; }
+.big { font-size: 22px; font-weight: 500; font-variant-numeric: tabular-nums; margin: -4px 0 12px; }
+.rowb { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 8px; }
+.rowb .btn { flex: 1; }
+.btn.on { background: var(--tape); border-color: var(--tape-deep); }
+.swatches { display: flex; gap: 6px; margin-bottom: 8px; }
+.sw { width: 34px; height: 34px; border-radius: 3px; border: 1px solid var(--soft); cursor: pointer; padding: 0; }
+.sw[aria-pressed=true] { outline: 3px solid var(--tape-deep); outline-offset: 1px; }
+.note { font-size: 13px; color: var(--soft); margin: 4px 0 10px; }
+
+.gal { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.obj { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px 6px; background: var(--canvas); border: 1px solid transparent; border-radius: 3px; cursor: grab; font-size: 13px; touch-action: none; }
+.obj:hover { border-color: var(--ink); }
+.obj.on { background: var(--tape); border-color: var(--tape-deep); }
+#objGhost { position: fixed; left: 0; top: 0; pointer-events: none; z-index: 9; background: #fff; border: 1px solid var(--ink); border-radius: 3px; }
+#foot { grid-area: foot; display: flex; align-items: center; gap: 22px; padding: 0 14px; background: var(--panel); border-top: 1px solid var(--line); font-size: 14px; font-variant-numeric: tabular-nums; }
+#foot b { font-weight: 600; }
+#warn { color: var(--danger); margin-left: auto; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+dialog { border: 0; border-radius: 4px; padding: 22px; width: min(880px, calc(100vw - 32px)); box-shadow: 0 8px 40px rgba(20, 30, 35, .3); color: var(--ink); }
+dialog::backdrop { background: rgba(32, 38, 42, .45); }
+#cat { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-top: 12px; }
+.card { text-align: left; background: var(--canvas); border: 1px solid transparent; border-radius: 3px; padding: 10px; cursor: pointer; }
+.card:hover { border-color: var(--ink); background: var(--tape); }
+.card svg { display: block; width: 100%; height: 110px; margin-bottom: 8px; }
+.card b { display: block; font-weight: 600; }
+.card span { font-size: 13px; color: var(--soft); }
+.card:hover span { color: var(--ink); }
+
+#pack { display: none; position: fixed; inset: 0; background: #fff; overflow-y: auto; z-index: 5; padding: 0 28px 40px; }
+#pack.open { display: block; }
+#packTop { position: sticky; top: 0; background: #fff; display: flex; gap: 8px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+#pack h2 { font-size: 20px; margin: 26px 0 10px; }
+#pack table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+#pack th, #pack td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+#pack th { font-weight: 600; }
+#pack td.n { text-align: right; }
+.sheets { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 18px; }
+.sheets svg, .draws svg { width: 100%; height: auto; display: block; }
+.draws { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 18px; }
+#packNotes li { margin-bottom: 6px; max-width: 75ch; }
+@media print {
+  #app, #packTop { display: none !important; }
+  #pack { position: static; display: block; padding: 0; overflow: visible; }
+  .sheets, .draws { display: block; }
+  .sheets > div, .draws > div { break-inside: avoid; margin-bottom: 14px; }
+}
+@media (max-width: 1050px) {
+  body { overflow: auto; }
+  #app { height: auto; grid-template: 52px 62vh 52vh auto 34px / 76px minmax(0, 1fr); grid-template-areas: 'top top' 'tools front' 'tools third' 'side side' 'foot foot'; }
+  #work { display: contents; }
+  #paneFront { grid-area: front; } #pane3d { grid-area: third; }
+  #side { border-left: 0; border-top: 1px solid var(--line); }
+  #top { overflow-x: auto; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="top">
+    <input id="pname" aria-label="Project name">
+    <div class="sep"></div>
+    <button class="btn" id="bNew">New</button>
+    <button class="btn" id="bOpen">Open</button>
+    <button class="btn" id="bSave">Save</button>
+    <input type="file" id="fileIn" accept=".json" hidden>
+    <div class="sep"></div>
+    <button class="btn" id="bUndo" title="Ctrl+Z">Undo</button>
+    <button class="btn" id="bRedo" title="Ctrl+Y">Redo</button>
+    <div class="grow"></div>
+    <div class="seg" role="group" aria-label="Units">
+      <button id="uIn">Inches</button><button id="uMm">mm</button>
+    </div>
+    <button class="btn main" id="bPack">Cut list and plans</button>
+  </header>
+  <nav id="tools" aria-label="Tools"></nav>
+  <main id="work">
+    <section class="pane" id="paneFront">
+      <div id="unitTabs"></div>
+      <svg id="front" role="img" aria-label="Front view"></svg>
+      <div id="hint"></div>
+    </section>
+    <section class="pane" id="pane3d">
+      <div id="view3d"></div>
+      <div id="opts3d">
+        <label><input type="checkbox" id="oItems" checked> Objects</label>
+        <label><input type="checkbox" id="oWalls" checked> Walls</label>
+        <label><input type="checkbox" id="oBack" checked> Back panels</label>
+        <button class="btn line" id="bView">Reset view</button>
+      </div>
+    </section>
+  </main>
+  <aside id="side"></aside>
+  <footer id="foot">
+    <span id="fSize"></span><span id="fBoards"></span><span id="fSheets"></span><span id="fBand"></span>
+    <span id="warn"></span>
+  </footer>
+</div>
+
+<dialog id="newDlg">
+  <div style="display:flex;align-items:center"><h2 style="margin:0">What are you making?</h2><span class="grow"></span><button class="btn line" id="newClose">Close</button></div>
+  <p class="note">Pick the closest one. You can change everything afterwards.</p>
+  <div id="cat"></div>
+</dialog>
+
+<section id="pack" aria-label="Cut list and plans">
+  <div id="packTop">
+    <button class="btn line" id="packBack">Back to design</button>
+    <span class="grow"></span>
+    <button class="btn line" id="bCsv">Download cut list</button>
+    <button class="btn main" id="bPrint">Print or save PDF</button>
+  </div>
+  <div id="packBody"></div>
+</section>
+
+<script src="lib/three.min.js"></script>
+<script src="lib/OrbitControls.js"></script>
+<script>
+// ---------- project ----------
+// A unit is a box whose inside is a tree of openings. Adding a shelf or divider splits an opening, so boards
+// can't overlap or float. Sizes are mm; parts[0] is the bottom (h split) or left (v split).
+const leaf = (front = null) => ({ front, fill: 'auto' });
+const hs = (sizes, parts) => ({ dir: 'h', sizes, parts: parts || sizes.map(() => leaf()) });
+const vs = (sizes, parts) => ({ dir: 'v', sizes, parts: parts || sizes.map(() => leaf()) });
+const unit = o => ({ name: 'Unit', w: 900, h: 1800, d: 300, kick: 75, sideL: true, sideR: true, top: true, bottom: true, back: true, endCover: true, place: 'right', root: leaf(), ...o });
+const newProject = (name, units, o = {}) => ({ name, units, in: true, T: 19.05, BT: 19.05, SL: 2438.4, SW: 1219.2, color: 'white', wallA: 3000, wallB: 2000, gap: 40, ...o });
+
+function equalFit(u, n, dir) {   // n openings sharing the unit evenly
+  const i = interiorOf(u, 19.05), T = 19.05, tot = dir === 'h' ? i.z1 - i.z0 : i.x1 - i.x0, s = (tot - (n - 1) * T) / n;
+  return Array(n).fill(s);
+}
+function tpl(o, build) { const u = unit(o); u.root = build(u); return u; }
+const TEMPLATES = [
+  { name: 'Bookshelf', sub: 'Tall, with five shelves', make: () => newProject('Bookshelf', [tpl({ name: 'Bookshelf', w: 800, h: 1980, d: 300 }, u => hs(equalFit(u, 6, 'h')))]) },
+  { name: 'Corner rack', sub: 'Your L-shaped Design 3', make: () => newProject('Corner rack', [
+    tpl({ name: 'Wing A', w: 1260, h: 992.15, d: 520, sideR: false, endCover: false, place: 'first' }, () => hs([530, 330], [vs([510, 711.9]), vs([517.88, 704.02])])),
+    tpl({ name: 'Wing B', w: 800, h: 1853, d: 300, sideL: true, sideR: false, place: 'corner' }, () => hs([530, 330, 270, 270, 263.7], [322.38, 439.52, 322.38, 439.52, 322.38].map(a => vs([a, 780.95 - 19.05 - a])))),
+  ], { wallA: 1600, wallB: 940 }) },
+  { name: 'Cupboard', sub: 'Shelves behind two doors', make: () => newProject('Cupboard', [tpl({ name: 'Cupboard', w: 1000, h: 1980, d: 500 }, u => {
+    const s = equalFit(u, 2, 'v'); return vs(s, [0, 1].map(() => { const x = hs(equalFit(u, 4, 'h')); x.front = 'door'; return x; }));
+  })]) },
+  { name: 'Chest of drawers', sub: 'Four drawers', make: () => newProject('Chest of drawers', [tpl({ name: 'Chest', w: 800, h: 900, d: 450 }, u => { const x = hs(equalFit(u, 4, 'h')); x.parts.forEach(p => { p.front = 'drawer'; }); return x; })]) },
+  { name: 'Desk', sub: 'Drawers on one side, knee room', make: () => newProject('Desk', [tpl({ name: 'Desk', w: 1200, h: 750, d: 600, kick: 0, bottom: false, back: false }, u => {
+    const i = interiorOf(u, 19.05), W = i.x1 - i.x0, H = i.z1 - i.z0, a = 400;
+    const stack = hs(Array(3).fill((H - 2 * 19.05 - 80) / 3).concat(0).slice(0, 3)); stack.sizes[0] += 80; stack.parts.forEach(p => { p.front = 'drawer'; });
+    const knee = leaf(); knee.fill = 'none';
+    return vs([W - 19.05 - a, a], [knee, stack]);
+  })]) },
+  { name: 'TV unit', sub: 'Low, with doors each side', make: () => newProject('TV unit', [tpl({ name: 'TV unit', w: 1800, h: 500, d: 400, kick: 60 }, u => {
+    const parts = [leaf('door'), leaf(), leaf('door')]; return vs(equalFit(u, 3, 'v'), parts);
+  })]) },
+  { name: 'Shoe rack', sub: 'Narrow, low shelves', make: () => newProject('Shoe rack', [tpl({ name: 'Shoe rack', w: 800, h: 900, d: 300 }, u => hs(equalFit(u, 5, 'h')))]) },
+  { name: 'Empty box', sub: 'Start from nothing', make: () => newProject('My furniture', [unit({ name: 'Unit', w: 900, h: 900, d: 400 })]) },
+];
+
+let P, cur = 0, tool = 'select', sel = null, hover = null, drag = null;
+const undoS = [], redoS = [];
+const U = () => P.units[cur];
+const T = () => P.T;
+
+function interiorOf(u, t) { return { x0: u.sideL ? t : 0, x1: u.w - (u.sideR ? t : 0), z0: u.kick + (u.bottom ? t : 0), z1: u.h - (u.top ? t : 0) }; }
+const interior = u => interiorOf(u, P.T);
+function layout(u) {
+  const t = P.T, i = interior(u), leaves = [], divs = [], fronts = [];
+  (function go(n, x, z, w, h, path, cover) {
+    if (n.front) { fronts.push({ n, x, z, w, h, path }); cover = path; }
+    if (!n.parts) { leaves.push({ n, x, z, w, h, path, cover }); return; }
+    let p = n.dir === 'h' ? z : x;
+    n.parts.forEach((c, j) => {
+      const s = n.sizes[j];
+      if (n.dir === 'h') go(c, x, p, w, s, [...path, j], cover); else go(c, p, z, s, h, [...path, j], cover);
+      p += s;
+      if (j < n.parts.length - 1) {
+        divs.push(n.dir === 'h' ? { kind: 'shelf', x, z: p, w, h: t, path, i: j, start: p - s, behind: !!cover } : { kind: 'divider', x: p, z, w: t, h, path, i: j, start: p - s, behind: !!cover });
+        p += t;
+      }
+    });
+  })(u.root, i.x0, i.z0, i.x1 - i.x0, i.z1 - i.z0, [], null);
+  return { leaves, divs, fronts, i };
+}
+const nodeAt = (u, path) => path.reduce((n, j) => n.parts[j], u.root);
+const samePath = (a, b) => a && b && a.length === b.length && a.every((v, i) => v === b[i]);
+function minSize(n, across) {
+  const t = P.T;
+  if (!n.parts) return 50;
+  const along = (n.dir === 'h') !== !!across;   // across = width of this node
+  const m = n.parts.map(c => minSize(c, across));
+  return along ? m.reduce((a, b) => a + b, 0) + t * (n.parts.length - 1) : Math.max(...m);
+}
+function fit(n, w, h) {
+  if (!n.parts) return;
+  const t = P.T, tot = (n.dir === 'h' ? h : w) - t * (n.parts.length - 1), sum = n.sizes.reduce((a, b) => a + b, 0);
+  n.sizes = n.sizes.map(s => s * tot / (sum || 1));
+  n.parts.forEach((c, j) => n.dir === 'h' ? fit(c, w, n.sizes[j]) : fit(c, n.sizes[j], h));
+}
+function refit(u) { const i = interior(u); fit(u.root, i.x1 - i.x0, i.z1 - i.z0); }
+
+// ---------- editing ----------
+function edit(fn) {
+  undoS.push(JSON.stringify(P)); if (undoS.length > 200) undoS.shift(); redoS.length = 0;
+  fn(); persist(); render();
+}
+function persist() { try { localStorage.setItem('furniture-project', JSON.stringify(P)); } catch (e) {} }
+function undo() { if (!undoS.length) return; redoS.push(JSON.stringify(P)); P = JSON.parse(undoS.pop()); afterSwap(); }
+function redo() { if (!redoS.length) return; undoS.push(JSON.stringify(P)); P = JSON.parse(redoS.pop()); afterSwap(); }
+function afterSwap() { sel = null; cur = Math.min(cur, P.units.length - 1); persist(); render(); }
+
+function splitLeaf(u, l, dir, at) {   // at = size of the first new opening
+  const t = P.T, tot = dir === 'h' ? l.h : l.w, a = at, b = tot - a - t, old = l.n;
+  const door = old.front === 'door', mk = () => ({ front: door ? null : old.front, fill: old.fill });
+  const parent = l.path.length ? nodeAt(u, l.path.slice(0, -1)) : null, j = l.path.at(-1);
+  if (parent && parent.dir === dir && !door) {
+    parent.parts.splice(j, 1, mk(), mk()); parent.sizes.splice(j, 1, a, b);
+  } else {
+    const s = { dir, sizes: [a, b], parts: [mk(), mk()], front: door ? 'door' : null };
+    if (parent) parent.parts[j] = s; else u.root = s;
+  }
+}
+function splitEven(u, l, dir, n) {
+  const t = P.T, tot = dir === 'h' ? l.h : l.w, s = (tot - (n - 1) * t) / n, old = l.n;
+  const parent = l.path.length ? nodeAt(u, l.path.slice(0, -1)) : null, j = l.path.at(-1);
+  const door = old.front === 'door', made = Array.from({ length: n }, () => ({ front: door ? null : old.front, fill: old.fill }));
+  if (parent && parent.dir === dir && !door) { parent.parts.splice(j, 1, ...made); parent.sizes.splice(j, 1, ...Array(n).fill(s)); }
+  else { const x = { dir, sizes: Array(n).fill(s), parts: made, front: door ? 'door' : null }; if (parent) parent.parts[j] = x; else u.root = x; }
+}
+function removeDiv(u, d) {
+  const n = nodeAt(u, d.path), t = P.T, a = n.parts[d.i], b = n.parts[d.i + 1];
+  const size = n.sizes[d.i] + n.sizes[d.i + 1] + t;
+  const keep = a.parts && (!b.parts || n.sizes[d.i] >= n.sizes[d.i + 1]) ? a : b.parts ? b : leaf(a.front === b.front ? a.front : null);
+  n.parts.splice(d.i, 2, keep); n.sizes.splice(d.i, 2, size);
+  if (n.parts.length === 1) {   // a split with one child is just that child
+    const c = n.parts[0];
+    if (n.front && !c.front) c.front = n.front;
+    if (d.path.length) { const par = nodeAt(u, d.path.slice(0, -1)); par.parts[d.path.at(-1)] = c; } else u.root = c;
+  }
+  refit(u);
+}
+function setDivPos(u, d, first) {   // first = new size of the opening before the board
+  const n = nodeAt(u, d.path), tot = n.sizes[d.i] + n.sizes[d.i + 1];
+  const min1 = minSize(n.parts[d.i], n.dir === 'v'), min2 = minSize(n.parts[d.i + 1], n.dir === 'v');
+  const a = Math.max(min1, Math.min(tot - min2, first));
+  n.sizes[d.i] = a; n.sizes[d.i + 1] = tot - a;
+  refit(u);
+}
+function liveDiv(u) { return layout(u).divs.find(x => sel && samePath(x.path, sel.path) && x.i === sel.i); }
+function liveLeaf(u) { return layout(u).leaves.find(x => sel && samePath(x.path, sel.path)); }
+function setUnitSize(u, k, v) {
+  const t = P.T;
+  if (k === 'w' || k === 'h') {
+    const i = interior(u), cur_ = k === 'w' ? i.x1 - i.x0 : i.z1 - i.z0, frame = u[k] - cur_;
+    u[k] = Math.max(minSize(u.root, k === 'w') + frame, v);
+  } else u[k] = Math.max(k === 'kick' ? 0 : 2 * t + 60, v);
+  refit(u);
+}
+
+// ---------- units ----------
+const inchText = mm => {
+  const e = Math.round(mm / 25.4 * 8), w = Math.floor(e / 8), f = e % 8;
+  if (!f) return w + '"';
+  let n = f, d = 8; while (n % 2 === 0) { n /= 2; d /= 2; }
+  return (w ? w + ' ' : '') + n + '/' + d + '"';
+};
+const fmt = mm => P.in ? inchText(mm) : Math.round(mm * 10) / 10 + ' mm';
+const fmtBare = mm => P.in ? inchText(mm).replace('"', '') : String(Math.round(mm * 10) / 10);
+function parseLen(s) {
+  s = String(s).replace(/["”]|mm|in/g, '').trim();
+  if (!P.in) return parseFloat(s);
+  const m = /^(?:(\d+(?:\.\d+)?)[\s-]+)?(\d+)\s*\/\s*(\d+)$/.exec(s);
+  const v = m && +m[3] ? (+m[1] || 0) + m[2] / m[3] : parseFloat(s);
+  return v * 25.4;
+}
+const snapStep = () => P.in ? 25.4 / 4 : 5;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// ---------- boards ----------
+const LETTER = 'ABCDEFGHIJKLMNOP';
+function boardsOf(u, idx) {
+  const t = P.T, bt = P.BT, a = LETTER[idx], { fronts, divs, i } = layout(u), out = [];
+  const u0 = u.back ? bt : 0, Dc = u.d - u0, W = i.x1 - i.x0, N = i.x0, x1 = i.x1, d = u.d, h = u.h, kick = u.kick;
+  const openEnd = (!u.sideL ? 1 : 0) + (!u.sideR ? 1 : 0);
+  const add = (id, part, kind, len, wid, thk, box, band, bandText, ref) => out.push({ id: a + '-' + id, unit: idx, part, kind, len, wid, thk, box, band, bandText, ref });
+  if (u.sideL) add('S1', 'Side panel', 'carcass', h, Dc, t, [0, t, u0, d, 0, h], [h, 0], null, { kind: 'part', key: 'sideL' });
+  if (u.sideR) add('S2', 'Side panel', 'carcass', h, Dc, t, [u.w - t, u.w, u0, d, 0, h], [h, 0], null, { kind: 'part', key: 'sideR' });
+  const endBand = openEnd ? Dc * openEnd : 0;
+  if (u.top) add('TOP', 'Top', 'carcass', W, Dc, t, [N, x1, u0, d, h - t, h], [W, endBand], null, { kind: 'part', key: 'top' });
+  if (u.bottom) add('BOT', 'Bottom', 'carcass', W, Dc, t, [N, x1, u0, d, kick, kick + t], [W, endBand], null, { kind: 'part', key: 'bottom' });
+  if (kick > 0) add('KICK', 'Kick board', 'carcass', W, kick, t, [N, x1, d - t, d, 0, kick], [W, 0], null, { kind: 'part', key: 'kick' });
+  if (kick > 0 && !u.sideR && u.endCover) add('KICK2', 'Kick board end', 'carcass', Dc - t, kick, t, [u.w - t, u.w, u0, d - t, 0, kick], [0, 0], null, { kind: 'part', key: 'kick' });
+  let sh = 0, dv = 0;
+  divs.slice().sort((p, q) => p.z - q.z || p.x - q.x).forEach(q => {
+    const ref = { kind: 'div', path: q.path, i: q.i };
+    const dq = q.behind ? d - t - 2 : d, wq = dq - u0;
+    if (q.kind === 'shelf') { sh++; add('SH' + sh, 'Shelf', 'shelf', q.w, wq, t, [q.x, q.x + q.w, u0, dq, q.z, q.z + t], [q.w, (q.x <= N + .01 && !u.sideL ? Dc : 0) + (q.x + q.w >= x1 - .01 && !u.sideR ? Dc : 0)], null, ref); }
+    else { dv++; add('D' + dv, 'Divider', 'carcass', q.h, wq, t, [q.x, q.x + t, u0, dq, q.z, q.z + q.h], [q.h, 0], null, ref); }
+  });
+  let df = 0, dr = 0;
+  fronts.forEach(l => {
+    const ref = { kind: 'leaf', path: l.path };
+    if (l.n.front === 'door') { df++; add('DR' + df, 'Door', 'front', l.h - 4, l.w - 4, t, [l.x + 2, l.x + l.w - 2, d - t, d, l.z + 2, l.z + l.h - 2], [2 * (l.w + l.h - 8), 0], 'all 4 edges', ref); }
+    if (l.n.front === 'drawer') {
+      dr++;
+      const dep = Math.floor((Dc - t - 20) / 50) * 50, bw = l.w - 26, bh = l.h - 30, zb = l.z + 10;
+      add('DF' + dr, 'Drawer front', 'front', l.w - 4, l.h - 4, t, [l.x + 2, l.x + l.w - 2, d - t, d, l.z + 2, l.z + l.h - 2], [2 * (l.w + l.h - 8), 0], 'all 4 edges', ref);
+      if (dep >= 100 && bh >= 40 && bw > 2 * t + 40) {
+        const ub = d - t - dep;
+        add('DS' + dr, 'Drawer box side', 'box', dep, bh, t, [l.x + 13, l.x + 13 + t, ub, d - t, zb, zb + bh], [dep, 0], 'top edge', ref);
+        add('DS' + dr, 'Drawer box side', 'box', dep, bh, t, [l.x + l.w - 13 - t, l.x + l.w - 13, ub, d - t, zb, zb + bh], [dep, 0], 'top edge', ref);
+        add('DB' + dr, 'Drawer box back', 'box', bw - 2 * t, bh, t, [l.x + 13 + t, l.x + l.w - 13 - t, ub, ub + t, zb, zb + bh], [bw - 2 * t, 0], 'top edge', ref);
+        add('DI' + dr, 'Drawer box front', 'box', bw - 2 * t, bh, t, [l.x + 13 + t, l.x + l.w - 13 - t, d - 2 * t, d - t, zb, zb + bh], [0, 0], '—', ref);
+        add('DP' + dr, 'Drawer base', 'box', dep, bw, 9, [l.x + 13, l.x + l.w - 13, ub, d - t, zb - 9, zb], [0, 0], '—', ref);
+      }
+    }
+  });
+  if (u.back) {
+    const maxW = h <= P.SW ? P.SL : h <= P.SL ? P.SW : Infinity, n = u.w <= maxW ? 1 : Math.ceil(u.w / maxW), pw = u.w / n;
+    for (let k = 0; k < n; k++) add('BK' + (n > 1 ? k + 1 : ''), 'Back panel', 'back', h, pw, bt, [k * pw, (k + 1) * pw, 0, bt, 0, h], [0, 0], '—', { kind: 'part', key: 'back' });
+  }
+  return out;
+}
+const allBoards = () => P.units.flatMap(boardsOf);
+const r2 = v => Math.round(v * 100) / 100;
+function cutRows(bs) {
+  const m = new Map();
+  bs.forEach(b => {
+    const key = [b.part, r2(Math.max(b.len, b.wid)), r2(Math.min(b.len, b.wid)), r2(b.thk), b.bandText].join('|');
+    const e = m.get(key) || { ids: [], part: b.part, kind: b.kind, len: r2(Math.max(b.len, b.wid)), wid: r2(Math.min(b.len, b.wid)), thk: r2(b.thk), qty: 0, band: b.band, bandText: b.bandText };
+    e.qty++; e.ids.push(b.id); m.set(key, e);
+  });
+  return [...m.values()];
+}
+function bandLabel(r) {
+  if (r.bandText) return r.bandText;
+  return [r.band[0] ? 'front edge' : '', r.band[1] ? 'open end' : ''].filter(Boolean).join(', ') || '—';
+}
+// strip packing: rip strips along the sheet, cross-cut parts from each; 4 mm saw cut. Tries a few orders, keeps the fewest sheets.
+function packSheets(rows, thk) {
+  const k = 4, SL = P.SL, SW = P.SW, pieces = [];
+  rows.filter(r => r.thk === r2(thk)).forEach(r => r.ids.forEach(id => pieces.push({ id, kind: r.kind, l: r.len, w: r.wid })));
+  const orders = [(a, b) => b.w - a.w || b.l - a.l, (a, b) => b.l - a.l || b.w - a.w, (a, b) => b.l * b.w - a.l * a.w, (a, b) => b.l + b.w - a.l - a.w];
+  const fill = sh => sh.strips.reduce((a, t) => a + t.parts.reduce((b, q) => b + q.l * q.w, 0), 0);
+  let best = null;
+  orders.forEach(o => {
+    const sheets = [], over = [];
+    [...pieces].sort(o).forEach(pc => {
+      if (pc.l > SL || pc.w > SW) { over.push(pc); return; }
+      const col = sheets.flatMap(sh => sh.strips.flatMap(t => t.cols.map(c => ({ c, t })))).find(({ c, t }) => pc.l <= c.l && c.used + pc.w <= t.h);
+      if (col) { col.t.parts.push({ ...pc, x: col.c.x, y: col.t.y + col.c.used }); col.c.used += pc.w + k; return; }
+      let st = null;
+      for (const sh of sheets) {
+        st = sh.strips.find(t => pc.w <= t.h && t.used + pc.l <= SL);
+        if (!st && sh.usedH + pc.w <= SW) { st = { y: sh.usedH, h: pc.w, used: 0, parts: [], cols: [] }; sh.strips.push(st); sh.usedH += pc.w + k; }
+        if (st) break;
+      }
+      if (!st) { st = { y: 0, h: pc.w, used: 0, parts: [], cols: [] }; sheets.push({ usedH: pc.w + k, strips: [st] }); }
+      st.parts.push({ ...pc, x: st.used, y: st.y }); st.cols.push({ x: st.used, l: pc.l, used: pc.w + k }); st.used += pc.l + k;
+    });
+    const r = { sheets, over };
+    if (!best || sheets.length < best.sheets.length || (sheets.length === best.sheets.length && fill(sheets.at(-1) || { strips: [] }) < fill(best.sheets.at(-1) || { strips: [] }))) best = r;
+  });
+  return best;
+}
+const thicknesses = rows => [...new Set(rows.map(r => r.thk))].sort((a, b) => b - a);
+// where each unit sits: first at the origin, others beside the last or round the corner
+function places() {
+  let x = 0, zOff = 0; const out = [];
+  P.units.forEach((u, i) => {
+    if (i && u.place === 'corner') { out.push({ x, corner: true }); x += u.d; }
+    else { out.push({ x, corner: false }); x += u.w; }
+  });
+  return out;
+}
+function worldBox(u, pl, b) {
+  const [s0, s1, u0, u1, z0, z1] = b;
+  return pl.corner ? [pl.x + u.d - u1, pl.x + u.d - u0, z0, z1, s0, s1] : [pl.x + s0, pl.x + s1, z0, z1, u0, u1];
+}
+function extents() {
+  const pl = places(); let X = 0, Z = 0, Y = 0;
+  P.units.forEach((u, i) => { X = Math.max(X, pl[i].x + (pl[i].corner ? u.d : u.w)); Z = Math.max(Z, pl[i].corner ? u.w : u.d); Y = Math.max(Y, u.h); });
+  return { X, Y, Z };
+}
+function checks() {
+  const w = [], e = extents();
+  if (e.X + P.gap > P.wallA) w.push(`It needs ${fmt(e.X + P.gap)} along the back wall, which is ${fmt(P.wallA)} long.`);
+  if (e.Z + P.gap > P.wallB) w.push(`It needs ${fmt(e.Z + P.gap)} along the side wall, which is ${fmt(P.wallB)} long.`);
+  P.units.forEach((u, idx) => {
+    const { divs, leaves, i } = layout(u), nm = P.units.length > 1 ? u.name + ': ' : '';
+    divs.filter(d => d.kind === 'shelf').forEach(s => {
+      const below = leaves.filter(l => Math.abs(l.z + l.h - s.z) < .5 && l.x >= s.x - .5 && l.x + l.w <= s.x + s.w + .5).sort((a, b) => a.x - b.x);
+      let sp = 0; below.forEach(l => { sp = Math.max(sp, l.w); });
+      if (sp > 800) w.push(`${nm}a shelf spans ${fmt(sp)} with nothing under it and may sag. Add a divider.`);
+    });
+    w.push(...itemChecks(u, nm));
+    leaves.forEach(l => { if (l.w < 100 || l.h < 100) w.push(`${nm}an opening is only ${fmt(Math.min(l.w, l.h))} across.`); });
+  });
+  const over = cutRowsChecked();
+  if (over.length) w.push(`Too big for one sheet, so it needs a joint: ${over.join(', ')}.`);
+  return [...new Set(w)];
+}
+function cutRowsChecked() {
+  const rows = cutRows(allBoards()), out = [];
+  thicknesses(rows).forEach(t => packSheets(rows, t).over.forEach(p => out.push(p.id)));
+  return out;
+}
+
+// ---------- tools ----------
+const ICONS = {
+  select: '<path d="M6 3l14 10-6.5 1L10 21z"/>',
+  shelf: '<path d="M4 5v14M20 5v14M4 12h16"/><path d="M4 12h16" stroke-width="3.4"/>',
+  divider: '<path d="M4 5h16M4 19h16M12 5v14"/><path d="M12 5v14" stroke-width="3.4"/>',
+  door: '<rect x="5" y="3" width="14" height="18"/><path d="M15.5 11v2"/>',
+  drawer: '<rect x="4" y="7" width="16" height="10"/><path d="M9 12h6"/>',
+  objects: '<path d="M5 4h4v16H5zM9 7h4v13H9z"/><path d="M14.5 7.5l3.6-1 3.4 12.6-3.6 1z"/>',
+  erase: '<path d="M4 15l8-9 8 7-6 7H9z"/><path d="M8.5 10l7 7"/>',
+};
+const TOOLS = [
+  ['select', 'Select', 'V', 'Click a shelf, divider or opening to change it. Drag one to move it. Drag a yellow square to resize.'],
+  ['shelf', 'Shelf', 'S', 'Click an opening to add a shelf. Press Esc when you finish.'],
+  ['divider', 'Divider', 'D', 'Click an opening to add a divider. Press Esc when you finish.'],
+  ['door', 'Door', 'O', 'Click an opening to add or remove a door.'],
+  ['drawer', 'Drawer', 'W', 'Click an opening to add or remove a drawer.'],
+  ['objects', 'Objects', 'B', 'Drag an object from the gallery onto the front view or 3D view.'],
+  ['erase', 'Erase', 'E', 'Click a shelf, divider, door, drawer or object to remove it.'],
+];
+function setTool(t) { tool = t; endPlace(); if (t !== 'select') sel = null; hover = null; render(); }
+document.getElementById('tools').innerHTML = TOOLS.map(([k, n, key]) => `<button class="tool" data-t="${k}" title="${n} (${key})"><svg viewBox="0 0 24 24">${ICONS[k]}</svg>${n}</button>`).join('');
+document.getElementById('tools').addEventListener('click', e => { const b = e.target.closest('.tool'); if (b) setTool(b.dataset.t); });
+
+// ---------- front view ----------
+const front = document.getElementById('front');
+const MAT = {
+  white: { f: '#dfe3e1', c: 0xf2f2ee, name: 'White' }, mdf: { f: '#c7a57d', c: 0xc5a47e, name: 'Raw board' }, wood: { f: '#d6b283', c: 0xd9b888, name: 'Light wood' },
+  walnut: { f: '#7c5638', c: 0x6f4b31, name: 'Walnut' }, black: { f: '#4a4f52', c: 0x2a2c2e, name: 'Black' },
+};
+let view = { k: 1, ox: 0, oy: 0 };
+function computeView() {
+  const r = front.getBoundingClientRect(), u = U();
+  const L = 78, R = 28, TP = 92, B = 44;
+  const extra = Math.max(0, ...itemsOf(u).filter(i => settle(u, i).leaf === null).map(i => i.h));   // room for objects on top
+  const k = Math.min((r.width - L - R) / u.w, (r.height - TP - B) / (u.h + extra));
+  const ox = L + (r.width - L - R - u.w * k) / 2, oy = TP + (r.height - TP - B + (u.h + extra) * k) / 2;
+  view = { k, ox, oy, W: r.width, H: r.height, extra };
+}
+const px = s => view.ox + s * view.k, py = z => view.oy - z * view.k;
+function rc(x, z, w, h, attrs) { return `<rect x="${px(x)}" y="${py(z + h)}" width="${Math.max(0, w * view.k)}" height="${Math.max(0, h * view.k)}" ${attrs}/>`; }
+function tl(x, y, s, a = '') { return `<text x="${x}" y="${y}" font-family="Barlow, sans-serif" ${a}>${esc(s)}</text>`; }
+function pill(x, y, s, bg = '#ffc928', fg = '#20262a') {
+  const w = s.length * 7.4 + 12;
+  return `<rect x="${x - w / 2}" y="${y - 11}" width="${w}" height="21" rx="2" fill="${bg}" stroke="#20262a"/>` + tl(x, y + 4.5, s, `text-anchor="middle" font-size="14" font-weight="600" fill="${fg}"`);
+}
+// the rulers are a carpenter's tape, hooked on the unit's own edge
+function tape(u, cursor) {
+  const k = view.k, unitMM = P.in ? 25.4 : 10;
+  const pick = P.in ? [1, 2, 6, 12, 24] : [5, 10, 20, 50, 100];
+  const maj = pick.find(c => c * unitMM * k >= 42) || pick.at(-1), minor = P.in ? (maj >= 6 ? 1 : .5) : maj / 5;
+  const showMinor = minor * unitMM * k >= 4;
+  let s = '';
+  const th = 24, ty = py(u.h + view.extra) - th - 12, tx = px(0) - th - 12;
+  const LEN = u.w, HEI = u.h;
+  s += `<rect x="${px(0)}" y="${ty}" width="${LEN * k}" height="${th}" fill="#ffc928" stroke="#20262a" stroke-width=".8"/>`;
+  s += `<rect x="${tx}" y="${py(HEI)}" width="${th}" height="${HEI * k}" fill="#ffc928" stroke="#20262a" stroke-width=".8"/>`;
+  const step = (showMinor ? minor : maj) * unitMM;
+  for (let v = 0; v <= LEN + .01; v += step) {
+    const n = v / unitMM, big = Math.abs(n / maj - Math.round(n / maj)) < 1e-6, x = px(v);
+    s += `<line x1="${x}" x2="${x}" y1="${ty + th}" y2="${ty + th - (big ? 12 : 6)}" stroke="#20262a" stroke-width="${big ? 1.3 : .7}"/>`;
+    if (big && v > 0) s += tl(x + 3, ty + 11, P.in ? Math.round(n) : Math.round(v / 10), 'font-size="12" font-weight="500" fill="#20262a"');
+  }
+  for (let v = 0; v <= HEI + .01; v += step) {
+    const n = v / unitMM, big = Math.abs(n / maj - Math.round(n / maj)) < 1e-6, y = py(v);
+    s += `<line x1="${tx + th}" x2="${tx + th - (big ? 12 : 6)}" y1="${y}" y2="${y}" stroke="#20262a" stroke-width="${big ? 1.3 : .7}"/>`;
+    if (big && v > 0) s += tl(tx + 2, y - 3, P.in ? Math.round(n) : Math.round(v / 10), 'font-size="12" font-weight="500" fill="#20262a"');
+  }
+  s += pill(px(u.w / 2), ty - 12, fmt(u.w), '#20262a', '#fff');
+  s += `<g transform="rotate(-90 ${tx - 14} ${py(u.h / 2)})">${pill(tx - 14, py(u.h / 2), fmt(u.h), '#20262a', '#fff')}</g>`;
+  if (cursor) {
+    s += `<line x1="${px(cursor.s)}" x2="${px(cursor.s)}" y1="${ty - 2}" y2="${ty + th + 2}" stroke="#b93a1a" stroke-width="2"/>`;
+    s += `<line x1="${tx - 2}" x2="${tx + th + 2}" y1="${py(cursor.z)}" y2="${py(cursor.z)}" stroke="#b93a1a" stroke-width="2"/>`;
+  }
+  return s;
+}
+function drawFront() {
+  const u = U(); computeView();
+  front.setAttribute('viewBox', `0 0 ${view.W} ${view.H}`);
+  const { leaves, divs, fronts, i } = layout(u), m = MAT[P.color], fill = m.f, t = P.T;
+  const isSel = (k, a, b) => sel && sel.kind === k && (k === 'part' ? sel.key === a : samePath(sel.path, a) && (k !== 'div' || sel.i === b));
+  const boardAttr = on => `fill="${on ? '#ffc928' : fill}" stroke="#20262a" stroke-width="${on ? 1.6 : .9}"`;
+  let s = rc(0, 0, u.w, u.h, 'fill="#fff" fill-opacity=".45" stroke="#20262a" stroke-width=".5" stroke-dasharray="3 3"');
+  leaves.forEach(l => {
+    const hov = hover && hover.kind === 'leaf' && samePath(hover.path, l.path), on = isSel('leaf', l.path);
+    s += rc(l.x, l.z, l.w, l.h, `fill="${on ? '#fff3c4' : hov && tool !== 'erase' ? '#fff9e2' : '#f6f8f7'}"`);
+    if (l.w * view.k > 46 && l.h * view.k > 24 && l.n.front !== 'drawer') s += tl(px(l.x + l.w / 2), py(l.z + l.h / 2) + 5, `${fmtBare(l.w)} × ${fmtBare(l.h)}`, 'text-anchor="middle" font-size="13" fill="#3f4a50" stroke="#f6f8f7" stroke-width="4" paint-order="stroke"');
+    if (hov && tool === 'erase' && l.cover) s += rc(l.x, l.z, l.w, l.h, 'fill="#b93a1a" fill-opacity=".3"');
+    if (hov && (tool === 'door' || tool === 'drawer')) s += rc(l.x + 2, l.z + 2, l.w - 4, l.h - 4, 'fill="#ffc928" fill-opacity=".6" stroke="#20262a" stroke-dasharray="5 3"');
+  });
+  // frame
+  const part = (key, x, z, w, h) => { s += rc(x, z, w, h, boardAttr(isSel('part', key))); };
+  if (u.kick > 0) part('kick', i.x0, 0, i.x1 - i.x0, u.kick);
+  if (u.bottom) part('bottom', i.x0, u.kick, i.x1 - i.x0, t);
+  if (u.top) part('top', i.x0, u.h - t, i.x1 - i.x0, t);
+  if (u.sideL) part('sideL', 0, 0, t, u.h);
+  if (u.sideR) part('sideR', u.w - t, 0, t, u.h);
+  divs.forEach(d => {
+    const on = isSel('div', d.path, d.i), hov = hover && hover.kind === 'div' && samePath(hover.path, d.path) && hover.i === d.i;
+    s += rc(d.x, d.z, d.w, d.h, hov && tool === 'erase' ? 'fill="#b93a1a" stroke="#20262a"' : hov ? 'fill="#ffe08a" stroke="#20262a" stroke-width="1.4"' : boardAttr(on));
+  });
+  s += drawItems(u);
+  fronts.forEach(l => {
+    if (l.n.front === 'door') {
+      s += rc(l.x + 2, l.z + 2, l.w - 4, l.h - 4, `fill="${fill}" fill-opacity=".35" stroke="#20262a" stroke-width="1.2"`);
+      const hx = l.x + l.w - Math.min(30, l.w / 6);
+      s += `<path d="M${px(hx)} ${py(l.z + l.h / 2 + 50)}V${py(l.z + l.h / 2 - 50)}" stroke="#20262a" stroke-width="2.4"/>`;
+      s += `<path d="M${px(l.x + 2)} ${py(l.z + l.h - 2)}L${px(l.x + l.w - 2)} ${py(l.z + l.h / 2)}L${px(l.x + 2)} ${py(l.z + 2)}" fill="none" stroke="#20262a" stroke-width=".7" stroke-dasharray="5 4"/>`;
+    } else {
+      s += rc(l.x + 2, l.z + 2, l.w - 4, l.h - 4, boardAttr(false));
+      const c = l.x + l.w / 2;
+      s += `<path d="M${px(c - 64)} ${py(l.z + l.h / 2)}H${px(c + 64)}" stroke="#20262a" stroke-width="2.4"/>`;
+    }
+  });
+  // the gap readout on either side of a selected or dragged board
+  const active = sel && sel.kind === 'div' ? liveDiv(u) : null;
+  if (active) s += gapPills(u, active);
+  if (hover && hover.ghost) {
+    const g = hover.ghost, l = hover.leaf;
+    if (g.dir === 'h') { s += rc(l.x, l.z + g.at, l.w, t, 'fill="#ffc928" stroke="#20262a" stroke-dasharray="5 3"'); s += pill(px(l.x + l.w / 2), py(l.z + g.at + t + (l.h - g.at - t) / 2), fmt(l.h - g.at - t)) + pill(px(l.x + l.w / 2), py(l.z + g.at / 2), fmt(g.at)); }
+    else { s += rc(l.x + g.at, l.z, t, l.h, 'fill="#ffc928" stroke="#20262a" stroke-dasharray="5 3"'); s += pill(px(l.x + g.at / 2), py(l.z + l.h / 2), fmt(g.at)) + pill(px(l.x + g.at + t + (l.w - g.at - t) / 2), py(l.z + l.h / 2), fmt(l.w - g.at - t)); }
+  }
+  s += tape(u, hover && hover.s != null ? { s: hover.s, z: hover.z } : null);
+  if (tool === 'select') {   // resize corners
+    const g = (x, y) => `<rect x="${x - 7}" y="${y - 7}" width="14" height="14" rx="1" fill="#ffc928" stroke="#20262a" stroke-width="1.2"/>`;
+    s += g(px(u.w), py(u.h / 2)) + g(px(u.w / 2), py(u.h)) + g(px(u.w), py(u.h));
+  }
+  s += `<line x1="${px(-40 / view.k)}" x2="${px(u.w + 40 / view.k)}" y1="${py(0)}" y2="${py(0)}" stroke="#20262a" stroke-width="1.5"/>`;
+  front.innerHTML = s;
+  front.style.cursor = hover && hover.kind === 'item' && tool !== 'erase' ? 'move' : tool === 'objects' || place ? 'default' : tool === 'select' ? (hover && hover.kind === 'div' ? (hover.dir === 'h' ? 'ns-resize' : 'ew-resize') : hover && hover.kind === 'grip' ? { w: 'ew-resize', h: 'ns-resize', wh: 'nesw-resize' }[hover.which] : 'default') : 'crosshair';
+}
+function gapPills(u, d) {
+  const n = nodeAt(u, d.path), a = n.sizes[d.i], b = n.sizes[d.i + 1];
+  if (d.kind === 'shelf') { const c = d.x + d.w / 2; return pill(px(c), py(d.z - a / 2), fmt(a)) + pill(px(c), py(d.z + P.T + b / 2), fmt(b)); }
+  const c = d.z + d.h / 2; return pill(px(d.x - a / 2), py(c), fmt(a)) + pill(px(d.x + P.T + b / 2), py(c), fmt(b));
+}
+function pointerMM(e) { const r = front.getBoundingClientRect(); const x = e.clientX - r.left, y = e.clientY - r.top; return { x, y, s: (x - view.ox) / view.k, z: (view.oy - y) / view.k }; }
+function hitTest(e) {
+  const u = U(), p = pointerMM(e), { leaves, divs, i } = layout(u), tol = 5 / view.k, t = P.T;
+  if (tool === 'select') {
+    const near = (x, y) => Math.abs(p.x - px(x)) < 10 && Math.abs(p.y - py(y)) < 10;
+    if (near(u.w, u.h)) return { kind: 'grip', which: 'wh', ...p };
+    if (near(u.w, u.h / 2)) return { kind: 'grip', which: 'w', ...p };
+    if (near(u.w / 2, u.h)) return { kind: 'grip', which: 'h', ...p };
+  }
+  if (tool === 'select' || tool === 'erase' || tool === 'objects') {
+    const hitItem = itemsOf(u).slice().reverse().find(it => { const r = settle(u, it); return p.s >= r.s - it.w / 2 && p.s <= r.s + it.w / 2 && p.z >= r.z && p.z <= r.z + it.h; });
+    if (hitItem) return { kind: 'item', it: hitItem, ...p };
+  }
+  for (const d of divs) {
+    const hit = p.s > d.x - (d.kind === 'divider' ? tol : 0) && p.s < d.x + d.w + (d.kind === 'divider' ? tol : 0) && p.z > d.z - (d.kind === 'shelf' ? tol : 0) && p.z < d.z + d.h + (d.kind === 'shelf' ? tol : 0);
+    if (hit) return { kind: 'div', path: d.path, i: d.i, dir: d.kind === 'shelf' ? 'h' : 'v', d, ...p };
+  }
+  for (const l of leaves) if (p.s >= l.x && p.s <= l.x + l.w && p.z >= l.z && p.z <= l.z + l.h) return { kind: 'leaf', path: l.path, leaf: l, ...p };
+  if (p.s < 0 || p.s > u.w || p.z < 0 || p.z > u.h) return { ...p, kind: null };
+  if (u.sideL && p.s <= t) return { kind: 'part', key: 'sideL', ...p };
+  if (u.sideR && p.s >= u.w - t) return { kind: 'part', key: 'sideR', ...p };
+  if (u.top && p.z >= u.h - t) return { kind: 'part', key: 'top', ...p };
+  if (u.bottom && p.z >= u.kick && p.z <= u.kick + t) return { kind: 'part', key: 'bottom', ...p };
+  if (u.kick && p.z < u.kick) return { kind: 'part', key: 'kick', ...p };
+  return { ...p, kind: null };
+}
+function ghostFor(h) {   // where a new board would land: snapped, with a pull toward the exact middle
+  const l = h.leaf, t = P.T, dir = tool === 'shelf' ? 'h' : 'v', tot = dir === 'h' ? l.h : l.w;
+  if (tot < 100 + t) return null;
+  const pos = dir === 'h' ? h.z - l.z - t / 2 : h.s - l.x - t / 2, mid = (tot - t) / 2, step = snapStep();
+  let at = Math.abs(pos - mid) * view.k < 10 ? mid : Math.round(pos / step) * step;
+  at = Math.max(50, Math.min(tot - t - 50, at));
+  return { dir, at };
+}
+front.addEventListener('pointermove', e => {
+  if (drag) { dragMove(e); return; }
+  if (place && place.down) return;
+  const h = hitTest(e);
+  if (place && place.armed) { hover = { placing: place.type, s: h.s, z: h.z }; drawFront(); return; }
+  if ((tool === 'shelf' || tool === 'divider') && h.kind === 'leaf') h.ghost = ghostFor(h);
+  hover = h; drawFront();
+});
+front.addEventListener('pointerleave', () => { if (!drag) { hover = null; drawFront(); } });
+front.addEventListener('pointerdown', e => {
+  const h = hitTest(e), u = U();
+  if (place && place.armed) { const type = place.type; endPlace(); edit(() => addItemAt(cur, type, h.s, h.z)); return; }
+  if (h.kind === 'item' && tool !== 'erase') {
+    if (tool !== 'select') { tool = 'select'; }
+    sel = { kind: 'item', id: h.it.id }; undoS.push(JSON.stringify(P)); redoS.length = 0;
+    const r = settle(u, h.it); drag = { type: 'item', dx: h.s - r.s, dz: h.z - r.z, moved: false }; front.setPointerCapture(e.pointerId); render(); return;
+  }
+  if (tool === 'erase' && h.kind === 'item') { edit(() => { u.items = itemsOf(u).filter(i => i !== h.it); }); return; }
+  if (tool === 'objects') return;
+  if (tool === 'select') {
+    if (h.kind === 'grip') { undoS.push(JSON.stringify(P)); redoS.length = 0; drag = { type: 'grip', which: h.which }; front.setPointerCapture(e.pointerId); return; }
+    if (h.kind === 'div') { sel = { kind: 'div', path: h.path, i: h.i }; undoS.push(JSON.stringify(P)); redoS.length = 0; drag = { type: 'div', dir: h.dir, moved: false }; front.setPointerCapture(e.pointerId); render(); return; }
+    sel = h.kind === 'leaf' ? { kind: 'leaf', path: h.path } : h.kind === 'part' ? { kind: 'part', key: h.key } : null;
+    render(); return;
+  }
+  if (tool === 'erase') {
+    if (h.kind === 'div') edit(() => removeDiv(u, h.d));
+    else if (h.kind === 'leaf' && h.leaf.cover) edit(() => { nodeAt(u, h.leaf.cover).front = null; });
+    return;
+  }
+  if (h.kind !== 'leaf') return;
+  if (tool === 'door' || tool === 'drawer') { edit(() => { const c = h.leaf.cover ? nodeAt(u, h.leaf.cover) : h.leaf.n; c.front = c.front === tool ? null : tool; }); return; }
+  const g = ghostFor(h); if (g) edit(() => splitLeaf(u, h.leaf, g.dir, g.at));
+});
+function dragMove(e) {
+  const u = U(), p = pointerMM(e);
+  if (drag.type === 'item') {
+    const it = itemsOf(u).find(i => sel && i.id === sel.id); if (!it) return;
+    it.s = p.s - drag.dx; it.z = p.z; pinItem(u, it); it.z = p.z; drag.it = it;
+    drag.moved = true; persist(); renderLive(); return;
+  }
+  if (drag.type === 'grip') {
+    const step = snapStep();
+    if (drag.which !== 'h') setUnitSize(u, 'w', Math.round(p.s / step) * step);
+    if (drag.which !== 'w') setUnitSize(u, 'h', Math.round(p.z / step) * step);
+  } else {
+    const d = liveDiv(u); if (!d) return;
+    const n = nodeAt(u, d.path), tot = n.sizes[d.i] + n.sizes[d.i + 1], pos = (d.kind === 'shelf' ? p.z : p.s) - d.start - P.T / 2, step = snapStep();
+    const mid = tot / 2, at = e.altKey ? pos : Math.abs(pos - mid) * view.k < 8 ? mid : Math.round(pos / step) * step;
+    setDivPos(u, d, at);
+  }
+  drag.moved = true; persist(); renderLive();
+}
+front.addEventListener('pointerup', () => { if (drag) { if (!drag.moved) undoS.pop(); if (drag.it) pinItem(U(), drag.it); drag = null; persist(); render(); } });
+
+// ---------- side panel ----------
+const side = document.getElementById('side');
+function fieldLen(label, val, on, id) { return `<label class="field">${label}<input type="text" data-len="${id}" value="${esc(fmtBare(val))}"></label>`; }
+let lenHandlers = {};
+function bindLen() {
+  side.querySelectorAll('[data-len]').forEach(inp => {
+    const go = () => {
+      const v = parseLen(inp.value);
+      if (!isFinite(v) || v < 0) { render(); return; }
+      lenHandlers[inp.dataset.len](v);
+    };
+    inp.addEventListener('change', go);
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); e.stopPropagation(); });
+  });
+}
+function renderSide() {
+  const u = U(), keepScroll = side.scrollTop; lenHandlers = {};
+  let h = '';
+  const selItem = sel && sel.kind === 'item' ? itemsOf(u).find(i => i.id === sel.id) : null;
+  if (selItem) {
+    h += `<h2>${esc(selItem.name)}</h2><div class="gal" style="grid-template-columns:1fr;margin-bottom:10px">${objThumb(selItem.type, 72)}</div>`;
+    ['w', 'h', 'd'].forEach((k, i) => { lenHandlers['it' + k] = v => edit(() => { selItem[k] = Math.max(10, v); }); h += fieldLen(['Width', 'Height', 'Depth'][i], selItem[k], null, 'it' + k); });
+    h += `<p class="note">Enter your real sizes to check it fits. Objects aren't added to the cut list.</p>`;
+    h += `<div class="rowb"><button class="btn line" id="dupItem">Duplicate</button><button class="btn bad" id="delItem">Delete</button></div><div class="rowb"><button class="btn line" data-desel>Done</button></div>`;
+  } else if (tool === 'objects') {
+    h += galleryHtml();
+  } else if (sel && sel.kind === 'leaf' && liveLeaf(u)) {
+    const l = liveLeaf(u);
+    h += `<h2>Opening</h2><div class="big">${fmtBare(l.w)} × ${fmtBare(l.h)}${P.in ? '"' : ' mm'}</div>`;
+    h += `<h3>Add shelves</h3><div class="rowb">${[1, 2, 3, 4].map(n => `<button class="btn line" data-even="h${n + 1}">${n}</button>`).join('')}</div>`;
+    h += `<h3>Add dividers</h3><div class="rowb">${[1, 2, 3].map(n => `<button class="btn line" data-even="v${n + 1}">${n}</button>`).join('')}</div>`;
+    h += `<p class="note">Added evenly. Drag them to move them afterwards.</p>`;
+    const cov = l.cover ? nodeAt(u, l.cover).front : null;
+    h += `<h3>Front</h3><div class="rowb">${[[null, 'Open'], ['door', 'Door'], ['drawer', 'Drawer']].map(([k, n]) => `<button class="btn line ${cov === k ? 'on' : ''}" data-front="${k}">${n}</button>`).join('')}</div>`;
+    if (l.path.length && !l.cover) h += `<div class="rowb"><button class="btn line" id="bigDoor">One door over this whole section</button></div>`;
+    h += `<div class="rowb" style="margin-top:14px"><button class="btn line" data-desel>Done</button></div>`;
+  } else if (sel && sel.kind === 'div' && liveDiv(u)) {
+    const d = liveDiv(u), n = nodeAt(u, d.path), name = d.kind === 'shelf' ? 'Shelf' : 'Divider';
+    h += `<h2>${name}</h2><div class="big">${fmtBare(d.kind === 'shelf' ? d.w : d.h)} × ${fmtBare(u.d - (u.back ? P.BT : 0))}${P.in ? '"' : ' mm'}</div>`;
+    lenHandlers.a = v => edit(() => setDivPos(u, liveDiv(u), v));
+    lenHandlers.b = v => edit(() => { const q = liveDiv(u), m = nodeAt(u, q.path); setDivPos(u, q, m.sizes[q.i] + m.sizes[q.i + 1] - v); });
+    h += fieldLen(d.kind === 'shelf' ? 'Space below' : 'Space on left', n.sizes[d.i], null, 'a');
+    h += fieldLen(d.kind === 'shelf' ? 'Space above' : 'Space on right', n.sizes[d.i + 1], null, 'b');
+    h += `<div class="rowb" style="margin-top:12px"><button class="btn line" id="even">Space evenly</button><button class="btn bad" id="del">Delete</button></div>`;
+    h += `<p class="note">Arrow keys nudge it. Hold Alt while dragging for exact placing.</p>`;
+    h += `<div class="rowb"><button class="btn line" data-desel>Done</button></div>`;
+  } else if (sel && sel.kind === 'part') {
+    const names = { sideL: 'Left side', sideR: 'Right side', top: 'Top', bottom: 'Bottom', kick: 'Kick board', back: 'Back panel' };
+    h += `<h2>${names[sel.key]}</h2><p class="note">This is part of the box. Delete it if this unit doesn't need one.</p>`;
+    if (sel.key === 'kick') { lenHandlers.kick = v => edit(() => setUnitSize(u, 'kick', v)); h += fieldLen('Height', u.kick, null, 'kick'); }
+    h += `<div class="rowb"><button class="btn bad" id="delPart">Delete</button><button class="btn line" data-desel>Done</button></div>`;
+  } else {
+    h += `<h2>${esc(u.name)}</h2>`;
+    h += `<label class="field">Name<input type="text" id="uName" value="${esc(u.name)}"></label>`;
+    ['w', 'h', 'd'].forEach((k, i) => { lenHandlers[k] = v => edit(() => setUnitSize(u, k, v)); h += fieldLen(['Width', 'Height', 'Depth'][i], u[k], null, k); });
+    lenHandlers.kick = v => edit(() => setUnitSize(u, 'kick', v));
+    h += fieldLen('Kick board', u.kick, null, 'kick');
+    h += `<h3>Box panels</h3>`;
+    [['sideL', 'Left side'], ['sideR', 'Right side'], ['top', 'Top'], ['bottom', 'Bottom'], ['back', 'Back']].forEach(([k, n]) => { h += `<label class="check"><input type="checkbox" data-part="${k}" ${u[k] ? 'checked' : ''}>${n}</label>`; });
+    if (cur > 0) h += `<h3>Position</h3><label class="field">Sits<select id="uPlace"><option value="right" ${u.place !== 'corner' ? 'selected' : ''}>Beside the last</option><option value="corner" ${u.place === 'corner' ? 'selected' : ''}>Round the corner</option></select></label>`;
+    if (P.units.length > 1) h += `<div class="rowb"><button class="btn bad" id="delUnit">Delete this unit</button></div>`;
+    h += `<h2 style="margin-top:22px">Board</h2><div class="swatches">${Object.entries(MAT).map(([k, m]) => `<button class="sw" title="${m.name}" aria-label="${m.name}" aria-pressed="${P.color === k}" data-color="${k}" style="background:${m.f}"></button>`).join('')}</div>`;
+    lenHandlers.T = v => edit(() => { P.T = v; P.units.forEach(refit); });
+    lenHandlers.BT = v => edit(() => { P.BT = v; });
+    lenHandlers.SL = v => edit(() => { P.SL = v; });
+    lenHandlers.SW = v => edit(() => { P.SW = v; });
+    h += fieldLen('Thickness', P.T, null, 'T') + fieldLen('Back thickness', P.BT, null, 'BT') + fieldLen('Sheet length', P.SL, null, 'SL') + fieldLen('Sheet width', P.SW, null, 'SW');
+    h += `<h2 style="margin-top:22px">Room</h2>`;
+    lenHandlers.wallA = v => edit(() => { P.wallA = v; }); lenHandlers.wallB = v => edit(() => { P.wallB = v; }); lenHandlers.gap = v => edit(() => { P.gap = v; });
+    h += fieldLen('Back wall', P.wallA, null, 'wallA') + fieldLen('Side wall', P.wallB, null, 'wallB') + fieldLen('Gap from wall', P.gap, null, 'gap');
+  }
+  side.innerHTML = h; side.scrollTop = keepScroll;
+  bindLen();
+  if (side.querySelector('#delItem')) side.querySelector('#delItem').onclick = () => edit(() => { u.items = itemsOf(u).filter(i => i !== selItem); sel = null; });
+  if (side.querySelector('#dupItem')) side.querySelector('#dupItem').onclick = () => edit(() => { const id = Math.max(...P.units.flatMap(x => itemsOf(x).map(i => i.id))) + 1, c = { ...selItem, id, s: selItem.s + selItem.w + 10 }; pinItem(u, c); itemsOf(u).push(c); sel = { kind: 'item', id }; });
+  side.querySelectorAll('[data-desel]').forEach(b => b.onclick = () => { sel = null; render(); });
+  side.querySelectorAll('[data-even]').forEach(b => b.onclick = () => { const l = liveLeaf(u), s = b.dataset.even; edit(() => splitEven(u, l, s[0], +s[1])); sel = null; render(); });
+  side.querySelectorAll('[data-front]').forEach(b => b.onclick = () => { const l = liveLeaf(u), v = b.dataset.front === 'null' ? null : b.dataset.front; edit(() => { (l.cover ? nodeAt(u, l.cover) : l.n).front = v; }); });
+  if (side.querySelector('#bigDoor')) side.querySelector('#bigDoor').onclick = () => { const l = liveLeaf(u), par = nodeAt(u, l.path.slice(0, -1)); edit(() => { (function clear(n) { n.front = null; (n.parts || []).forEach(clear); })(par); par.front = 'door'; }); };
+  const q = id => side.querySelector('#' + id);
+  if (q('even')) q('even').onclick = () => edit(() => { const m = nodeAt(u, sel.path); const a = m.sizes.reduce((x, y) => x + y, 0) / m.sizes.length; m.sizes = m.sizes.map(() => a); refit(u); });
+  if (q('del')) q('del').onclick = () => { const d = liveDiv(u); edit(() => { removeDiv(u, d); sel = null; }); };
+  if (q('delPart')) q('delPart').onclick = () => edit(() => { deletePart(u, sel.key); sel = null; });
+  side.querySelectorAll('[data-part]').forEach(c => c.onchange = () => edit(() => { u[c.dataset.part] = c.checked; refit(u); }));
+  side.querySelectorAll('[data-color]').forEach(b => b.onclick = () => edit(() => { P.color = b.dataset.color; }));
+  if (q('uName')) { q('uName').onchange = e => edit(() => { u.name = e.target.value || u.name; }); q('uName').onkeydown = e => e.stopPropagation(); }
+  if (q('uPlace')) q('uPlace').onchange = e => edit(() => { u.place = e.target.value; });
+  if (q('delUnit')) q('delUnit').onclick = () => edit(() => { P.units.splice(cur, 1); cur = Math.max(0, cur - 1); });
+}
+function deletePart(u, key) { if (key === 'kick') u.kick = 0; else u[key] = false; refit(u); }
+
+// ---------- 3D ----------
+const host = document.getElementById('view3d');
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+host.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0xe4e9e7);
+const camera = new THREE.PerspectiveCamera(36, 1, 10, 40000);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.maxPolarAngle = Math.PI * .495; controls.minDistance = 300; controls.maxDistance = 16000;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x9aa3a6, .68));
+const sun = new THREE.DirectionalLight(0xffffff, .42); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -.0004;
+Object.assign(sun.shadow.camera, { left: -3000, right: 3000, top: 3000, bottom: -3000, near: 100, far: 12000 }); scene.add(sun, sun.target);
+const group = new THREE.Group(); scene.add(group);
+const EDGE = new THREE.LineBasicMaterial({ color: 0x20262a, transparent: true, opacity: .45 });
+const SELM = new THREE.MeshStandardMaterial({ color: 0xffc928, roughness: .7 });
+const std = c => new THREE.MeshStandardMaterial({ color: c, roughness: .8 });
+const WALL = std(0xf3f4f1), FLOOR = std(0xd5d9d6), DARK = std(0x20262a);
+let camSet = false, pickable = [];
+function addBox(wb, mat, opt = {}) {
+  const [x0, x1, y0, y1, z0, z1] = wb, g = new THREE.BoxGeometry(Math.max(x1 - x0, .1), Math.max(y1 - y0, .1), Math.max(z1 - z0, .1));
+  const m = new THREE.Mesh(g, mat); m.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+  m.castShadow = !opt.noShadow; m.receiveShadow = true; group.add(m);
+  if (opt.edges) { const l = new THREE.LineSegments(new THREE.EdgesGeometry(g), EDGE); l.position.copy(m.position); group.add(l); }
+  if (opt.ref) { m.userData = opt.ref; pickable.push(m); }
+  return m;
+}
+function draw3D() {
+  while (group.children.length) { const c = group.children.pop(); if (c.geometry) c.geometry.dispose(); }
+  pickable = [];
+  const pl = places(), showBack = document.getElementById('oBack').checked, mat = std(MAT[P.color].c);
+  P.units.forEach((u, idx) => {
+    boardsOf(u, idx).forEach(b => {
+      if (b.kind === 'back' && !showBack) return;
+      const refSel = sel && idx === cur && b.ref && b.ref.kind === sel.kind && (sel.kind === 'part' ? b.ref.key === sel.key : samePath(b.ref.path, sel.path) && (sel.kind !== 'div' || b.ref.i === sel.i));
+      addBox(worldBox(u, pl[idx], b.box), refSel ? SELM : mat, { edges: true, ref: { unit: idx, ...b.ref } });
+    });
+    layout(u).fronts.forEach(l => {
+      const zm = l.z + l.h / 2, sm = l.x + l.w / 2, s = l.n.front === 'door' ? l.x + l.w - Math.min(30, l.w / 6) : sm;
+      const hb = l.n.front === 'door' ? [s - 5, s + 5, u.d, u.d + 22, zm - 55, zm + 55] : [sm - 64, sm + 64, u.d, u.d + 22, zm - 5, zm + 5];
+      addBox(worldBox(u, pl[idx], hb), DARK);
+    });
+    if (document.getElementById('oItems').checked) addItems(u, pl[idx], idx);
+  });
+  const e = extents();
+  if (document.getElementById('oWalls').checked) {
+    const G = P.gap, right = e.X + G, wh = Math.max(e.Y + 500, 2400);
+    addBox([right - P.wallA, right, 0, wh, -G - 20, -G], WALL, { noShadow: true });
+    addBox([right, right + 20, 0, wh, -G - 20, P.wallB - G], WALL, { noShadow: true });
+    addBox([right - P.wallA, right + 20, -20, 0, -G - 20, Math.max(P.wallB - G, 1500)], FLOOR, { noShadow: true });
+  } else addBox([-400, e.X + 400, -20, 0, -400, e.Z + 800], FLOOR, { noShadow: true });
+  sun.target.position.set(e.X / 2, 0, e.Z / 2); sun.position.set(e.X / 2 - 1500, 3800, e.Z + 3000);
+  if (!camSet) resetCam();
+}
+function resetCam() {
+  const e = extents(), c = new THREE.Vector3(e.X / 2, e.Y / 2, e.Z / 2), far = Math.max(e.X, e.Y, e.Z) * 2.5;
+  controls.target.copy(c);
+  camera.position.copy(c).addScaledVector(new THREE.Vector3(-.45, .28, .85).normalize(), far);
+  camSet = true;
+}
+function size3D() { const r = host.getBoundingClientRect(); if (!r.width) return; renderer.setSize(r.width, r.height); camera.aspect = r.width / r.height; camera.updateProjectionMatrix(); }
+(function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+let downAt = null;
+renderer.domElement.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener('pointerup', e => {
+  if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4) return;
+  const r = renderer.domElement.getBoundingClientRect(), ray = new THREE.Raycaster();
+  ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), camera);
+  const hit = ray.intersectObjects(pickable)[0];
+  if (!hit) { sel = null; render(); return; }
+  const { unit: i, ...ref } = hit.object.userData; cur = i; tool = 'select'; sel = ref; render();
+});
+['oItems', 'oWalls', 'oBack'].forEach(id => document.getElementById(id).addEventListener('change', draw3D));
+document.getElementById('bView').onclick = resetCam;
+
+// ---------- objects ----------
+// Objects from the gallery stand on a shelf or on top of a unit. They are never part of the cut list.
+// Each object is drawn from one list of shapes (origin: left, back, bottom), so gallery, front view and 3D always agree.
+const CATALOG = [
+  ['Books', [['books', 'Row of books', 300, 220, 160], ['tallbooks', 'Tall books', 300, 300, 220], ['stack', 'Stack of books', 250, 120, 180], ['puzzle', 'Puzzle boxes', 385, 220, 270]]],
+  ['Decor', [['plant', 'Small plant', 150, 220, 150], ['bigplant', 'Tall plant', 250, 500, 250], ['vase', 'Vase', 120, 280, 120], ['frame', 'Photo frame', 200, 250, 30], ['box', 'Storage box', 300, 200, 250], ['bottles', 'Bottles', 240, 300, 80]]],
+  ['Appliances', [['fridge', 'Mini fridge', 470, 510, 470], ['tv', 'TV', 1000, 620, 200], ['monitor', 'Monitor', 550, 420, 180], ['laptop', 'Laptop', 340, 220, 240], ['lamp', 'Desk lamp', 180, 400, 180]]],
+];
+const OBJ = {}; CATALOG.forEach(([, list]) => list.forEach(([type, name, w, h, d]) => { OBJ[type] = { type, name, w, h, d }; }));
+const itemsOf = u => (u.items = u.items || []);
+const BOOKC = ['#8c3b2e', '#2e5c8c', '#c99a2e', '#3e7d5a', '#6b4a8c', '#2f7f85', '#cc7a33', '#4a4f52'];
+const DK = '#2a2e31', POTC = '#b9c0bc', LEAFC = '#4c8a55';
+function rnd(a) { const x = Math.sin(a * 12.9898) * 43758.5453; return x - Math.floor(x); }
+function shapes(it) {
+  const { type, w, h, d } = it, seed = (it.id || 1) * 7, out = [];
+  const box = (s0, s1, u0, u1, z0, z1, c, o) => out.push({ a: [s0, s1, u0, u1, z0, z1], c, o });
+  const ball = (s, u, z, r, c) => out.push({ ball: [s, u, z], r, c });
+  if (type === 'books' || type === 'tallbooks') {
+    let x = 0, i = 0;
+    while (x < w - 12) {
+      const th = Math.min(w - x, 18 + rnd(seed + i * 3) * 24);
+      box(x, x + th - 1, 0, d * (.75 + rnd(seed + i * 2) * .25), 0, h * (.74 + rnd(seed + i) * .26), BOOKC[Math.floor(rnd(seed + i * 5) * 8)]);
+      x += th; i++;
+    }
+  } else if (type === 'stack' || type === 'puzzle') {
+    const n = Math.max(1, Math.round(h / (type === 'stack' ? 30 : 55))), lh = h / n;
+    for (let i = 0; i < n; i++) { const shrink = type === 'stack' ? rnd(seed + i) * .2 * w : 0; box(shrink / 2, w - shrink / 2, 0, d, i * lh, (i + 1) * lh - 1, BOOKC[Math.floor(rnd(seed + i * 5) * 8)]); }
+  } else if (type === 'plant') {
+    box(w * .2, w * .8, d * .2, d * .8, 0, h * .4, POTC); ball(w / 2, d / 2, h * .66, Math.min(w * .5, h * .34), LEAFC);
+  } else if (type === 'bigplant') {
+    box(w * .25, w * .75, d * .25, d * .75, 0, h * .28, POTC); box(w * .47, w * .53, d * .47, d * .53, h * .28, h * .7, '#6f4b31');
+    ball(w * .5, d * .5, h * .78, Math.min(w * .45, h * .22), LEAFC); ball(w * .3, d * .5, h * .6, Math.min(w * .28, h * .13), LEAFC); ball(w * .7, d * .5, h * .62, Math.min(w * .28, h * .13), LEAFC);
+  } else if (type === 'vase') {
+    ball(w / 2, d / 2, h * .32, Math.min(w, h * .6) / 2, '#2f7f85'); box(w * .34, w * .66, d * .34, d * .66, h * .45, h, '#2f7f85');
+  } else if (type === 'frame') {
+    box(0, w, 0, d, 0, h, DK); box(w * .1, w * .9, d, d + 1, h * .1, h * .9, '#e6dfcf');
+  } else if (type === 'box') {
+    box(0, w, 0, d, 0, h * .86, '#c7a57d'); box(-3, w + 3, -3, d + 3, h * .86, h, '#a9875f');
+  } else if (type === 'bottles') {
+    const n = Math.max(1, Math.round(w / 80)), bw = w / n;
+    for (let i = 0; i < n; i++) { const c = ['#7a3b12', '#3d5a2a', '#9a5a1c'][i % 3], x = i * bw; box(x + bw * .08, x + bw * .92, 0, d, 0, h * .66, c); box(x + bw * .36, x + bw * .64, d * .3, d * .7, h * .66, h, c); }
+  } else if (type === 'fridge') {
+    box(0, w, 0, d - 25, 0, h, '#e9ecef'); box(0, w, d - 25, d, 8, h - 8, '#dfe3e6'); box(w - 45, w - 30, d, d + 18, h * .55, h * .85, '#6c757d');
+  } else if (type === 'tv' || type === 'monitor') {
+    const neck = h * .12; box(w * .3, w * .7, 0, d, 0, 12, DK); box(w * .46, w * .54, d * .4, d * .6, 12, neck, DK); box(0, w, d * .35, d * .65, neck, h, DK); box(w * .015, w * .985, d * .65, d * .65 + 1, neck + 10, h - 10, '#39505c');
+  } else if (type === 'laptop') {
+    box(0, w, 0, d, 0, 16, '#9aa1a5'); box(0, w, 0, 14, 16, h, '#9aa1a5'); box(w * .03, w * .97, 14, 15, 26, h - 8, '#39505c');
+  } else if (type === 'lamp') {
+    box(w * .15, w * .85, d * .15, d * .85, 0, 18, DK); box(w * .47, w * .53, d * .47, d * .53, 18, h * .68, DK); box(0, w, d * .1, d * .9, h * .68, h, '#f0e6c8');
+  }
+  return out;
+}
+function shapesSvg(list, X, Y, k) {
+  return list.map(p => p.ball
+    ? `<circle cx="${X(p.ball[0])}" cy="${Y(p.ball[2])}" r="${p.r * k}" fill="${p.c}"/>`
+    : `<rect x="${X(p.a[0])}" y="${Y(p.a[5])}" width="${Math.max(.5, (p.a[1] - p.a[0]) * k)}" height="${Math.max(.5, (p.a[5] - p.a[4]) * k)}" fill="${p.c}"/>`).join('');
+}
+function objThumb(type, size = 58) {
+  const o = OBJ[type], k = Math.min(size / o.w, size / o.h), ox = (size - o.w * k) / 2;
+  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" aria-hidden="true">${shapesSvg(shapes({ ...o, id: 3 }), s => ox + s * k, z => size - 2 - z * k, k)}</svg>`;
+}
+// the surface an object rests on: the highest one at or below where it was put
+function settle(u, it) {
+  const { leaves } = layout(u), half = it.w / 2, t = P.T;
+  let s = Math.max(half, Math.min(u.w - half, it.s));
+  const under = leaves.filter(l => s >= l.x - .01 && s <= l.x + l.w + .01);
+  const reach = it.z + t + 5;
+  let best = null;
+  under.forEach(l => { if (l.z <= reach && (!best || l.z > best.z)) best = l; });
+  if (it.z >= u.h - t && u.top) return { s, z: u.h, leaf: null };
+  if (!best) best = under.slice().sort((a, b) => a.z - b.z)[0];
+  if (!best) return { s, z: u.h, leaf: null };
+  s = best.w >= it.w ? Math.max(best.x + half, Math.min(best.x + best.w - half, s)) : best.x + best.w / 2;
+  return { s, z: best.z, leaf: best };
+}
+function addItemAt(idx, type, s, z) {
+  const u = P.units[idx], o = OBJ[type];
+  const id = Math.max(0, ...P.units.flatMap(x => itemsOf(x).map(i => i.id))) + 1;
+  const it = { id, type, name: o.name, w: o.w, h: o.h, d: o.d, s, z };
+  pinItem(u, it);
+  itemsOf(u).push(it);
+}
+// keeps it in its opening when a shelf moves a little: the stored height is the middle of the opening
+function pinItem(u, it) { const r = settle(u, it); it.s = r.s; it.z = r.leaf ? r.leaf.z + r.leaf.h / 2 : u.h + 1; }
+function drawItems(u) {
+  let s = '';
+  itemsOf(u).forEach(it => {
+    const r = settle(u, it), k = view.k, x0 = r.s - it.w / 2;
+    s += shapesSvg(shapes(it), a => px(x0 + a), a => py(r.z + a), k);
+    const on = sel && sel.kind === 'item' && sel.id === it.id, hov = hover && hover.kind === 'item' && hover.it === it;
+    if (on || hov) s += `<rect x="${px(x0) - 2}" y="${py(r.z + it.h) - 2}" width="${it.w * k + 4}" height="${it.h * k + 4}" fill="${hov && tool === 'erase' ? '#b93a1a' : 'none'}" fill-opacity=".35" stroke="${on ? '#e5a900' : '#20262a'}" stroke-width="2" ${on ? '' : 'stroke-dasharray="4 3"'}/>`;
+  });
+  if (hover && hover.placing) {
+    const o = { ...OBJ[hover.placing], id: 3, s: hover.s, z: hover.z }, r = settle(u, o), x0 = r.s - o.w / 2;
+    s += `<g opacity=".75">${shapesSvg(shapes(o), a => px(x0 + a), a => py(r.z + a), view.k)}</g>`;
+    s += `<rect x="${px(x0) - 2}" y="${py(r.z + o.h) - 2}" width="${o.w * view.k + 4}" height="${o.h * view.k + 4}" fill="none" stroke="#20262a" stroke-dasharray="4 3"/>`;
+  }
+  return s;
+}
+const matCache = {};
+const matOf = c => matCache[c] || (matCache[c] = std(new THREE.Color(c).getHex()));
+function addItems(u, pl, idx) {
+  const u0 = (u.back ? P.BT : 0) + 6;
+  itemsOf(u).forEach(it => {
+    const r = settle(u, it), x0 = r.s - it.w / 2, ref = { unit: idx, kind: 'item', id: it.id };
+    shapes(it).forEach(p => {
+      if (p.ball) {
+        const m = new THREE.Mesh(new THREE.SphereGeometry(p.r, 14, 12), matOf(p.c)), [wx, , , , wz] = worldBox(u, pl, [x0 + p.ball[0], x0 + p.ball[0], u0 + p.ball[1], u0 + p.ball[1], 0, 0]);
+        m.position.set(wx, r.z + p.ball[2], wz); m.castShadow = true; m.userData = ref; pickable.push(m); group.add(m);
+      } else addBox(worldBox(u, pl, [x0 + p.a[0], x0 + p.a[1], u0 + p.a[2], u0 + p.a[3], r.z + p.a[4], r.z + p.a[5]]), matOf(p.c), { ref });
+    });
+    if (sel && sel.kind === 'item' && sel.id === it.id) {
+      const b = worldBox(u, pl, [x0 - 3, x0 + it.w + 3, u0 - 3, u0 + it.d + 3, r.z - 1, r.z + it.h + 3]);
+      const g = new THREE.BoxGeometry(b[1] - b[0], b[3] - b[2], b[5] - b[4]), l = new THREE.LineSegments(new THREE.EdgesGeometry(g), new THREE.LineBasicMaterial({ color: 0xe5a900 }));
+      l.position.set((b[0] + b[1]) / 2, (b[2] + b[3]) / 2, (b[4] + b[5]) / 2); group.add(l);
+    }
+  });
+}
+function itemChecks(u, nm) {
+  const out = [];
+  itemsOf(u).forEach(it => {
+    const { leaf } = settle(u, it); if (!leaf) return;
+    const depth = u.d - (u.back ? P.BT : 0), name = it.name.toLowerCase();
+    if (it.h > leaf.h) out.push(`${nm}${name} is ${fmt(it.h)} tall, but the opening is ${fmt(leaf.h)} high.`);
+    if (it.w > leaf.w) out.push(`${nm}${name} is ${fmt(it.w)} wide, but the opening is ${fmt(leaf.w)}.`);
+    if (it.d > depth) out.push(`${nm}${name} is ${fmt(it.d)} deep, but the shelf is ${fmt(depth)}.`);
+  });
+  return out;
+}
+function galleryHtml() {
+  return `<h2>Objects</h2><p class="note">Drag one onto the front view or the 3D view. Or click it, then click where it goes.</p>` +
+    CATALOG.map(([group, list]) => `<h3>${group}</h3><div class="gal">${list.map(([type, name]) => `<button class="obj ${place && place.armed && place.type === type ? 'on' : ''}" data-obj="${type}">${objThumb(type)}<span>${name}</span></button>`).join('')}</div>`).join('');
+}
+// gallery drag: follows the pointer anywhere, lands on the front view or on a board in 3D
+let place = null, ghostEl = null;
+function endPlace() { place = null; if (ghostEl) { ghostEl.remove(); ghostEl = null; } if (hover && hover.placing) hover = null; }
+const inRect = (el, e) => { const r = el.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; };
+function drop3D(e, type) {
+  const r = renderer.domElement.getBoundingClientRect(), ray = new THREE.Raycaster();
+  ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), camera);
+  const hit = ray.intersectObjects(pickable)[0]; if (!hit) return false;
+  const idx = hit.object.userData.unit, pl = places()[idx];
+  const s = pl.corner ? hit.point.z : hit.point.x - pl.x;
+  edit(() => { cur = idx; addItemAt(idx, type, s, hit.point.y); });
+  return true;
+}
+side.addEventListener('pointerdown', e => {
+  const c = e.target.closest('[data-obj]'); if (!c) return;
+  e.preventDefault();
+  place = { type: c.dataset.obj, down: [e.clientX, e.clientY], moved: false };
+});
+window.addEventListener('pointermove', e => {
+  if (!place || !place.down) return;
+  if (!place.moved && Math.hypot(e.clientX - place.down[0], e.clientY - place.down[1]) > 4) {
+    place.moved = true;
+    ghostEl = document.createElement('div'); ghostEl.id = 'objGhost'; ghostEl.innerHTML = objThumb(place.type); document.body.appendChild(ghostEl);
+  }
+  if (!place.moved) return;
+  ghostEl.style.transform = `translate(${e.clientX - 29}px, ${e.clientY - 29}px)`;
+  if (inRect(front, e)) { const p = pointerMM(e); hover = { placing: place.type, s: p.s, z: p.z, x: p.x, y: p.y }; ghostEl.style.visibility = 'hidden'; drawFront(); }
+  else { ghostEl.style.visibility = ''; if (hover && hover.placing) { hover = null; drawFront(); } }
+});
+window.addEventListener('pointerup', e => {
+  if (!place || !place.down) return;
+  const type = place.type;
+  if (!place.moved) { place = { type, armed: true }; renderSide(); renderChrome(); return; }   // a click: next click on the front view places it
+  const overFront = inRect(front, e), over3d = inRect(host, e), p = overFront ? pointerMM(e) : null;
+  endPlace();
+  if (overFront) edit(() => addItemAt(cur, type, p.s, p.z)); else if (over3d) { if (!drop3D(e, type)) render(); } else render();
+});
+
+// ---------- render ----------
+function drawTabs() {
+  const el = document.getElementById('unitTabs');
+  el.innerHTML = P.units.map((u, i) => `<button class="tab" aria-pressed="${i === cur}" data-u="${i}">${esc(u.name)}</button>`).join('') + `<button class="tab" id="addUnit">Add unit</button>`;
+  el.querySelectorAll('[data-u]').forEach(b => b.onclick = () => { cur = +b.dataset.u; sel = null; render(); });
+  document.getElementById('addUnit').onclick = () => edit(() => { const last = U(); P.units.push(unit({ name: 'Unit ' + LETTER[P.units.length], w: 600, h: last.h, d: last.d, kick: last.kick, place: 'right' })); cur = P.units.length - 1; sel = null; });
+}
+function renderStatus() {
+  const bs = allBoards(), rows = cutRows(bs), e = extents();
+  const sheets = thicknesses(rows).map(t => packSheets(rows, t).sheets.length).reduce((a, b) => a + b, 0);
+  const band = rows.reduce((a, r) => a + r.qty * (r.band[0] + r.band[1]), 0);
+  const q = id => document.getElementById(id);
+  q('fSize').innerHTML = `<b>${fmt(e.X)}</b> wide, <b>${fmt(e.Y)}</b> high`;
+  q('fBoards').innerHTML = `<b>${bs.length}</b> boards`;
+  q('fSheets').innerHTML = `<b>${sheets}</b> ${sheets === 1 ? 'sheet' : 'sheets'}`;
+  q('fBand').innerHTML = `<b>${P.in ? Math.ceil(band / 25.4 * 1.1) + '"' : (band / 1000 * 1.1).toFixed(1) + ' m'}</b> edge banding`;
+  const w = checks(); q('warn').textContent = w.length ? (w.length > 1 ? `${w.length} things to check: ` : '') + w[0] : '';
+  q('warn').title = w.join('\n');
+}
+function renderChrome() {
+  const q = id => document.getElementById(id);
+  document.querySelectorAll('.tool').forEach(b => b.setAttribute('aria-pressed', b.dataset.t === tool));
+  q('hint').textContent = (TOOLS.find(t => t[0] === tool) || [])[3] || '';
+  q('uIn').setAttribute('aria-pressed', P.in); q('uMm').setAttribute('aria-pressed', !P.in);
+  q('bUndo').disabled = !undoS.length; q('bRedo').disabled = !redoS.length;
+  if (document.activeElement !== q('pname')) q('pname').value = P.name;
+}
+function render() { drawTabs(); renderChrome(); drawFront(); renderSide(); renderStatus(); draw3D(); }
+function renderLive() { drawFront(); draw3D(); renderStatus(); }
+
+// ---------- plans ----------
+function staticFront(u, w, h, opts = {}) {
+  const pad = opts.pad ?? 60, k = Math.min((w - 2 * pad) / u.w, (h - 2 * pad) / u.h), ox = (w - u.w * k) / 2, oy = (h + u.h * k) / 2;
+  const X = s => ox + s * k, Y = z => oy - z * k, { leaves, divs, fronts, i } = layout(u), t = P.T, ink = '#20262a', board = opts.mono ? '#d3d7d4' : MAT[P.color].f;
+  const R = (x, z, a, b, f = board) => `<rect x="${X(x)}" y="${Y(z + b)}" width="${a * k}" height="${b * k}" fill="${f}" stroke="${ink}" stroke-width="${opts.thin ? .5 : .8}"/>`;
+  let s = R(0, 0, u.w, u.h, opts.thin ? '#f6f8f7' : '#fff');
+  if (u.kick) s += R(i.x0, 0, i.x1 - i.x0, u.kick);
+  if (u.bottom) s += R(i.x0, u.kick, i.x1 - i.x0, t);
+  if (u.top) s += R(i.x0, u.h - t, i.x1 - i.x0, t);
+  if (u.sideL) s += R(0, 0, t, u.h);
+  if (u.sideR) s += R(u.w - t, 0, t, u.h);
+  divs.forEach(d => { s += R(d.x, d.z, d.w, d.h); });
+  fronts.forEach(l => {
+    s += `<rect x="${X(l.x + 2)}" y="${Y(l.z + l.h - 2)}" width="${(l.w - 4) * k}" height="${(l.h - 4) * k}" fill="${board}" fill-opacity="${l.n.front === 'door' ? .35 : 1}" stroke="${ink}" stroke-width="1"/>`;
+    const z = l.z + l.h / 2;
+    s += l.n.front === 'door' ? `<path d="M${X(l.x + l.w - Math.min(30, l.w / 6))} ${Y(z + 50)}V${Y(z - 50)}" stroke="${ink}" stroke-width="1.4"/>` : `<path d="M${X(l.x + l.w / 2 - 64)} ${Y(z)}H${X(l.x + l.w / 2 + 64)}" stroke="${ink}" stroke-width="1.4"/>`;
+  });
+  if (opts.dims) {
+    const lab = (x, y, t2, rot) => `<text x="${x}" y="${y}" font-family="Barlow, sans-serif" font-size="12" text-anchor="middle" fill="${ink}" ${rot ? `transform="rotate(-90 ${x} ${y})"` : ''}>${esc(t2)}</text>`;
+    const line = (a, b, c, e) => `<line x1="${a}" y1="${b}" x2="${c}" y2="${e}" stroke="${ink}" stroke-width=".7"/>`;
+    s += line(X(0), Y(u.h) - 22, X(u.w), Y(u.h) - 22) + lab(X(u.w / 2), Y(u.h) - 27, fmt(u.w));
+    s += line(X(0) - 26, Y(0), X(0) - 26, Y(u.h)) + lab(X(0) - 31, Y(u.h / 2), fmt(u.h), true);
+    leaves.forEach(l => { if (l.n.front !== 'drawer' && l.h * k > 24 && l.w * k > 40) s += lab(X(l.x + l.w / 2), Y(l.z + l.h / 2) + 4, `${fmtBare(l.w)} × ${fmtBare(l.h)}`); });
+    if (opts.labels) boardsOf(u, opts.idx).filter(b => b.kind === 'shelf').forEach(b => { s += `<text x="${X(b.box[1]) - 4}" y="${Y(b.box[5]) - 2}" font-family="Barlow, sans-serif" font-size="10" text-anchor="end" fill="${ink}">${b.id}</text>`; });
+  }
+  return `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">${s}</svg>`;
+}
+function topView() {
+  const pl = places(), e = extents(), G = P.gap, W = 760, H = 340, right = e.X + G;
+  const k = Math.min((W - 80) / Math.max(P.wallA, e.X + G), (H - 80) / Math.max(P.wallB, e.Z + G));
+  const ox = W - 50 - right * k, oy = 40 + G * k, X = x => ox + x * k, Z = z => oy + z * k;
+  let s = `<line x1="${X(right - P.wallA)}" y1="${Z(-G)}" x2="${X(right)}" y2="${Z(-G)}" stroke="#20262a" stroke-width="4"/><line x1="${X(right)}" y1="${Z(-G)}" x2="${X(right)}" y2="${Z(P.wallB - G)}" stroke="#20262a" stroke-width="4"/>`;
+  P.units.forEach((u, i) => {
+    const [x0, x1, , , z0, z1] = worldBox(u, pl[i], [0, u.w, 0, u.d, 0, 0]);
+    s += `<rect x="${X(x0)}" y="${Z(z0)}" width="${(x1 - x0) * k}" height="${(z1 - z0) * k}" fill="${MAT[P.color].f}" stroke="#20262a"/><text x="${X((x0 + x1) / 2)}" y="${Z((z0 + z1) / 2) + 4}" font-family="Barlow, sans-serif" font-size="12" text-anchor="middle" ${pl[i].corner ? `transform="rotate(-90 ${X((x0 + x1) / 2)} ${Z((z0 + z1) / 2)})"` : ''}>${esc(u.name)}: ${fmt(u.w)} × ${fmt(u.d)}</text>`;
+  });
+  s += `<text x="${X(right - P.wallA / 2)}" y="${Z(-G) - 8}" font-family="Barlow, sans-serif" font-size="12" text-anchor="middle">Back wall ${fmt(P.wallA)}, gap ${fmt(G)}</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="max-width:760px">${s}</svg>`;
+}
+function renderPack() {
+  const bs = allBoards(), rows = cutRows(bs);
+  const num = v => P.in ? inchText(v) : Math.round(v * 10) / 10;
+  let h = `<h1 style="font-size:28px;font-weight:600;margin:0">${esc(P.name)}</h1><p class="note" style="font-size:15px">Everything your woodworker needs. Sizes are finished sizes${P.in ? ', in inches' : ', in mm'}.</p>`;
+  h += `<h2>Where it goes</h2>${topView()}`;
+  h += `<h2>Front views</h2><div class="draws">${P.units.map((u, i) => `<div><b>${esc(u.name)}</b>${staticFront(u, 560, 500, { dims: true, labels: true, idx: i, mono: true, pad: 60 })}</div>`).join('')}</div>`;
+  h += `<h2>Cut list</h2><table><tr><th>Part</th><th>Marked</th><th>How many</th><th>Length</th><th>Width</th><th>Thickness</th><th>Edge banding</th></tr>`;
+  rows.forEach(r => { h += `<tr><td>${r.part}</td><td>${r.ids.join(', ')}</td><td class="n">${r.qty}</td><td class="n">${num(r.len)}</td><td class="n">${num(r.wid)}</td><td class="n">${num(r.thk)}</td><td>${bandLabel(r)}</td></tr>`; });
+  h += `</table>`;
+  h += `<h2>Cutting plan</h2><p class="note" style="font-size:15px">Rip each sheet into strips along its length, then cross-cut the parts. Allows 4 mm for each saw cut. Grey is offcut.</p>`;
+  thicknesses(rows).forEach(t => {
+    const { sheets, over } = packSheets(rows, t);
+    h += `<h3>${num(t)} board: ${sheets.length} ${sheets.length === 1 ? 'sheet' : 'sheets'}</h3><div class="sheets">`;
+    sheets.forEach((sh, i) => {
+      let v = `<rect x="0" y="0" width="${P.SL}" height="${P.SW}" fill="#eceeed" stroke="#5c686e" stroke-width="3"/>`;
+      sh.strips.forEach(st => st.parts.forEach(q => {
+        const fs = Math.max(20, Math.min(52, q.w * .3, q.l / 7)), cx = q.x + q.l / 2, cy = q.y + q.w / 2;
+        v += `<rect x="${q.x}" y="${q.y}" width="${q.l}" height="${q.w}" fill="#fff" stroke="#20262a" stroke-width="3"/>`;
+        v += q.w >= 150 ? `<text x="${cx}" y="${cy}" font-family="Barlow,sans-serif" font-size="${fs}" font-weight="600" text-anchor="middle">${q.id}</text><text x="${cx}" y="${cy + fs}" font-family="Barlow,sans-serif" font-size="${fs * .8}" text-anchor="middle">${esc(fmtBare(q.l))} × ${esc(fmtBare(q.w))}</text>`
+          : `<text x="${cx}" y="${cy + 8}" font-family="Barlow,sans-serif" font-size="${Math.min(40, q.w * .7)}" text-anchor="middle">${q.id}  ${esc(fmtBare(q.l))} × ${esc(fmtBare(q.w))}</text>`;
+      }));
+      h += `<div><div>Sheet ${i + 1}</div><svg viewBox="-10 -10 ${P.SL + 20} ${P.SW + 20}">${v}</svg></div>`;
+    });
+    h += `</div>`;
+    if (over.length) h += `<p style="color:var(--danger)">Too big for one sheet, so these need a joint: ${over.map(q => q.id).join(', ')}.</p>`;
+  });
+  const hasDoor = bs.some(b => b.part === 'Door'), hasDrawer = bs.some(b => b.part === 'Drawer front');
+  const notes = [
+    'Edge-band every edge listed in the cut list.',
+    `The back is ${num(P.BT)} board, screwed to the rear of the box and covering the whole back.`,
+    ...(hasDoor ? ['Doors sit inside the opening with a 2 mm gap all round. Choose hinges with your woodworker.'] : []),
+    ...(hasDrawer ? ['Drawer fronts sit inside the opening with a 2 mm gap all round. Drawer boxes allow 13 mm each side for side-mount slides. Check against the slides you buy.'] : []),
+    `Measure the walls at floor and at full height before cutting. Walls are rarely square. Fix tall units to the wall so they can't tip.`,
+    ...checks().map(w => 'To check: ' + w),
+  ];
+  h += `<h2>Notes</h2><ul id="packNotes">${notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>`;
+  document.getElementById('packBody').innerHTML = h;
+}
+document.getElementById('bPack').onclick = () => { renderPack(); document.getElementById('pack').classList.add('open'); };
+document.getElementById('packBack').onclick = () => document.getElementById('pack').classList.remove('open');
+document.getElementById('bPrint').onclick = () => window.print();
+document.getElementById('bCsv').onclick = () => {
+  const n = v => P.in ? Math.round(v / 25.4 * 8) / 8 : v, unitName = P.in ? 'in' : 'mm';
+  const body = cutRows(allBoards()).map(r => [`"${r.part}"`, `"${r.ids.join(' ')}"`, r.qty, n(r.len), n(r.wid), n(r.thk), `"${bandLabel(r).replace('—', '')}"`].join(',')).join('\n');
+  download(`${P.name} cut list.csv`, `Part,Marked,How many,Length ${unitName},Width ${unitName},Thickness ${unitName},Edge banding\n${body}`, 'text/csv');
+};
+function download(name, text, type) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click(); }
+
+// ---------- top bar ----------
+const dlg = document.getElementById('newDlg');
+function loadProject(p) { P = p; cur = 0; sel = null; tool = 'select'; undoS.length = 0; redoS.length = 0; camSet = false; persist(); render(); }
+document.getElementById('bNew').onclick = () => { fillCatalog(); dlg.showModal(); };
+document.getElementById('newClose').onclick = () => dlg.close();
+function fillCatalog() {
+  const prev = P; const cat = document.getElementById('cat');
+  cat.innerHTML = '';
+  TEMPLATES.forEach(t => {
+    const p = t.make(); P = p; refitAll();
+    const b = document.createElement('button'); b.className = 'card';
+    const pl = places(), e = extents();
+    const k = 1;
+    b.innerHTML = `<svg viewBox="0 0 220 120">${thumb(p)}</svg><b>${t.name}</b><span>${t.sub}</span>`;
+    b.onclick = () => { dlg.close(); const fresh = t.make(); P = fresh; refitAll(); loadProject(fresh); };
+    cat.appendChild(b);
+  });
+  P = prev;
+}
+function refitAll() { P.units.forEach(refit); }
+function thumb(p) {   // every unit of the project side by side, in its true proportions
+  const totalW = p.units.reduce((a, u) => a + u.w + 80, -80), maxH = Math.max(...p.units.map(u => u.h)), k = Math.min(200 / totalW, 104 / maxH);
+  let x = (220 - totalW * k) / 2, s = '';
+  p.units.forEach(u => {
+    const svg = staticInner(u, k, x, 112); s += svg; x += (u.w + 80) * k;
+  });
+  return s;
+}
+function staticInner(u, k, ox, oy) {
+  const X = s => ox + s * k, Y = z => oy - z * k, { fronts, divs, i } = layout(u), t = Math.max(P.T, 1.4 / k), f = '#20262a';
+  const R = (x, z, a, b, fill = f) => `<rect x="${X(x)}" y="${Y(z + b)}" width="${a * k}" height="${b * k}" fill="${fill}"/>`;
+  let s = R(0, 0, u.w, u.h, '#fff');
+  if (u.top) s += R(0, u.h - t, u.w, t);
+  if (u.bottom) s += R(0, u.kick, u.w, t);
+  if (u.kick) s += R(0, 0, u.w, u.kick, '#5c686e');
+  if (u.sideL) s += R(0, 0, t, u.h);
+  if (u.sideR) s += R(u.w - t, 0, t, u.h);
+  divs.forEach(d => { s += d.kind === 'shelf' ? R(d.x, d.z, d.w, t) : R(d.x, d.z, t, d.h); });
+  fronts.forEach(l => { s += `<rect x="${X(l.x + 8)}" y="${Y(l.z + l.h - 8)}" width="${(l.w - 16) * k}" height="${(l.h - 16) * k}" fill="#c7cfcc" fill-opacity=".6"/>`; });
+  return s;
+}
+document.getElementById('bOpen').onclick = () => document.getElementById('fileIn').click();
+document.getElementById('fileIn').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    const p = JSON.parse(await f.text());
+    if (!p.units || !p.units.length) throw new Error('no furniture in it');
+    loadProject(p);
+  } catch (err) { document.getElementById('warn').textContent = `Couldn't open ${f.name}: ${err.message}. Choose a file saved from here.`; }
+};
+document.getElementById('bSave').onclick = () => download(`${P.name}.json`, JSON.stringify(P, null, 1), 'application/json');
+document.getElementById('bUndo').onclick = undo; document.getElementById('bRedo').onclick = redo;
+document.getElementById('uIn').onclick = () => { P.in = true; persist(); render(); };
+document.getElementById('uMm').onclick = () => { P.in = false; persist(); render(); };
+const pname = document.getElementById('pname');
+pname.onchange = () => { if (pname.value.trim()) edit(() => { P.name = pname.value.trim(); }); else render(); };
+pname.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') pname.blur(); };
+
+window.addEventListener('keydown', e => {
+  const typing = /INPUT|SELECT/.test(document.activeElement.tagName) && document.activeElement.type !== 'checkbox';
+  if (document.getElementById('pack').classList.contains('open') || dlg.open || typing) return;
+  const k = e.key.toLowerCase();
+  if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); redo(); return; }
+  if ((e.ctrlKey || e.metaKey) && k === 's') { e.preventDefault(); document.getElementById('bSave').click(); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = TOOLS.find(x => x[2].toLowerCase() === k); if (t) { setTool(t[0]); return; }
+  if (k === 'escape') { endPlace(); tool = 'select'; sel = null; hover = null; render(); return; }
+  const u = U();
+  if ((k === 'delete' || k === 'backspace') && sel) {
+    e.preventDefault();
+    if (sel.kind === 'div') { const d = liveDiv(u); edit(() => { removeDiv(u, d); sel = null; }); }
+    else if (sel.kind === 'item') edit(() => { u.items = itemsOf(u).filter(i => i.id !== sel.id); sel = null; });
+    else if (sel.kind === 'part') edit(() => { deletePart(u, sel.key); sel = null; });
+    else if (sel.kind === 'leaf') { const l = liveLeaf(u); if (l && l.cover) edit(() => { nodeAt(u, l.cover).front = null; }); }
+    return;
+  }
+  if (sel && sel.kind === 'div' && k.startsWith('arrow')) {
+    const d = liveDiv(u), n = nodeAt(u, d.path), st = snapStep();
+    const dv = (d.kind === 'shelf' ? { arrowup: 1, arrowdown: -1 } : { arrowright: 1, arrowleft: -1 })[k];
+    if (dv) { e.preventDefault(); edit(() => setDivPos(u, liveDiv(u), n.sizes[d.i] + dv * st)); }
+  }
+});
+new ResizeObserver(() => { size3D(); if (P) drawFront(); }).observe(document.getElementById('work'));
+
+// ---------- start ----------
+let saved = null;
+try { saved = JSON.parse(localStorage.getItem('furniture-project')); } catch (e) {}
+P = saved && saved.units ? saved : TEMPLATES[1].make();
+size3D();
+render();
+if (!saved) { fillCatalog(); dlg.showModal(); }
+</script>
+</body>
+</html>

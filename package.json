@@ -1,0 +1,51 @@
+{
+  "name": "atelier",
+  "productName": "Atelier",
+  "version": "1.0.24",
+  "description": "A desktop furniture design app: free panels, 3D and plan views, cut lists.",
+  "author": "Lakshan",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --publish never",
+    "release": "electron-builder --publish never && node scripts/publish-local.js"
+  },
+  "build": {
+    "appId": "com.lakshan.atelier",
+    "productName": "Atelier",
+    "npmRebuild": false,
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "lib/**/*"
+    ],
+    "fileAssociations": [
+      { "ext": "atlr", "name": "Atelier project", "description": "Atelier project", "icon": "lib/icon.ico", "role": "Editor" }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "lib/icon.ico"
+    },
+    "publish": {
+      "provider": "generic",
+      "url": "http://localhost/atelier-updates/"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Atelier"
+    }
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  }
+}
