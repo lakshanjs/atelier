@@ -75,7 +75,7 @@ function machining() {
   const notes = [], panels = panelsOnly().filter(p => isStraight(p)), contacts = panelContacts(panels);
   let fixings = 0;
   const all = panels.length ? unionBounds(panels) : null, centre = all ? all.min.map((v, i) => (v + all.max[i]) / 2) : [0, 0, 0];
-  const style = P.joint || 'confirmat';
+  const style = P.joint || 'confirmat', faceUse = new Map();
   const inward = it => { const k = [0, 1, 2].find(a => fxLocalKey(it, a) === 't'), s = it.pos[k] <= centre[k] ? 1 : -1; return unitAxis(k, s); };   // a panel's hidden side, toward the middle of the piece
 
   // joints: one panel's edge against another's face
@@ -89,7 +89,12 @@ function machining() {
     const thinSpan = c.over[c.others.indexOf(thinAxis)], runSpan = c.over[c.others.indexOf(runAxis)], mid = (thinSpan[0] + thinSpan[1]) / 2;
     if (thinSpan[1] - thinSpan[0] < 6) return;
     const intoA = unitAxis(c.axis, sign), intoB = unitAxis(c.axis, -sign);
-    fixingSpots(runSpan[0], runSpan[1]).forEach(at => {
+    const room = Math.max(mach('confFace'), mach('dowelD'), mach('camBolt'), mach('pilotD')) + 3, taken = faceUse.get(B.id) || faceUse.set(B.id, []).get(B.id);
+    fixingSpots(runSpan[0], runSpan[1]).forEach(spot => {
+      // boards meeting the same panel from both sides would share a hole, so one moves along
+      const clear = v => v >= runSpan[0] + 10 && v <= runSpan[1] - 10 && !taken.some(q => q.r === runAxis && Math.abs(q.at - v) < room && Math.abs(q.thin - mid) < room);
+      const at = [0, 32, -32, 64, -64, 96, -96].map(d => spot + d).find(clear) ?? spot;
+      taken.push({ r: runAxis, at, thin: mid });
       const w = []; w[c.axis] = c.plane; w[thinAxis] = mid; w[runAxis] = at;
       const faceB = intoA.map(v => v), faceA = intoB.map(v => v);   // holes go in from the side facing the joint
       fixings++;

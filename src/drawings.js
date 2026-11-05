@@ -75,9 +75,9 @@ function orthoView(vn, title, list, extras, x, y, w, h, scale, marks = []) {
   s += dimV(by, by + bh, left - (chainV ? 12 : 6), left - .8, fmt(u.max[V.v] - u.min[V.v]));
   marks.forEach(m => {   // where the sections are taken
     const horiz = m.axis === V.v, p = (horiz ? Pv : Pu)(m.at), ext = 5;
-    s += horiz ? seg(bx - ext, p, bx + bw + ext, p, .18, 'stroke-dasharray="4 1.2 .8 1.2"') + txt(bx + bw + ext + 1, p + 1, m.name, { w: 600, size: 3.2 }) : seg(p, by - ext, p, by + bh + ext, .18, 'stroke-dasharray="4 1.2 .8 1.2"') + txt(p, by - ext - 1, m.name, { w: 600, size: 3.2, a: 'middle' });
+    s += horiz ? seg(bx - ext, p, bx + bw + ext, p, .18, 'stroke-dasharray="4 1.2 .8 1.2"') + txt(bx + bw + ext + 1, p + 1, m.name, { w: 600, size: 3.2 }) : seg(p, by - 3, p, by + bh + 3, .18, 'stroke-dasharray="4 1.2 .8 1.2"') + txt(p, by - 3.6, m.name, { w: 600, size: 3.2, a: 'middle' });
   });
-  s += txt(bx, by - 2.5, `${title}  1:${scale}`, { w: 600, size: 3.2 });
+  s += txt(bx, by - (marks.some(m => m.axis === V.u) ? 8 : 2.5), `${title}  1:${scale}`, { w: 600, size: 3.2 });
   return s;
 }
 function titleBlock(title, scaleText, n, of) {

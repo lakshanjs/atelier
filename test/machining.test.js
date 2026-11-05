@@ -27,6 +27,14 @@ for (const style of ["confirmat", "dowel", "cam"]) {
   });
 }
 
+test("boards meeting a panel from both sides don't share a hole, in any starting piece or joint", async () => {
+  const v = await app.run(`
+    const out = [];
+    for (const j of ['confirmat', 'dowel', 'cam']) for (let i = 1; i < TEMPLATES.length; i++) { loadProject(TEMPLATES[i].make()); edit(() => { P.joint = j; }); machChecks().filter(t => /run into each other/.test(t)).forEach(t => out.push(TEMPLATES[i].name + ' ' + j + ': ' + t)); }
+    return [...new Set(out)];`);
+  assert.deepStrictEqual(v, []);
+});
+
 test("edge holes go straight into the panel's edge, and face holes into its face", async () => {
   const bad = await app.run(`
     loadProject(TEMPLATES[2].make()); edit(() => { P.joint = 'confirmat'; });

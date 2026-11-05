@@ -45,7 +45,7 @@ async function openApp({ port = 9400 + Math.floor(Math.random() * 400), userData
     if (d.id && wait[d.id]) { wait[d.id](d); delete wait[d.id]; }
     if (d.method === "Runtime.exceptionThrown") errors.push(d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text);
   };
-  const send = (method, params = {}) => new Promise((r) => { const i = ++id; wait[i] = r; ws.send(JSON.stringify({ id: i, method, params })); });
+  const send = (method, params = {}) => new Promise((r, no) => { const i = ++id, t = setTimeout(() => { delete wait[i]; no(new Error(`no answer from the app after 30s: ${method} ${String(params.expression || "").slice(0, 120)}`)); }, 30000); wait[i] = (d) => { clearTimeout(t); r(d); }; ws.send(JSON.stringify({ id: i, method, params })); });
   await send("Runtime.enable"); await send("Page.enable"); await send("DOM.enable");
 
   const app = {
@@ -69,7 +69,7 @@ async function openApp({ port = 9400 + Math.floor(Math.random() * 400), userData
       return send("DOM.setFileInputFiles", { nodeId: n.result.nodeId, files: [file] });
     },
     async reload() { await send("Page.reload"); await sleep(300); await app.ready(); },
-    async screenshot(out) { const r = await send("Page.captureScreenshot", { format: "png" }); fs.writeFileSync(out, Buffer.from(r.result.data, "base64")); },
+    async screenshot(out) { await send("Emulation.setDeviceMetricsOverride", { width: 1500, height: 950, deviceScaleFactor: 1, mobile: false }); const r = await send("Page.captureScreenshot", { format: "png" }); fs.writeFileSync(out, Buffer.from(r.result.data, "base64")); },
     async close() {
       try { ws.close(); } catch (e) {}
       proc.kill();
