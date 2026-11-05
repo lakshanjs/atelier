@@ -4,6 +4,7 @@
 const { app, BrowserWindow, ipcMain, Menu, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const { pathToFileURL } = require("url");
 
 // Problems in the page go in errors.log next to the app's data, cut down when it gets long.
 ipcMain.on("log:error", (e, text) => {
@@ -23,8 +24,35 @@ function sessionBegin() {
 }
 ipcMain.on("session:crashed", (e) => { e.returnValue = lastRunCrashed; lastRunCrashed = false; });
 
-// Saves whatever the page's print styles lay out. The page sets the paper size with @page.
-ipcMain.handle("print:pdf", (e) => e.sender.printToPDF({ preferCSSPageSize: true, printBackground: true, margins: { marginType: "none" } }));
+// Drawings become a PDF in a hidden window of their own. Printing can stall now and then, and a stall here
+// must never freeze the window the user is designing in, so it gets a time limit and one more try.
+const PDF_LIMIT = 15000;
+async function pdfOnce(svg, wMm, hMm) {
+  const fontUrl = (w) => pathToFileURL(path.join(__dirname, "lib", "fonts", `barlow-${w}.woff2`)).href;
+  const faces = [400, 500, 600].map((w) => `@font-face { font-family: Barlow; font-weight: ${w}; src: url("${fontUrl(w)}") format("woff2"); }`).join("");
+  const html = `<!doctype html><meta charset="utf-8"><style>${faces} @page { size: ${wMm}mm ${hMm}mm; margin: 0; } html, body { margin: 0; padding: 0; background: #fff; } svg { display: block; width: ${wMm}mm; height: ${hMm}mm; break-after: page; break-inside: avoid; } svg:last-child { break-after: auto; }</style>${svg}`;
+  const file = path.join(app.getPath("temp"), `atelier-print-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.html`);
+  fs.writeFileSync(file, html);
+  const printer = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+  printer.webContents.on("will-navigate", (e) => e.preventDefault());
+  let timer = null;
+  try {
+    const job = (async () => {
+      await printer.loadFile(file);
+      await printer.webContents.executeJavaScript("document.fonts.ready.then(() => 1)");
+      return printer.webContents.printToPDF({ preferCSSPageSize: true, printBackground: true, margins: { marginType: "none" } });
+    })();
+    job.catch(() => {});
+    return await Promise.race([job, new Promise((ok, no) => { timer = setTimeout(() => no(new Error("the PDF took too long")), PDF_LIMIT); })]);
+  } finally {
+    clearTimeout(timer);
+    if (!printer.isDestroyed()) printer.destroy();
+    try { fs.unlinkSync(file); } catch (err) {}
+  }
+}
+ipcMain.handle("print:pdf", async (e, { svg, wMm, hMm }) => {
+  try { return await pdfOnce(svg, wMm, hMm); } catch (err) { console.error("pdf, trying again:", err.message); return pdfOnce(svg, wMm, hMm); }
+});
 
 const fileIn = (argv) => argv.slice(1).find((a) => /\.atlr$/i.test(a) && fs.existsSync(a));
 function sendFile(file) {

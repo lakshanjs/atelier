@@ -56,8 +56,8 @@ for (const paper of ["A3", "A4"]) {
   test(`${paper} PDF has one correct-sized page per sheet`, async () => {
     const v = await app.run(`
       loadProject(TEMPLATES[3].make()); edit(() => { (P.drawing = P.drawing || {}).paper = '${paper}'; });
-      openDrawings(); await document.fonts.ready; await new Promise(r => setTimeout(r, 200));
-      const n = document.querySelectorAll('#drawBody svg.dpage').length, bytes = await window.atelierWin.printPdf();
+      openDrawings();
+      const n = document.querySelectorAll('#drawBody svg.dpage').length, bytes = await drawingsPdf();
       closeDrawings();
       return { n, data: Array.from(new Uint8Array(bytes)) };`);
     const pages = pdfPages(v.data), [W, H] = paper === "A3" ? [420, 297] : [297, 210];

@@ -285,13 +285,14 @@ function renderDrawings() {
 }
 function openDrawings() { document.body.classList.add('drawing'); renderDrawings(); const el = document.getElementById('draw'); el.classList.add('open'); el.scrollTop = 0; }
 function closeDrawings() { document.body.classList.remove('drawing'); document.getElementById('draw').classList.remove('open'); drawPageStyle(false); }
+const drawingsPdf = () => { const pages = buildDrawings(); return window.atelierWin.printPdf({ svg: pages.map(p => p.svg).join(''), wMm: PAGE_W, hMm: PAGE_H }); };
 async function savePdf() {
   if (!(window.atelierWin && window.atelierWin.printPdf)) { window.print(); return; }
   let handle = null;
   if (window.showSaveFilePicker) { try { handle = await showSaveFilePicker({ suggestedName: `${P.name} drawings ${paperOf()}.pdf`, types: [{ description: 'PDF', accept: { 'application/pdf': ['.pdf'] } }] }); } catch (e) { if (e.name === 'AbortError') return; } }
   toast('Making the PDF…');
   try {
-    const bytes = await window.atelierWin.printPdf();
+    const bytes = await drawingsPdf();
     if (handle) { const w = await handle.createWritable(); await w.write(bytes); await w.close(); } else downloadBlob(`${P.name} drawings ${paperOf()}.pdf`, bytes, 'application/pdf');
     toast('PDF saved.');
   } catch (e) { toast(`Couldn't make the PDF: ${e.message}.`, true); }
