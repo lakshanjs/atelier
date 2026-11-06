@@ -259,6 +259,17 @@ function cvBend(pts, R, closed) {
   for (let i = 0; i < n; i++) { const a = pts[i]; if (!closed && i === n - 1) { out.push(warp(a)); break; } const b = pts[(i + 1) % n], m = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / .5)); for (let k = 0; k < m; k++) out.push(warp([a[0] + (b[0] - a[0]) * k / m, a[1] + (b[1] - a[1]) * k / m])); }
   return out;
 }
+// A drawn line whose points have handles: c[i] is [in x, in y, out x, out y] from point i, or null for a sharp corner.
+// Each stretch between two points is a cubic curve through its handles, or straight if neither has one.
+function cvBezLine(l) {
+  const p = l.pts, c = l.c || [], n = p.length, out = [p[0].slice()];
+  for (let i = 0; i < (l.closed ? n : n - 1); i++) {
+    const j = (i + 1) % n, a = p[i], b = p[j], ho = c[i] ? [c[i][2], c[i][3]] : [0, 0], hi = c[j] ? [c[j][0], c[j][1]] : [0, 0];
+    if (!ho[0] && !ho[1] && !hi[0] && !hi[1]) out.push(b.slice()); else cvCubic(out, a, [a[0] + ho[0], a[1] + ho[1]], [b[0] + hi[0], b[1] + hi[1]], b, .01);
+  }
+  if (l.closed) out.pop();
+  return out;
+}
 // rounds the corners of a closed shape by r, for rectangles and polygons
 const cvRound = (p, r) => (r > 0 ? (cvOffset(cvOffset([p], -r), r)[0] || p) : p);
 function cvLocal(it) {
@@ -267,7 +278,7 @@ function cvLocal(it) {
   if (it.type === 'rect') { const p = cvRound([[-it.w / 2, -it.h / 2], [it.w / 2, -it.h / 2], [it.w / 2, it.h / 2], [-it.w / 2, it.h / 2]], Math.min(it.corner || 0, it.w / 2 - .01, it.h / 2 - .01)); regions = [p]; lines = [{ pts: p, closed: true }]; }
   else if (it.type === 'polygon' || it.type === 'star') { const p = cvRound(cvPolygon(it.w, it.h, Math.max(3, Math.min(64, Math.round(it.type === 'star' ? it.points || 5 : it.sides || 6))), it.type === 'star' ? Math.max(.05, Math.min(.95, it.inner || .5)) : 0), it.corner || 0); regions = [p]; lines = [{ pts: p, closed: true }]; }
   else if (it.type === 'path') {
-    lines = (it.paths || []).filter(l => l.pts.length > 1).map(l => ({ closed: l.closed, pts: it.smooth ? cvSmoothLine(l.pts, l.closed) : l.pts })); const shut = lines.filter(l => l.closed && l.pts.length > 2); regions = shut.length ? cvUnion(shut.map(l => l.pts), true) : [];
+    lines = (it.paths || []).filter(l => l.pts.length > 1).map(l => ({ closed: l.closed, pts: l.c ? cvBezLine(l) : it.smooth ? cvSmoothLine(l.pts, l.closed) : l.pts })); const shut = lines.filter(l => l.closed && l.pts.length > 2); regions = shut.length ? cvUnion(shut.map(l => l.pts), true) : [];
     if (it.corner > 0 && regions.length) { const r = cvOffset(cvOffset(regions, -it.corner), it.corner); if (r.length) { regions = r; lines = lines.filter(l => !l.closed).concat(r.map(p => ({ pts: p, closed: true }))); } }   // rounding a shape's corners
   }
   else if (it.type === 'trace') { regions = cvTraceRegions(it); lines = regions.map(p => ({ pts: p, closed: true })); }

@@ -279,3 +279,85 @@ test("the shape checker warns of open lines a job can't use, outlines that cross
   assert.strictEqual(v.bow.length, 1); assert.strictEqual(v.dup.length, 2, "both copies are named");
   assert.strictEqual(v.bad, 0, "warnings, not stops");
 });
+
+test("the arc tool: three real clicks make a true arc through them, with handles to edit", async () => {
+  await app.run(`${START} cvToolStart('arc');`);
+  const p = await app.run(`${SCREEN} return [scr(100, 100), scr(160, 100), scr(130, 130)];`);
+  for (const q of p) await click(q[0], q[1]);
+  const v = await app.run(`const it = P.carve.items[0], l = cvWorldShape(it).lines[0], c = [130, 100], r = 30;
+    const off = Math.max(...l.pts.map(q => Math.abs(Math.hypot(q[0] - c[0], q[1] - c[1]) - r))), top = Math.max(...l.pts.map(q => q[1]));
+    return { n: P.carve.items.length, open: !l.closed, off, top, raw: it.paths[0].pts.length, handles: it.paths[0].c.filter(h => h && (h[0] || h[1] || h[2] || h[3])).length, ends: [l.pts[0], l.pts[l.pts.length - 1]].map(q => q.map(n => Math.round(n * 10) / 10)), tool: !!cvTool };`);
+  assert.strictEqual(v.n, 1); assert.ok(v.open); assert.ok(!v.tool, "the tool stops after one arc");
+  assert.ok(v.off < .1, "on the circle through the three points: " + v.off); assert.ok(Math.abs(v.top - 130) < .2, "and through the third point: " + v.top);
+  assert.deepStrictEqual(v.ends.map(q => q.join(",")).sort(), ["100,100", "160,100"]); assert.ok(v.raw >= 3 && v.raw <= 4, "a half circle is two or three curves, a quarter turn at most each: " + v.raw); assert.ok(v.handles >= 3);
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("curves with handles: fit curves, drag a handle with the real mouse, smooth or sharp, round or cut a corner", async () => {
+  await app.run(`${START} const s = cvMakePath([{ closed: true, pts: [[100, 60], [160, 60], [160, 120], [100, 120]] }], null); cvPickOnly(s.id); carveRender(); cvNodesStart(s);
+    document.querySelector('[data-cact="t-fit"]').click();`);
+  const a = await app.run(`${SCREEN} const it = P.carve.items[0], l = it.paths[0], place = cvPlaceFn(it), h = l.c[1], at = place([l.pts[1][0] + h[2], l.pts[1][1] + h[3]]);
+    return { lines: cvLocal(it).lines[0].pts.length, through: [100, 60].join(), handles: document.querySelectorAll('.cvhd').length, from: scr(...at), to: scr(at[0] + 10, at[1] + 10), before: h.slice() };`);
+  await mouse("mouseMoved", a.from[0], a.from[1], 0); await mouse("mousePressed", a.from[0], a.from[1], 1); await mouse("mouseMoved", a.to[0], a.to[1], 1); await mouse("mouseReleased", a.to[0], a.to[1], 0);
+  const b = await app.run(`const it = P.carve.items[0], h = it.paths[0].c[1]; return { h, inLen: Math.hypot(h[0], h[1]), outDir: Math.atan2(h[3], h[2]), inDir: Math.atan2(-h[1], -h[0]) };`);
+  const c = await app.run(`${START} const s = cvMakePath([{ closed: true, pts: [[100, 60], [140, 60], [140, 100], [100, 100]] }], null); const ar = () => Math.abs(cvArea(cvLocal(s).regions[0]));
+    const a0 = ar(); cvPickOnly(s.id); carveRender(); cvNodesStart(s); cvNodeSel = { l: 0, p: 1 }; carveRender();
+    const set = (k, val) => { const el = document.querySelector('[data-cf="' + k + '"]'); el.value = val; el.dispatchEvent(new Event('change', { bubbles: true })); };
+    set('t.fr', '5mm'); document.querySelector('[data-cact="t-fillet"]').click(); const round = ar(), pts = s.paths[0].pts.length;
+    cvNodeSel = { l: 0, p: 3 }; carveRender(); set('t.fc', '5mm'); document.querySelector('[data-cact="t-chamfer"]').click(); const cut = ar();
+    cvNodeSel = { l: 0, p: 0 }; carveRender(); document.querySelector('[data-cact="t-ptsmooth"]').click(); const smooth = !!s.paths[0].c[0]; document.querySelector('[data-cact="t-ptsmooth"]').click(); const sharp = !s.paths[0].c[0];
+    closeCarve(); return { a0, round, cut, pts, smooth, sharp };`);
+  assert.ok(a.lines > 40, "fit curves bends every side"); assert.strictEqual(a.handles, 8, "two handles on each of four points");
+  assert.ok(Math.abs(b.h[2] - a.before[2] - 10) < .6 && Math.abs(b.h[3] - a.before[3] - 10) < .6, "the handle went where it was dragged: " + b.h);
+  assert.ok(Math.abs(b.inDir - b.outDir) < .02, "the other handle swung round to stay in line"); assert.ok(Math.abs(b.inLen - Math.hypot(a.before[0], a.before[1])) < .01, "and kept its length");
+  assert.ok(Math.abs((c.a0 - c.round) - 25 * (1 - Math.PI / 4)) < .1, "a 5 mm round takes away what it should, give or take the curve being cut as short lines within 0.01 mm of it: " + (c.a0 - c.round)); assert.strictEqual(c.pts, 5, "one corner became two points");
+  assert.ok(Math.abs((c.round - c.cut) - 12.5) < .05, "cutting a corner off 5 mm along each side takes a 12.5 triangle: " + (c.round - c.cut));
+  assert.ok(c.smooth && c.sharp, "a point turns smooth and back to sharp");
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("join and extend: open lines become one closed shape, and a line carries on to meet another", async () => {
+  const v = await app.run(`${START}
+    [[[0, 0], [10, 0]], [[0, 10], [10, 0]], [[0, 10], [0, 0]]].forEach(pts => cvMakePath([{ closed: false, pts: pts.map(q => [q[0] + 50, q[1] + 50]) }], null));
+    cvPickList(P.carve.items.slice()); carveRender(); const btn = !!document.querySelector('[data-cact="m-join"]'); document.querySelector('[data-cact="m-join"]').click();
+    const it = P.carve.items, joined = { n: it.length, closed: it[0].paths.length === 1 && it[0].paths[0].closed, area: Math.abs(cvArea(cvLocal(it[0]).regions[0] || [])) };
+    P.carve.items = []; cvMakePath([{ closed: false, pts: [[100, 100], [120, 100]] }], null); cvMakePath([{ closed: false, pts: [[150, 50], [150, 150]] }], null); cvPickOnly(null); carveRender(); cvToolStart('extend');
+    return { btn, joined };`);
+  const p = await app.run(`${SCREEN} return scr(120.5, 100.3);`); await click(p[0], p[1]);
+  const w = await app.run(`const l = cvWorldShape(P.carve.items[0]).lines[0]; const out = { end: l.pts[l.pts.length - 1].map(n => Math.round(n * 100) / 100), tool: cvTool && cvTool.kind }; cvToolCancel(); closeCarve(); return out;`);
+  assert.ok(v.btn); assert.strictEqual(v.joined.n, 1); assert.ok(v.joined.closed, "the three lines close into a triangle"); assert.ok(Math.abs(v.joined.area - 50) < .01, "its area: " + v.joined.area);
+  assert.deepStrictEqual(w.end, [150, 100], "extended to the upright line"); assert.strictEqual(w.tool, "extend", "and stays on for the next");
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("groups: picked and copied together with the real mouse, and ungrouped again", async () => {
+  await app.run(`${START} const a = cvAddRect(); a.w = a.h = 20; a.x = 60; a.y = 60; const b = cvAddCircle(); b.w = b.h = 20; b.x = 100; b.y = 60; const c = cvAddRect(); c.w = c.h = 20; c.x = 200; c.y = 150;
+    cvPickList([a, b]); carveRender(); document.querySelector('[data-cact="m-group"]').click(); cvPickOnly(null); carveRender();`);
+  const p = await app.run(`${SCREEN} return { b: scr(100, 60), c: scr(200, 150) };`);
+  await click(p.b[0], p.b[1]);
+  const one = await app.run(`return { n: cvPicked().length, head: document.getElementById('cvHead').textContent, ungroup: !!document.querySelector('[data-cact="m-ungroup"]') }`);
+  await click(p.c[0], p.c[1], { modifiers: 8 });
+  const three = await app.run(`return cvPicked().length`);
+  const v = await app.run(`const [a, b] = P.carve.items; cvPickList([a]); carveRender(); cvCopy(); const copies = cvPicked(), gid = copies[0].gid;
+    const out = { copies: copies.length, newGroup: gid && gid !== a.gid && copies.every(i => i.gid === gid) };
+    cvPickList([a]); carveRender(); document.querySelector('[data-cact="m-ungroup"]').click(); cvPickOnly(a.id); out.alone = cvPicked().length; closeCarve(); return out;`);
+  assert.strictEqual(one.n, 2, "clicking one picks the group"); assert.match(one.head, /2 items/); assert.ok(one.ungroup);
+  assert.strictEqual(three, 3, "shift-click adds the other");
+  assert.strictEqual(v.copies, 2, "copying copies the group"); assert.ok(v.newGroup, "as a new group of its own"); assert.strictEqual(v.alone, 1, "ungrouped, it's picked alone");
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("copies along a line, turning to follow it, and the shapes saved as SVG and DXF", async () => {
+  const v = await app.run(`${START}
+    const line = cvMakePath([{ closed: false, pts: [[50, 50], [250, 50], [250, 150]] }], null), dot = cvAddCircle(); dot.w = dot.h = 8; dot.x = 20; dot.y = 20;
+    cvPickList([line, dot]); carveRender(); const set = (k, val) => { const el = document.querySelector('[data-cf="' + k + '"]'); el.value = val; el.dispatchEvent(new Event('change', { bubbles: true })); };
+    set('m.along', '7'); document.querySelector('[data-cact="m-along"]').click();
+    const dots = P.carve.items.filter(i => i.type === 'circle').map(i => [Math.round(i.x * 100) / 100, Math.round(i.y * 100) / 100, Math.round(i.rot || 0)]);
+    const svg = cvShapesSvg(cv), dxf = cvShapesDxf(cv), back = cvParseDxf(dxf).lines, lines = cvShapeLines(cv.items);
+    closeCarve(); return { dots, paths: (svg.match(/<path /g) || []).length, svgHead: svg.slice(0, 200), n: lines.length, back: back.length, sameBox: JSON.stringify(cvBox(back.map(l => l.pts))) === JSON.stringify(cvBox(lines.map(l => l.pts.map(q => q.map(x => Math.round(x * 1000) / 1000))))), closed: back.filter(l => l.closed).length };`);
+  assert.strictEqual(v.dots.length, 7, "seven along the line");
+  assert.deepStrictEqual(v.dots[0], [50, 50, 0]); assert.deepStrictEqual(v.dots[6], [250, 150, 90], "the last at the far end, turned to follow the line");
+  assert.deepStrictEqual(v.dots[3], [200, 50, 0], "evenly spaced, 50 apart along the line"); assert.deepStrictEqual(v.dots[5], [250, 100, 90], "and round the corner");
+  assert.strictEqual(v.paths, v.n); assert.match(v.svgHead, /width="300mm" height="200mm"/);
+  assert.strictEqual(v.back, v.n, "the DXF reads back"); assert.ok(v.sameBox, "in the same place"); assert.strictEqual(v.closed, 7, "the seven circles closed");
+});

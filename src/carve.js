@@ -286,7 +286,7 @@ function cvPanelHtml() {
     h += cvSec('board', 'Wood and size', '<label class="field">Board type<select data-cf="b.wood" class="wide">' + Object.entries(CV_WOODS).map(([k, w]) => '<option value="' + k + '" ' + (w === wood ? 'selected' : '') + '>' + esc(w.name) + '</option>').join('') + '</select></label><label class="field">Thickness<select data-cf="b.tsel" class="wide">' + wood.thick.map(q => '<option value="' + q[0] + '" ' + (!custom && q === preset ? 'selected' : '') + '>' + esc(q[1]) + '</option>').join('') + '<option value="other" ' + (custom ? 'selected' : '') + '>Other size</option></select></label>' + (custom ? cvF('b.t', 'Exact thickness', cvNum(cv.board.t)) : '') + cvF('b.l', 'Length, along X', cvNum(cv.board.l)) + cvF('b.w', 'Width, along Y', cvNum(cv.board.w)) + '<p class="cvSub">Speed for ' + esc(wood.name.toLowerCase()) + '</p><p class="note">' + esc(wood.why) + ' These change every bit\'s own numbers.</p><label class="field">Cutting speed, %<input type="text" data-cf="b.feedPct" value="' + cvPct(cv.board, 'feedPct') + '"></label><label class="field">Depth per pass, %<input type="text" data-cf="b.stepPct" value="' + cvPct(cv.board, 'stepPct') + '"></label>' + '<div class="rowb"><button class="btn line" data-cact="panel">Use the selected panel\'s size</button></div>');
     const mine = cvOwned(), mainBits = mine.filter(b => b.family !== 'corn'), moreBits = mine.length - mainBits.length;
     h += cvSec('bits', 'Your bits', (mine.length ? '<div class="bitStrip">' + mainBits.map(b => '<span title="' + esc(b.name) + '">' + cvBitArt(b) + '</span>').join('') + '</div>' + (moreBits ? '<p class="note">And ' + moreBits + ' corn end ' + (moreBits === 1 ? 'mill' : 'mills') + '.</p>' : '') : '<p class="note">None ticked yet. Tick the bits you own so they can be used.</p>') + '<div class="rowb"><button class="btn line" data-cact="bits">' + (mine.length ? 'Change your bits' : 'Choose your bits') + '</button></div>');
-    h += cvSec('items', 'On this board', cv.items.length ? '<div class="cvlist">' + cv.items.map(i => '<button data-cpick="' + i.id + '">' + ic(cvTypeIcon(i.type)) + '<span>' + esc(cvItemName(i)) + '</span></button>').join('') + '</div>' : '<p class="note">Nothing yet. Add text, an SVG or a shape from the left.</p>');
+    h += cvSec('items', 'On this board', (cv.items.length ? '<div class="cvlist">' + cv.items.map(i => '<button data-cpick="' + i.id + '">' + ic(cvTypeIcon(i.type)) + '<span>' + esc(cvItemName(i)) + '</span></button>').join('') + '</div>' : '<p class="note">Nothing yet. Add text, an SVG or a shape from the left.</p>') + (cv.items.length ? '<div class="rowb"><button class="btn line" data-cact="b-svg" title="Saves the shapes on the board as an SVG drawing, in mm">' + ic('download') + 'SVG</button><button class="btn line" data-cact="b-dxf" title="Saves the shapes on the board as a DXF drawing, in mm">' + ic('download') + 'DXF</button></div>' : ''));
     const zero = cvZeroOf(cv), zeroName = cvZeroName(cv);
     h += cvSec('setup', 'Zero point', '<div class="zeroGrid" role="radiogroup" aria-label="Where X0 Y0 is on the board">' + CV_ZEROS.map(([x, y, name]) => '<label class="zeroBtn' + (x === zero[0] && y === zero[1] ? ' on' : '') + '" title="Zero at the ' + cvZeroPlace(name) + '"><input type="radio" name="cvZero" data-cf="zero" value="' + x + ',' + y + '" aria-label="' + name + '" ' + (x === zero[0] && y === zero[1] ? 'checked' : '') + '><i></i></label>').join('') + '</div>'
       + (cv.tile && cvTiles(cv).length > 1
@@ -409,11 +409,11 @@ function cvPicked() {
   if (!list.some(i => i.id === cvSel)) { cvSel = list.length ? list[0].id : null; }
   return list;
 }
-function cvPickOnly(id) { cvSel = id; cvMore.clear(); }
-function cvPickList(list) { cvSel = list.length ? list[0].id : null; cvMore = new Set(list.slice(1).map(i => i.id)); }
+function cvPickOnly(id) { cvSel = id; cvMore.clear(); const it = id !== null && P.carve ? P.carve.items.find(i => i.id === id) : null; if (it && it.gid) P.carve.items.forEach(o => { if (o !== it && o.gid === it.gid) cvMore.add(o.id); }); }
+function cvPickList(list) { const all = [...new Set(list.flatMap(i => (i.gid ? P.carve.items.filter(o => o.gid === i.gid) : [i])))]; cvSel = all.length ? all[0].id : null; cvMore = new Set(all.slice(1).map(i => i.id)); }
 function cvRemove() { const list = cvPicked(); if (!list.length) return; cvEdit(() => { P.carve.items = P.carve.items.filter(i => !list.includes(i)); }); cvPickOnly(null); carveRender(); }
 function cvCopy() {
-  const list = cvPicked(); if (!list.length) return; const cv = P.carve, made = list.map(it => { const c = JSON.parse(JSON.stringify(it)); c.id = cv.nextId++; c.x += 10; c.y -= 10; return c; });
+  const list = cvPicked(); if (!list.length) return; const cv = P.carve, gids = {}, made = list.map(it => { const c = JSON.parse(JSON.stringify(it)); c.id = cv.nextId++; c.x += 10; c.y -= 10; if (c.gid) c.gid = gids[c.gid] || (gids[c.gid] = (cv.nextGid = (cv.nextGid || 0) + 1)); return c; });
   cvEdit(() => { cv.items.push(...made); }); cvPickList(made); carveRender();
 }
 // where an item sits on the board, as a box
@@ -433,7 +433,8 @@ function cvStageDown(e) {
   if (g) {
     const id = +g.dataset.it;
     if (e.shiftKey) {   // add it to what's picked, or take it away
-      if (cvSel === null) cvSel = id; else if (id === cvSel) { const rest = [...cvMore]; cvSel = rest.length ? rest.shift() : null; cvMore = new Set(rest); } else if (cvMore.has(id)) cvMore.delete(id); else cvMore.add(id);
+      const grp = cvGroupOf(P.carve.items.find(i => i.id === id)), now = cvPicked();
+      if (now.some(i => i.id === id)) cvPickList(now.filter(i => !grp.includes(i))); else cvPickList(now.concat(grp));
       carveRender(); return;
     }
     if (!cvPicked().some(i => i.id === id)) { cvPickOnly(id); carveRender(); }
@@ -466,7 +467,7 @@ function cvStageMove(e) {
   } else {
     const f = Math.max(.02, Math.hypot(p[0] - it.x, p[1] - it.y) / cvDrag.r0);
     if (it.type === 'text') { it.size = Math.max(1, cvDrag.size * f); it.spacing = (cvDrag.spacing || 0) * f; } else if (it.type === 'svg' || it.type === 'trace') it.w = Math.max(1, cvDrag.w * f);
-    else if (it.type === 'path') it.paths = cvDrag.paths.map(l => ({ closed: l.closed, pts: l.pts.map(q => [q[0] * f, q[1] * f]) }));
+    else if (it.type === 'path') it.paths = cvDrag.paths.map(l => cvMapLine(l, q => [q[0] * f, q[1] * f], h => h.map(v => v * f)));
     else if (e.shiftKey) { it.w = Math.max(1, cvDrag.w * f); it.h = Math.max(1, cvDrag.h * f); }
     else { const r = -(it.rot || 0) * Math.PI / 180, dx = p[0] - it.x, dy = p[1] - it.y, lx = dx * Math.cos(r) - dy * Math.sin(r), ly = dx * Math.sin(r) + dy * Math.cos(r); it.w = Math.max(1, Math.abs(lx) * 2); it.h = Math.max(1, Math.abs(ly) * 2); }
   }
@@ -589,13 +590,13 @@ function cvModeShow(on) { document.body.classList.toggle('carving', on); cvEl('c
 async function openCarve() {
   const cv = cvNow(), one = selected().filter(i => i.kind === 'panel');
   if (!cv.items.length && one.length === 1) { const b = cv.board; b.l = one[0].l; b.w = one[0].w; b.t = one[0].t; }
-  cvModeShow(true); P.carveMode = true; autosave(); cvView = null; cvSel = null;
+  cvModeShow(true); P.carveMode = true; autosave(); cvView = null; cvSel = null; cvNodeEdit = null; cvTool = null;
   carveRender();
   await Promise.all([...new Set(cv.items.filter(i => i.type === 'text').map(i => i.font))].map(cvFontLoad));
   await ensureModels(); carveRender();
   if (!cvOwned().length) cvOpenBits();
 }
-function closeCarve() { if (CV3D.on) cv3dShow(false); cvModeShow(false); cvSel = null; if (P.carveMode) { P.carveMode = false; autosave(); } dirty = true; }
+function closeCarve() { if (CV3D.on) cv3dShow(false); cvModeShow(false); cvSel = null; cvNodeEdit = null; cvTool = null; if (P.carveMode) { P.carveMode = false; autosave(); } dirty = true; }
 // a project reopens in the mode it was left in
 function cvSyncMode() { if (P.carveMode && P.carve) { if (!cvOpen()) openCarve(); else { cvView = null; cvSel = null; carveRender(); } } else if (cvOpen()) closeCarve(); }
 // menu commands while carving: these act on the board, these work anywhere, and the rest are about the design, so they go back to it
@@ -615,6 +616,7 @@ window.addEventListener('keydown', e => {
   if (mod && k === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); if (!cvItem()) cvSel = null; carveRender(); return; }
   if (mod && k === 'y') { e.preventDefault(); redo(); if (!cvItem()) cvSel = null; carveRender(); return; }
   if (mod && k === 'd') { e.preventDefault(); cvCopy(); return; }
+  if (mod && k === 'g') { e.preventDefault(); const list = cvPicked(); if (e.shiftKey) cvUngroup(list); else if (list.length > 1) cvGroup(list); return; }
   if (mod && k === 'a') { e.preventDefault(); cvPickList(P.carve.items.slice()); carveRender(); return; }
   if (mod) return;
   if (k === 'escape') { if (cvTool) { cvToolCancel(); return; } if (cvNodesStop()) return; if (cvSel !== null) { cvPickOnly(null); carveRender(); } return; }
@@ -660,6 +662,8 @@ cvEl('cvAddPolygon').onclick = () => cvAddPolygon('polygon');
 cvEl('cvAddStar').onclick = () => cvAddPolygon('star');
 cvEl('cvAddPen').onclick = () => cvToolStart('pen');
 cvEl('cvTrim').onclick = () => cvToolStart('trim');
+cvEl('cvAddArc').onclick = () => cvToolStart('arc');
+cvEl('cvExtend').onclick = () => cvToolStart('extend');
 cvEl('cvDim').onclick = () => cvToolStart('dim');
 cvEl('cvAddClamp').onclick = () => cvAddClamp();
 cvEl('cvStage').addEventListener('dblclick', e => { if (cvTool) { e.preventDefault(); cvToolFinish(false); } else if (cvNodeItem()) { e.preventDefault(); cvNodeAdd(cvPoint(e)); } });

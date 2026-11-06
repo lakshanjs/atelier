@@ -15,15 +15,19 @@ Object.assign(window.LUCIDE || (window.LUCIDE = {}), {
   'cv-offset': '<rect x="8" y="8" width="8" height="8" rx="1" /><rect x="3" y="3" width="18" height="18" rx="4" stroke-dasharray="2 2" />',
   'cv-inset': '<rect x="3" y="3" width="18" height="18" rx="2" /><rect x="8" y="8" width="8" height="8" stroke-dasharray="2 2" />',
   'cv-ring': '<circle cx="12" cy="4.5" r="2" /><circle cx="19" cy="9.5" r="2" /><circle cx="16.5" cy="18" r="2" /><circle cx="7.5" cy="18" r="2" /><circle cx="5" cy="9.5" r="2" />',
+  'cv-arc': '<path d="M4 19A15 15 0 0 1 20 5" /><circle cx="4" cy="19" r="1.6" /><circle cx="20" cy="5" r="1.6" /><circle cx="9.5" cy="9.5" r="1.6" />',
+  'cv-extend': '<path d="M3 12h10" /><path d="M13 12h5" stroke-dasharray="2 2" /><path d="M21 5v14" />',
   'cv-clamp': '<path d="M5 4h9v4H9v8h5v4H5Z" /><path d="M14 6h4v12h-4" /><path d="M18 12h3" />',
   'cv-close': '<path d="M5 19 5 9l7-5 7 5v10" /><path d="M5 19h14" stroke-dasharray="2 2" />',
 });
 
-[['cvAddPolygon', 'pentagon'], ['cvAddStar', 'star'], ['cvAddPen', 'pen-tool'], ['cvTrim', 'scissors'], ['cvDim', 'ruler'], ['cvAddClamp', 'cv-clamp']].forEach(([id, name]) => addIcon(cvEl(id), name));
+[['cvAddPolygon', 'pentagon'], ['cvAddStar', 'star'], ['cvAddPen', 'pen-tool'], ['cvAddArc', 'cv-arc'], ['cvExtend', 'cv-extend'], ['cvTrim', 'scissors'], ['cvDim', 'ruler'], ['cvAddClamp', 'cv-clamp']].forEach(([id, name]) => addIcon(cvEl(id), name));
 
 const cvTypeIcon = type => ({ text: 'type', svg: 'image', trace: 'image', circle: 'circle', polygon: 'pentagon', star: 'star', path: 'pen-tool' }[type] || 'square');
 function cvAddPolygon(kind) { const b = cvNow().board, d = Math.min(b.l, b.w) * .5; return cvAdd(kind === 'star' ? { type: 'star', w: d, h: d, points: 5, inner: .5 } : { type: 'polygon', w: d, h: d, sides: 6 }); }
-function cvScalePath(it, f) { if (!(f > 0)) return; it.paths = it.paths.map(l => ({ closed: l.closed, pts: l.pts.map(q => [q[0] * f, q[1] * f]) })); }
+function cvScalePath(it, f) { if (!(f > 0)) return; it.paths = it.paths.map(l => cvMapLine(l, q => [q[0] * f, q[1] * f], h => h.map(v => v * f))); }
+// a line with every point moved by fn and every handle by hfn (handles are offsets, so a shift leaves them alone)
+const cvMapLine = (l, fn, hfn = h => h) => { const o = { closed: l.closed, pts: l.pts.map(fn) }; if (l.c) o.c = l.c.map(h => (h ? hfn(h) : null)); return o; };
 
 // ---------- what's picked, on the board ----------
 // One item has its handles. With more, each shows a dashed box and the panel's tools act on them together.
@@ -40,7 +44,7 @@ function cvPickedSvg(px) {
 // Shift keeps each line level, upright or at 45 degrees. Esc stops.
 function cvToolStart(kind) { cvTool = { kind, pts: [], at: null }; cvPickOnly(null); cvEl('cvStage').classList.add('drawing'); carveRender(); }
 function cvToolCancel() { cvTool = null; cvEl('cvStage').classList.remove('drawing'); carveRender(); }
-const cvToolTitle = () => ({ trim: 'Trimming lines', dim: 'Measuring' }[cvTool.kind] || 'Drawing a line');
+const cvToolTitle = () => ({ trim: 'Trimming lines', dim: 'Measuring', arc: 'Drawing an arc', extend: 'Extending lines' }[cvTool.kind] || 'Drawing a line');
 const cvToolClose = p => cvTool.kind === 'pen' && cvTool.pts.length > 2 && Math.hypot(p[0] - cvTool.pts[0][0], p[1] - cvTool.pts[0][1]) < 8 * cvView.k;
 function cvToolSnap(e, p) {
   const last = cvTool.pts[cvTool.pts.length - 1]; if (!e.shiftKey || !last) return p;
@@ -48,6 +52,12 @@ function cvToolSnap(e, p) {
   return [last[0] + Math.cos(a) * r, last[1] + Math.sin(a) * r];
 }
 function cvToolDown(e, p) {
+  if (cvTool.kind === 'extend') { cvExtendAt(p); return; }   // stays on, for the next line
+  if (cvTool.kind === 'arc') {
+    p = cvToolSnap(e, p); cvTool.pts.push(p);
+    if (cvTool.pts.length === 3) { const [a, b, m] = cvTool.pts, l = cvArcLine(a, b, m); cvToolCancel(); if (l) cvMakePath([l], null); else toast('Those three points are in a line, so there is no arc through them.', true); return; }
+    cvToolDraw(p); cvPanelRender(); return;
+  }
   if (cvTool.kind === 'trim') { cvTrimAt(p); return; }   // stays on, for the next line
   if (cvTool.kind === 'dim') {
     p = cvSnapPoint(cvToolSnap(e, p)); cvTool.pts.push(p);
@@ -59,9 +69,9 @@ function cvToolDown(e, p) {
   if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) > 1e-3) cvTool.pts.push(p);
   cvToolDraw(p); cvPanelRender();
 }
-function cvToolMove(e, p) { if (cvTool.kind === 'trim') return; cvTool.at = cvToolClose(p) ? cvTool.pts[0] : cvTool.kind === 'dim' ? cvSnapPoint(cvToolSnap(e, p)) : cvToolSnap(e, p); cvToolDraw(cvTool.at); }
+function cvToolMove(e, p) { if (cvTool.kind === 'trim' || cvTool.kind === 'extend') return; cvTool.at = cvToolClose(p) ? cvTool.pts[0] : cvTool.kind === 'dim' ? cvSnapPoint(cvToolSnap(e, p)) : cvToolSnap(e, p); cvToolDraw(cvTool.at); }
 function cvToolDraw(at) {
-  const g = cvEl('cvPen'); if (!g || !cvTool) return; const W = P.carve.board.w, k = cvView.k, pts = cvTool.pts.concat(at ? [at] : []);
+  const g = cvEl('cvPen'); if (!g || !cvTool) return; const W = P.carve.board.w, k = cvView.k, arc = cvTool.kind === 'arc' && cvTool.pts.length === 2 && at && cvArcLine(cvTool.pts[0], cvTool.pts[1], at), pts = arc ? cvBezLine(arc) : cvTool.pts.concat(at ? [at] : []);
   g.innerHTML = (pts.length > 1 ? `<path d="M${pts.map(q => `${r2(q[0])} ${r2(W - q[1])}`).join('L')}" fill="none" stroke="#20262a" stroke-width="${1.5 * k}"/>` : '')
     + cvTool.pts.map((q, i) => `<rect x="${q[0] - 3 * k}" y="${W - q[1] - 3 * k}" width="${6 * k}" height="${6 * k}" fill="${i === 0 && cvTool.pts.length > 2 ? '#ffc928' : '#fff'}" stroke="#20262a" stroke-width="${k}"/>`).join('');
 }
@@ -72,12 +82,14 @@ function cvToolFinish(closed) {
 }
 // a path item from lines on the board, centred on itself, with this job (or the one last chosen for shapes)
 function cvMakePath(lines, op, extra = {}) {
-  const b = cvBox(lines.map(l => l.pts)), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2, it = cvAdd({ type: 'path', x: cx, y: cy, paths: lines.map(l => ({ closed: l.closed, pts: l.pts.map(q => [q[0] - cx, q[1] - cy]) })), ...extra });
+  const b = cvBox(lines.map(l => l.pts)), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2, it = cvAdd({ type: 'path', x: cx, y: cy, paths: lines.map(l => cvMapLine(l, q => [q[0] - cx, q[1] - cy])), ...extra });
   if (op) cvEdit(() => { it.op = JSON.parse(JSON.stringify(op)); });
   return it;
 }
 function cvToolPanelHtml() {
   const n = cvTool.pts.length;
+  if (cvTool.kind === 'arc') return cvSec('draw', 'Drawing an arc', '<p class="note">' + ['Click where the arc starts.', 'Click where it ends.', 'Click a point it passes through, which sets how much it bends.'][n] + ' Hold Shift for level, upright or 45° lines. Esc stops.</p>');
+  if (cvTool.kind === 'extend') return cvSec('draw', 'Extending', '<p class="note">Click near the end of a drawn line, and it carries straight on until it meets another line. Esc stops.</p>');
   if (cvTool.kind === 'trim') return cvSec('draw', 'Trimming', '<p class="note">Click a drawn line, and the stretch you clicked is cut back to the nearest places it crosses another line, or itself. Shapes that aren\'t drawn lines can be made editable first, with Edit its points. Esc stops.</p>');
   if (cvTool.kind === 'dim') return cvSec('draw', 'Measuring', '<p class="note">Click the two ends to measure between. They catch on the corners of shapes nearby. Hold Shift for level, upright or 45°. It is only drawn, never cut. Esc stops.</p>');
   return cvSec('draw', 'Drawing', '<p class="note">' + (n ? n + ' point' + (n === 1 ? '' : 's') + '. ' : '') + 'Click on the board for each point. Click the first point to close the shape, or double-click or press Enter to finish an open line. Hold Shift for level, upright or 45° lines. Esc stops.</p><div class="rowb"><button class="btn line" data-cact="pen-open"' + (n < 2 ? ' disabled' : '') + '>Finish line</button><button class="btn line" data-cact="pen-close"' + (n < 3 ? ' disabled' : '') + '>Close shape</button></div>');
@@ -97,6 +109,7 @@ function cvShapeSecHtml(it) {
   if (it.type === 'rect' || it.type === 'polygon' || it.type === 'star' || (it.type === 'path' && it.paths.some(l => l.closed))) shape += cvF('t.corner', 'Round the corners', cvNum(it.corner || 0));
   if (it.type === 'trace') shape += '<label class="field">Dark or light, where it splits<input type="range" min="1" max="254" data-cf="t.thr" value="' + (it.threshold ?? 128) + '" title="Grey levels darker than this are traced"></label><label class="check"><input type="checkbox" data-cf="t.invert" ' + (it.invert ? 'checked' : '') + '>Trace the light parts instead</label><label class="field">Detail<select data-cf="t.detail">' + [[.5, 'Fine'], [1, 'Normal'], [2.5, 'Smooth']].map(([v, l]) => '<option value="' + v + '" ' + ((it.detail || 1) === v ? 'selected' : '') + '>' + l + '</option>').join('') + '</select></label>';
   shape += '<div class="rowb"><button class="btn line" data-cact="t-nodes" title="' + (it.type === 'path' ? 'Drag a point to move it, double-click a line to add one, Delete removes the last one touched' : 'Turns it into a plain shape whose points can be moved. Its own settings, like its text or sides, are then fixed') + '">' + ic('pen-tool') + (cvNodeItem() ? 'Stop editing points' : 'Edit its points') + '</button></div>';
+  if (cvNodeItem()) shape += '<div class="rowb"><button class="btn line" data-cact="t-fit" title="Gives every point handles, so the line curves smoothly through them all">Fit curves</button><button class="btn line" data-cact="t-ptsmooth"' + (cvNodeSel ? '' : ' disabled') + ' title="Turns the point touched last into a smooth curve, or back into a sharp corner">Smooth or sharp</button></div>' + cvF('t.fr', 'Round a corner, radius', cvNum(cvToolNum('fr', 3))) + cvF('t.fc', 'Or cut it off, along each side', cvNum(cvToolNum('fc', 3))) + '<div class="rowb"><button class="btn line" data-cact="t-fillet"' + (cvNodeSel ? '' : ' disabled') + ' title="Rounds the corner at the point touched last">Round corner</button><button class="btn line" data-cact="t-chamfer"' + (cvNodeSel ? '' : ' disabled') + ' title="Cuts the corner at the point touched last off straight">Cut corner off</button></div>';
   if (it.type === 'path') {
     shape += '<label class="check"><input type="checkbox" data-cf="t.smooth" ' + (it.smooth ? 'checked' : '') + '>Smooth curve through the points</label>';
     if (it.paths.some(l => !l.closed)) shape += '<div class="rowb"><button class="btn line" data-cact="t-close">' + ic('cv-close') + 'Close the open lines</button></div>';
@@ -122,6 +135,10 @@ function cvMultiPanelHtml() {
   h += cvSec('combine', 'Join together', (closed < 2 ? '<p class="note">Joining needs two closed shapes or more.</p>' : '<p class="note">The first picked is kept for Cut away and Overlap, and gives the new shape its job.</p>')
     + '<div class="rowb cvicons">' + cvIconBtn('m-weld', 'cv-weld', 'Weld: one shape covering them all') + cvIconBtn('m-subtract', 'cv-subtract', 'Cut away: the first, without where the others are') + cvIconBtn('m-intersect', 'cv-intersect', 'Overlap: only where the first and the others overlap') + '</div>');
   h += cvSec('mjob', 'How to cut them', '<div class="jobGrid" role="radiogroup" aria-label="How to cut them all">' + CV_KINDS.map(([v]) => '<label class="jobBtn' + (list.every(i => i.op && i.op.kind === v) ? ' on' : '') + '" title="' + esc(CV_JOB_WHAT[v]) + '"><input type="radio" name="cvJobAll" data-cf="m.kind" value="' + v + '">' + cvJobArt(v) + esc(CV_JOB_SHORT[v]) + '</label>').join('') + '</div><p class="note">Sets the same job for all ' + list.length + ', each with the best bit you have for it.</p>');
+  const grouped = list.every(i => i.gid && i.gid === list[0].gid), openLines = list.filter(i => i.type === 'path').reduce((n, i) => n + cvLocal(i).lines.filter(l => !l.closed).length, 0), line = list.length === 2 && list.find(i => i.type === 'path' && cvLocal(i).lines.length);
+  h += cvSec('mgroup', 'Group', '<div class="rowb">' + (grouped ? '<button class="btn line" data-cact="m-ungroup" title="Ctrl+Shift+G">' + ic('separator-vertical') + 'Ungroup</button>' : '<button class="btn line" data-cact="m-group" title="Kept together: picked, moved and copied as one (Ctrl+G)">' + ic('group') + 'Group them</button>') + '</div>'
+    + (openLines >= 2 ? '<div class="rowb"><button class="btn line" data-cact="m-join" title="Joins the open drawn lines at their nearest ends, into one shape">' + ic('cv-close') + 'Join the open lines</button></div>' : ''));
+  if (line) h += cvSec('malong', 'Copy along the line', '<label class="field">Copies<input type="text" data-cf="m.along" value="' + cvToolNum('along', 5) + '"></label><label class="check"><input type="checkbox" data-cf="m.turn" ' + (cvToolNums.alongTurn !== false ? 'checked' : '') + '>Turn to follow the line</label><div class="rowb"><button class="btn line" data-cact="m-along" title="Spaces copies of the other one evenly along the drawn line">' + ic('cv-ring') + 'Copy along the line</button></div>');
   h += cvSec('mmore', 'Copy or delete', '<div class="rowb cvicons">' + cvIconBtn('dup', 'copy', 'Duplicate them (Ctrl+D)') + cvIconBtn('del', 'trash-2', 'Delete them (Del)') + '</div>');
   return h;
 }
@@ -131,8 +148,9 @@ function cvToolField(el) {
   const k = el.dataset.cf; if (!k || !(k.startsWith('t.') || k.startsWith('m.'))) return false;
   const it = cvItem(), cv = cvNow(), f = k.slice(2);
   if (k === 'm.kind') { const kind = el.value, list = cvPicked(); cvEdit(() => { list.forEach(i => { if (!cvNeverCut(i) && (kind === 'line' || kind === 'off' || cvLocal(i).regions.length)) i.op = cvOpFor(cv, kind); }); }); return true; }
-  if (['off', 'cols', 'rows', 'gap', 'ring', 'igap'].includes(f)) {
-    const v = f === 'off' || f === 'gap' || f === 'igap' ? cvParse(el.value) : parseInt(el.value, 10), ok = f === 'off' ? v > 0 : f === 'gap' || f === 'igap' ? v >= 0 : f === 'ring' ? v >= 2 && v <= 360 : v >= 1 && v <= 100;
+  if (k === 'm.turn') { cvToolNums.alongTurn = el.checked; return true; }
+  if (['off', 'cols', 'rows', 'gap', 'ring', 'igap', 'fr', 'fc', 'along'].includes(f)) {
+    const v = ['off', 'gap', 'igap', 'fr', 'fc'].includes(f) ? cvParse(el.value) : parseInt(el.value, 10), ok = f === 'off' || f === 'fr' || f === 'fc' ? v > 0 : f === 'gap' || f === 'igap' ? v >= 0 : f === 'along' ? v >= 2 && v <= 500 : f === 'ring' ? v >= 2 && v <= 360 : v >= 1 && v <= 100;
     if (isFinite(v) && ok) cvToolNums[f] = v; else { toast("That number won't work.", true); cvPanelRender(); }
     return true;
   }
@@ -150,11 +168,23 @@ function cvToolAction(a) {
   const list = cvPicked(), it = cvItem(), cv = cvNow(), b = cv.board;
   if (a === 'pen-open') { cvToolFinish(false); return true; }
   if (a === 'pen-close') { cvToolFinish(true); return true; }
+  if (a === 'b-svg' || a === 'b-dxf') { cvSaveShapes(a.slice(2)); return true; }
   if (!it) return a.startsWith('t-') || a.startsWith('m-');
+  if (['t-fit', 't-ptsmooth', 't-fillet', 't-chamfer'].includes(a)) {
+    const n = cvNodeSel, ok = () => { cvEdit(() => cvRecentre(it)); carveRender(); };
+    if (a === 't-fit') { cvEdit(() => cvFitCurves(it)); carveRender(); return true; }
+    if (!n) return true;
+    if (a === 't-ptsmooth') { cvEdit(() => cvTogglePoint(it, n.l, n.p)); carveRender(); return true; }
+    let done = false; cvEdit(() => { done = cvCornerAt(it, n.l, n.p, a === 't-fillet' ? cvToolNum('fr', 3) : cvToolNum('fc', 3), a === 't-chamfer'); }); if (done) { cvNodeSel = null; ok(); } return true;
+  }
+  if (a === 'm-join') { cvJoinLines(list); return true; }
+  if (a === 'm-group') { cvGroup(list); return true; }
+  if (a === 'm-ungroup') { cvUngroup(list); return true; }
+  if (a === 'm-along') { cvCopyAlong(list); return true; }
   if (a === 't-plug') { cvMakePlug(it); return true; }
   if (a === 't-nodes') { if (cvNodeItem()) cvNodesStop(); else cvNodesStart(it); return true; }
   if (a === 't-mx' || a === 't-my') { const k = a === 't-mx' ? 'mx' : 'my'; cvEdit(() => { list.forEach(i => { i[k] = !i[k]; }); }); return true; }
-  if (a === 't-close') { cvEdit(() => { it.paths = it.paths.map(l => ({ closed: l.pts.length > 2 ? true : l.closed, pts: l.pts })); }); return true; }
+  if (a === 't-close') { cvEdit(() => { it.paths = it.paths.map(l => ({ ...l, closed: l.pts.length > 2 ? true : l.closed })); }); return true; }
   if (a === 't-out' || a === 't-in') {
     const d = cvToolNum('off', 3), regions = cvWorldShape(it).regions; if (!regions.length) { toast('Only closed shapes can be outlined.', true); return true; }
     const out = cvOffset(cvUnion(regions), a === 't-out' ? d : -d); if (!out.length) { toast("It isn't that wide, so there's nothing inside.", true); return true; }
@@ -197,7 +227,7 @@ function cvToolAction(a) {
 function cvRecentre(it) {   // moves a path's points so its middle is on its own centre again, without moving it on the board
   const b = cvBox(it.paths.map(l => l.pts)), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2; if (Math.abs(cx) < 1e-9 && Math.abs(cy) < 1e-9) return;
   const place = cvPlaceFn(it), o = place([0, 0]), m = place([cx, cy]);
-  it.paths = it.paths.map(l => ({ closed: l.closed, pts: l.pts.map(q => [q[0] - cx, q[1] - cy]) })); it.x += m[0] - o[0]; it.y += m[1] - o[1];
+  it.paths = it.paths.map(l => cvMapLine(l, q => [q[0] - cx, q[1] - cy])); it.x += m[0] - o[0]; it.y += m[1] - o[1];
 }
 function cvToPath(it) {
   if (it.type === 'path') return it;
@@ -217,13 +247,20 @@ const cvToLocal = (it, p) => { const r = -(it.rot || 0) * Math.PI / 180, dx = p[
 let cvNodeEdit = null, cvNodeSel = null;
 function cvNodesStart(it) { cvToPath(it); cvNodeEdit = it.id; cvNodeSel = null; carveRender(); }
 function cvNodesStop() { if (cvNodeEdit === null) return false; cvNodeEdit = null; cvNodeSel = null; carveRender(); return true; }
-const cvNodeItem = () => (cvNodeEdit !== null && cvSel === cvNodeEdit ? cvItem() : null);
+const cvNodeItem = () => { const it = cvNodeEdit !== null && cvSel === cvNodeEdit ? cvItem() : null; return it && it.type === 'path' ? it : null; };
 function cvNodesSvg(it, px) {
   const place = cvPlaceFn(it), W = P.carve.board.w, H = 4 * px;
-  return '<g>' + it.paths.map((l, li) => l.pts.map((q, pi) => { const p = place(q), on = cvNodeSel && cvNodeSel.l === li && cvNodeSel.p === pi; return `<rect class="cvn" data-l="${li}" data-p="${pi}" x="${p[0] - H}" y="${W - p[1] - H}" width="${H * 2}" height="${H * 2}" fill="${on ? '#ffc928' : '#fff'}" stroke="#20262a" stroke-width="${px}"/>`; }).join('')).join('') + '</g>';
+  const hd = it.paths.map((l, li) => (l.c || []).map((h, pi) => { if (!cvHasHandle(h)) return ''; const p = place(l.pts[pi]); return [[h[0], h[1], 0], [h[2], h[3], 1]].filter(v => v[0] || v[1]).map(([x, y, s]) => { const q = place([l.pts[pi][0] + x, l.pts[pi][1] + y]); return `<line x1="${p[0]}" y1="${W - p[1]}" x2="${q[0]}" y2="${W - q[1]}" stroke="#0f7d8c" stroke-width="${px}"/><circle class="cvhd" data-l="${li}" data-p="${pi}" data-s="${s}" cx="${q[0]}" cy="${W - q[1]}" r="${H}" fill="#fff" stroke="#0f7d8c" stroke-width="${px}"/>`; }).join(''); }).join('')).join('');
+  return '<g>' + hd + it.paths.map((l, li) => l.pts.map((q, pi) => { const p = place(q), on = cvNodeSel && cvNodeSel.l === li && cvNodeSel.p === pi; return `<rect class="cvn" data-l="${li}" data-p="${pi}" x="${p[0] - H}" y="${W - p[1] - H}" width="${H * 2}" height="${H * 2}" fill="${on ? '#ffc928' : '#fff'}" stroke="#20262a" stroke-width="${px}"/>`; }).join('')).join('') + '</g>';
 }
 function cvNodeDown(e, p) {
-  const it = cvNodeItem(), n = it && e.target.closest && e.target.closest('.cvn');
+  const it0 = cvNodeItem(), hd = it0 && e.target.closest && e.target.closest('.cvhd');
+  if (hd) {   // a handle: the other one of a smooth point swings round to match, unless Alt is held
+    const li = +hd.dataset.l, pi = +hd.dataset.p, s = +hd.dataset.s, l = it0.paths[li]; let moved = false;
+    cvDrag = { onMove: (ev, q) => { if (!moved) { pushUndo(); moved = true; } const at = cvToLocal(it0, q), h = l.c[pi], v = [at[0] - l.pts[pi][0], at[1] - l.pts[pi][1]], o = s ? [h[0], h[1]] : [h[2], h[3]], ol = Math.hypot(o[0], o[1]), vl = Math.hypot(v[0], v[1]) || 1, keep = ev.altKey ? o : [-v[0] / vl * ol, -v[1] / vl * ol]; l.c[pi] = s ? [keep[0], keep[1], v[0], v[1]] : [v[0], v[1], keep[0], keep[1]]; cvStageRender(); }, onUp: () => { if (moved) persist(); carveRender(); } };
+    cvEl('cvStage').setPointerCapture(e.pointerId); return true;
+  }
+  const it = it0, n = it && e.target.closest && e.target.closest('.cvn');
   if (it && !n && cvNodeNearest(it, p)) return true;   // on or by one of its lines: stays picked, so a double-click there can add a point
   if (!n) return false;
   const li = +n.dataset.l, pi = +n.dataset.p; cvNodeSel = { l: li, p: pi }; let moved = false;
@@ -238,12 +275,12 @@ function cvNodeNearest(it, p) {   // the line of it nearest p, within 8 pixels
 function cvNodeAdd(p) {   // on the nearest line, if it's close
   const it = cvNodeItem(); if (!it) return false; const best = cvNodeNearest(it, p);
   if (!best) return true;
-  cvEdit(() => { it.paths[best.li].pts.splice(best.i + 1, 0, cvToLocal(it, p)); }); cvNodeSel = { l: best.li, p: best.i + 1 }; carveRender(); return true;
+  cvEdit(() => { const l = it.paths[best.li]; l.pts.splice(best.i + 1, 0, cvToLocal(it, p)); if (l.c) l.c.splice(best.i + 1, 0, null); }); cvNodeSel = { l: best.li, p: best.i + 1 }; carveRender(); return true;
 }
 function cvNodeDelete() {
   const it = cvNodeItem(); if (!it || !cvNodeSel) return !!it; const l = it.paths[cvNodeSel.l]; if (!l) return true;
   if (l.pts.length <= (l.closed ? 3 : 2)) { toast(l.closed ? 'A closed shape needs three points.' : 'A line needs two points.', true); return true; }
-  cvEdit(() => { l.pts.splice(cvNodeSel.p, 1); cvRecentre(it); }); cvNodeSel = null; carveRender(); return true;
+  cvEdit(() => { l.pts.splice(cvNodeSel.p, 1); if (l.c) l.c.splice(cvNodeSel.p, 1); cvRecentre(it); }); cvNodeSel = null; carveRender(); return true;
 }
 
 // ---------- DXF ----------
@@ -443,7 +480,7 @@ function cvTrimAt(p) {
     it.paths.forEach((l, li) => { const pts = l.pts.map(place), n = pts.length; for (let i = 0; i < (l.closed ? n : n - 1); i++) { const a = pts[i], b = pts[(i + 1) % n], dx = b[0] - a[0], dy = b[1] - a[1], t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy || 1))), v = Math.hypot(p[0] - a[0] - dx * t, p[1] - a[1] - dy * t); if (v < d) { d = v; best = { it, li, i, t }; } } });
   });
   if (!best) { toast('Click on a drawn line to trim it. Other shapes can be made editable first, with Edit its points.', true); return false; }
-  const { it, li } = best, l = it.paths[li], place = cvPlaceFn(it), pts = l.pts.map(place); if (l.closed) pts.push(pts[0]);
+  const { it, li } = best, l0 = it.paths[li], l = l0.c ? { closed: l0.closed, pts: cvBezLine(l0) } : l0, place = cvPlaceFn(it), pts = l.pts.map(place); if (l.closed) pts.push(pts[0]);
   const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
   const total = cum[cum.length - 1], at = cum[best.i] + best.t * (cum[best.i + 1] - cum[best.i]), cuts = [];
   const others = []; P.carve.items.forEach(o => { if (cvNeverCut(o)) return; cvWorldShape(o).lines.forEach((ol, k) => { if (o === it && it.type === 'path' && k === li) return; const q = ol.pts.slice(); if (ol.closed) q.push(q[0]); others.push(q); }); });
@@ -494,4 +531,128 @@ function cvMakePlug(it) {
   if (it.op && it.op.kind !== 'pocket') cvEdit(() => { it.op = { ...cvOpFor(cvNow(), 'pocket'), bit: bit.id, depth: it.op.depth || 3, through: false }; });
   toast(`Plug added beside it, ${cvLen(gap)} smaller all round. Cut it from your inlay wood, then glue it into the pocket.`);
   return made;
+}
+
+// ---------- curves with handles ----------
+// Each point of a drawn line can have handles that pull the line into a curve on either side (l.c, see cvBezLine).
+// A smooth point's handles stay in line; dragging one swings the other round to match, unless Alt is held.
+const cvHasHandle = h => !!h && (h[0] || h[1] || h[2] || h[3]);
+function cvAutoHandle(l, i) {   // handles along the line through the points either side, a third of the way to each
+  const p = l.pts, n = p.length, prev = l.closed ? p[(i + n - 1) % n] : p[Math.max(0, i - 1)], next = l.closed ? p[(i + 1) % n] : p[Math.min(n - 1, i + 1)], t = [(next[0] - prev[0]) / 6, (next[1] - prev[1]) / 6];
+  return [-t[0], -t[1], t[0], t[1]];
+}
+const cvEnsureHandles = l => { if (!l.c) l.c = l.pts.map(() => null); return l.c; };
+function cvFitCurves(it) { it.paths.forEach(l => { cvEnsureHandles(l); l.c = l.pts.map((q, i) => cvAutoHandle(l, i)); }); it.smooth = false; }
+function cvTogglePoint(it, li, pi) { const l = it.paths[li], c = cvEnsureHandles(l); c[pi] = cvHasHandle(c[pi]) ? null : cvAutoHandle(l, pi); }
+
+// rounds one corner with a true circular arc of radius r (two points with handles), or cuts it off at d along each side
+function cvCornerAt(it, li, pi, r, chamfer) {
+  const l = it.paths[li], p = l.pts, n = p.length; if (!l.closed && (pi === 0 || pi === n - 1)) { toast('An end of a line has no corner.', true); return false; }
+  const P = p[pi], A = p[(pi + n - 1) % n], B = p[(pi + 1) % n], la = Math.hypot(A[0] - P[0], A[1] - P[1]), lb = Math.hypot(B[0] - P[0], B[1] - P[1]);
+  const u = [(A[0] - P[0]) / la, (A[1] - P[1]) / la], v = [(B[0] - P[0]) / lb, (B[1] - P[1]) / lb], th = Math.acos(Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1])));
+  if (!(th > .01 && th < Math.PI - .01)) { toast("That point is in a straight line, so there's no corner there.", true); return false; }
+  let d = chamfer ? r : r / Math.tan(th / 2); const most = .95 * Math.min(la, lb); if (d > most) { d = most; if (!chamfer) r = d * Math.tan(th / 2); }
+  const T1 = [P[0] + u[0] * d, P[1] + u[1] * d], T2 = [P[0] + v[0] * d, P[1] + v[1] * d], c = cvEnsureHandles(l);
+  let h1 = null, h2 = null;
+  if (!chamfer) { const h = 4 / 3 * Math.tan((Math.PI - th) / 4) * r; h1 = [0, 0, -u[0] * h, -u[1] * h]; h2 = [-v[0] * h, -v[1] * h, 0, 0]; }
+  p.splice(pi, 1, T1, T2); c.splice(pi, 1, h1, h2); return true;
+}
+
+// ---------- the arc tool ----------
+// Click the two ends, then a point the arc passes through.
+function cvArcThrough(A, B, M) {   // the circle through three points, and the way round from A to B that passes M
+  const d = 2 * (A[0] * (B[1] - M[1]) + B[0] * (M[1] - A[1]) + M[0] * (A[1] - B[1])); if (Math.abs(d) < 1e-9) return null;
+  const a2 = A[0] ** 2 + A[1] ** 2, b2 = B[0] ** 2 + B[1] ** 2, m2 = M[0] ** 2 + M[1] ** 2, c = [(a2 * (B[1] - M[1]) + b2 * (M[1] - A[1]) + m2 * (A[1] - B[1])) / d, (a2 * (M[0] - B[0]) + b2 * (A[0] - M[0]) + m2 * (B[0] - A[0])) / d], r = Math.hypot(A[0] - c[0], A[1] - c[1]);
+  const ang = q => Math.atan2(q[1] - c[1], q[0] - c[0]), a0 = ang(A), am = ang(M), ab = ang(B), ccw = x => ((x % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  const sweep = ccw(am - a0) < ccw(ab - a0) ? ccw(ab - a0) : -ccw(a0 - ab);
+  return { c, r, a0, sweep };
+}
+function cvArcLine(A, B, M) {   // the arc as a line of points with handles, a quarter turn at most between points
+  const g = cvArcThrough(A, B, M); if (!g || g.r > 1e5) return null;
+  const k = Math.max(1, Math.ceil(Math.abs(g.sweep) / (Math.PI / 2))), step = g.sweep / k, h = 4 / 3 * Math.tan(Math.abs(step) / 4) * g.r * Math.sign(step), pts = [], c = [];
+  for (let i = 0; i <= k; i++) { const t = g.a0 + step * i, q = i === 0 ? A.slice() : i === k ? B.slice() : [g.c[0] + g.r * Math.cos(t), g.c[1] + g.r * Math.sin(t)], tx = -Math.sin(t) * h, ty = Math.cos(t) * h; pts.push(q); c.push([i ? -tx : 0, i ? -ty : 0, i < k ? tx : 0, i < k ? ty : 0]); }
+  return { closed: false, pts, c };
+}
+
+// ---------- extending ----------
+// Click near the end of a drawn line and it carries straight on until it meets another line.
+function cvExtendAt(p) {
+  let best = null, d = 8 * cvView.k;
+  P.carve.items.forEach(it => { if (it.type !== 'path') return; const place = cvPlaceFn(it); it.paths.forEach((l, li) => { if (l.closed || l.pts.length < 2) return; [0, l.pts.length - 1].forEach(end => { const q = place(l.pts[end]), v = Math.hypot(q[0] - p[0], q[1] - p[1]); if (v < d) { d = v; best = { it, li, end }; } }); }); });
+  if (!best) { toast('Click near the end of a drawn line to extend it.', true); return false; }
+  const { it, li, end } = best, l = it.paths[li], place = cvPlaceFn(it), n = l.pts.length, E = place(l.pts[end]), h = l.c && l.c[end];
+  const back = end ? (h && (h[0] || h[1]) ? place([l.pts[end][0] + h[0], l.pts[end][1] + h[1]]) : place(l.pts[n - 2])) : (h && (h[2] || h[3]) ? place([l.pts[0][0] + h[2], l.pts[0][1] + h[3]]) : place(l.pts[1]));
+  const dir = [E[0] - back[0], E[1] - back[1]], len = Math.hypot(dir[0], dir[1]); if (!len) return false; const far = [E[0] + dir[0] / len * 1e5, E[1] + dir[1] / len * 1e5];
+  let hit = null, at = Infinity;
+  P.carve.items.forEach(o => { if (cvNeverCut(o)) return; cvWorldShape(o).lines.forEach((ol, k) => { const q = ol.pts.slice(); if (ol.closed) q.push(q[0]); for (let i = 0; i + 1 < q.length; i++) { if (o === it && k === li && ((end && i >= q.length - 3) || (!end && i <= 1))) continue; const t = cvSegHit(E, far, q[i], q[i + 1]); if (t !== null && t * 1e5 > 1e-4 && t < at) { at = t; hit = [E[0] + (far[0] - E[0]) * t, E[1] + (far[1] - E[1]) * t]; } } }); });
+  if (!hit) { toast("Carried straight on, that line doesn't meet anything.", true); return false; }
+  cvEdit(() => { const q = cvToLocal(it, hit); if (end) { l.pts.push(q); if (l.c) l.c.push(null); } else { l.pts.unshift(q); if (l.c) l.c.unshift(null); } cvRecentre(it); });
+  return true;
+}
+
+// ---------- joining open lines ----------
+// The nearest ends are joined, pair by pair, until no open lines are left to join; a line whose ends then meet is closed.
+function cvJoinLines(list) {
+  const items = list.filter(i => i.type === 'path'), lines = items.flatMap(i => cvWorldShape(i).lines.map(l => ({ closed: l.closed, pts: l.pts.map(q => q.slice()) })));
+  let open = lines.filter(l => !l.closed); const shut = lines.filter(l => l.closed);
+  if (open.length < 2 && !(open.length === 1 && Math.hypot(open[0].pts[0][0] - open[0].pts[open[0].pts.length - 1][0], open[0].pts[0][1] - open[0].pts[open[0].pts.length - 1][1]) < .01)) { toast('Joining needs two open drawn lines or more.', true); return null; }
+  while (open.length > 1) {
+    let best = null;
+    for (let a = 0; a < open.length; a++) for (let b = a + 1; b < open.length; b++) for (const ea of [0, 1]) for (const eb of [0, 1]) {
+      const A = open[a].pts, B = open[b].pts, pa = ea ? A[A.length - 1] : A[0], pb = eb ? B[B.length - 1] : B[0], d = Math.hypot(pa[0] - pb[0], pa[1] - pb[1]);
+      if (!best || d < best.d) best = { a, b, ea, eb, d };
+    }
+    const A = best.ea ? open[best.a].pts : open[best.a].pts.slice().reverse(), B = best.eb ? open[best.b].pts.slice().reverse() : open[best.b].pts;
+    const joined = best.d < .001 ? A.concat(B.slice(1)) : A.concat(B);
+    open = open.filter((l, i) => i !== best.a && i !== best.b).concat([{ closed: false, pts: joined }]);
+  }
+  const out = shut.concat(open.map(l => { const q = l.pts, gap = Math.hypot(q[0][0] - q[q.length - 1][0], q[0][1] - q[q.length - 1][1]); return gap < .01 && q.length > 3 ? { closed: true, pts: q.slice(0, -1) } : l; }));
+  const op = items[0].op; cvEdit(() => { P.carve.items = P.carve.items.filter(i => !items.includes(i)); });
+  return cvMakePath(out, op);
+}
+
+// ---------- groups ----------
+// Items in a group are picked, moved and copied together, until they're ungrouped.
+const cvGroupOf = it => (it && it.gid ? P.carve.items.filter(o => o.gid === it.gid) : it ? [it] : []);
+function cvGroup(list) { const cv = cvNow(), gid = (cv.nextGid = (cv.nextGid || 0) + 1); cvEdit(() => list.forEach(i => { i.gid = gid; })); }
+function cvUngroup(list) { cvEdit(() => list.forEach(i => { delete i.gid; })); }
+
+// ---------- copies along a line ----------
+// The other item picked is copied at even spaces along a drawn line, from end to end (or all the way round a closed one),
+// and can turn to follow it.
+function cvCopyAlong(list) {
+  const path = list.find(i => i.type === 'path' && cvLocal(i).lines.length), item = list.find(i => i !== path);
+  if (!path || !item || list.length !== 2) { toast('Pick one drawn line and one item to copy along it.', true); return; }
+  const l = cvWorldShape(path).lines[0], pts = l.closed ? l.pts.concat([l.pts[0]]) : l.pts, cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const L = cum[cum.length - 1], n = Math.max(2, cvToolNum('along', 5)), turn = cvToolNums.alongTurn !== false, cv = cvNow(), made = [];
+  const at = s => { let i = 1; while (i < cum.length - 1 && cum[i] < s) i++; const a = pts[i - 1], b = pts[i], t = (s - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1); return { p: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], deg: Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI }; };
+  const base = at(0).deg, rot0 = item.rot || 0;
+  cvEdit(() => {
+    for (let k = 0; k < n; k++) {
+      const q = at(l.closed ? L * k / n : L * k / (n - 1)), c = k ? JSON.parse(JSON.stringify(item)) : item;
+      if (k) { c.id = cv.nextId++; delete c.gid; cv.items.push(c); made.push(c); }
+      c.x = q.p[0]; c.y = q.p[1]; if (turn) c.rot = (((rot0 + q.deg - base) % 360) + 360) % 360;
+    }
+  });
+  cvPickList([item, ...made]); carveRender();
+}
+
+// ---------- saving the shapes ----------
+// Everything on the board that's cut or drawn, as outlines in mm: an SVG for drawing programs, a DXF for CAD.
+function cvShapeLines(list) { return list.filter(i => !cvNeverCut(i)).flatMap(i => cvWorldShape(i).lines).filter(l => l.pts.length > 1); }
+function cvShapesSvg(cv) {
+  const { l: L, w: W } = cv.board, f = v => Math.round(v * 1000) / 1000;
+  const d = cvShapeLines(cv.items).map(l => `<path d="M${l.pts.map(q => `${f(q[0])} ${f(W - q[1])}`).join(' L')}${l.closed ? ' Z' : ''}"/>`).join('\n  ');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${f(L)}mm" height="${f(W)}mm" viewBox="0 0 ${f(L)} ${f(W)}">\n <g fill="none" stroke="#000" stroke-width="0.2">\n  ${d}\n </g>\n</svg>\n`;
+}
+function cvShapesDxf(cv) {
+  const out = ['0', 'SECTION', '2', 'HEADER', '9', '$INSUNITS', '70', '4', '0', 'ENDSEC', '0', 'SECTION', '2', 'ENTITIES'], f = v => String(Math.round(v * 1000) / 1000);
+  cvShapeLines(cv.items).forEach(l => { out.push('0', 'POLYLINE', '8', '0', '66', '1', '70', l.closed ? '1' : '0'); l.pts.forEach(q => out.push('0', 'VERTEX', '8', '0', '10', f(q[0]), '20', f(q[1]))); out.push('0', 'SEQEND', '8', '0'); });
+  out.push('0', 'ENDSEC', '0', 'EOF');
+  return out.join('\r\n') + '\r\n';
+}
+function cvSaveShapes(kind) {
+  const cv = cvNow(); if (!cvShapeLines(cv.items).length) { toast('There are no shapes to save yet.', true); return; }
+  if (kind === 'svg') downloadBlob(`${P.name} shapes.svg`, cvShapesSvg(cv), 'image/svg+xml'); else downloadBlob(`${P.name} shapes.dxf`, cvShapesDxf(cv), 'application/dxf');
+  toast(`Shapes saved as ${kind.toUpperCase()}, in mm, as they sit on the board.`);
 }
