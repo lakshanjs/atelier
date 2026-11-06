@@ -16,7 +16,7 @@ Any panel in a design can be sent to Carve, ready to cut: its outline with tabs,
 
 ![A shelf panel from the design, ready to cut](docs/cut-in-carve.png)
 
-Current version: **1.0.30**. Updates come from this repository's releases. Free for noncommercial use under the [PolyForm Strict License 1.0.0](LICENSE): no changes or redistribution.
+Current version: **1.0.31**. Updates come from this repository's releases. Free for noncommercial use under the [PolyForm Strict License 1.0.0](LICENSE): no changes or redistribution.
 
 ## Notes
 
