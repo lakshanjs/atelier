@@ -22,6 +22,7 @@ const lockFile = () => path.join(app.getPath("userData"), "running.lock");
 function sessionBegin() {
   try { lastRunCrashed = fs.existsSync(lockFile()); fs.writeFileSync(lockFile(), String(process.pid)); } catch (err) { console.error(err); }
 }
+ipcMain.on("update:waiting", (e) => { e.returnValue = updateReady; });   // for a page that reloads after the update arrived
 ipcMain.on("session:crashed", (e) => { e.returnValue = lastRunCrashed; lastRunCrashed = false; });
 
 // Drawings become a PDF in a hidden window of their own. Printing can stall now and then, and a stall here
@@ -69,7 +70,7 @@ ipcMain.on("win:bar", (e, { color, symbolColor }) => {
 // Laptops have two graphics chips, and Chromium picks the slow power-saving one unless told otherwise.
 app.commandLine.appendSwitch("force_high_performance_gpu");
 
-let autoUpdater = null;
+let autoUpdater = null, updateReady = null;   // the version downloaded and waiting to install, if any
 try { ({ autoUpdater } = require("electron-updater")); } catch (e) { console.error("electron-updater unavailable:", e && e.message); }
 
 let win = null;
@@ -124,6 +125,9 @@ if (!app.requestSingleInstanceLock()) {
       autoUpdater.autoDownload = true;
       autoUpdater.autoInstallOnAppQuit = true;
       autoUpdater.on("error", (err) => console.error("update:", err && err.message));
+      // the page shows a bar: Restart now installs it at once, and otherwise it installs when the app is closed
+      autoUpdater.on("update-downloaded", (info) => { updateReady = (info && info.version) || "a new version"; if (win) win.webContents.send("update:ready", updateReady); });
+      ipcMain.on("update:restart", () => { if (updateReady) autoUpdater.quitAndInstall(true, true); });
       // soon after it starts, then every 6 hours for a copy left open; a new version installs when the app is closed
       const check = () => autoUpdater.checkForUpdates().catch(() => {});
       setTimeout(check, 4000); setInterval(check, 6 * 60 * 60 * 1000);

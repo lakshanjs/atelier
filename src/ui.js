@@ -251,3 +251,23 @@ render();
   cvSyncMode();
   snapQuiet('When Atelier started');
 })();
+
+// ---------- an update waiting to install ----------
+// When a new version has downloaded, a bar says so. Restart now saves the work and restarts into it; Later, or leaving
+// it, installs it when Atelier is next closed.
+function showUpdateBar(version) {
+  if (!version || document.getElementById('updBar')) return;
+  const bar = document.createElement('div'); bar.id = 'updBar'; bar.setAttribute('role', 'status');
+  bar.innerHTML = `${ic('download')}<span>Atelier <b>${esc(String(version))}</b> is ready.</span><button class="btn main" id="updNow" title="Saves your work, then restarts into the new version">Restart now</button><button class="btn line" id="updLater" title="It installs when you next close Atelier">Later</button>`;
+  document.body.appendChild(bar);
+  bar.querySelector('#updLater').onclick = () => { bar.remove(); toast(`Atelier ${version} will install when you close it.`); };
+  bar.querySelector('#updNow').onclick = async () => {
+    bar.querySelector('#updNow').disabled = true;
+    try { autosave(); clearTimeout(autosaveTimer); await kvSet('autosave', { t: Date.now(), text: JSON.stringify(P) }); } catch (e) {}   // saved now, not in a moment
+    if (window.atelierWin && window.atelierWin.restartToUpdate) window.atelierWin.restartToUpdate();
+  };
+}
+if (window.atelierWin && window.atelierWin.onUpdateReady) {
+  window.atelierWin.onUpdateReady(showUpdateBar);
+  const waiting = window.atelierWin.updateWaiting && window.atelierWin.updateWaiting(); if (waiting) showUpdateBar(waiting);
+}

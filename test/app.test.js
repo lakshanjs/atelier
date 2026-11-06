@@ -75,3 +75,15 @@ test("exports produce files", async () => {
     return [d.includes('SECTION') && d.trim().endsWith('EOF'), stlBytes().byteLength > 84];`);
   assert.deepStrictEqual(v, [true, true]);
 });
+
+test("an update that has downloaded shows a bar: Restart now, or Later to install on closing", async () => {
+  const v = await app.run(`
+    const bridge = ['onUpdateReady', 'updateWaiting', 'restartToUpdate'].every(k => typeof window.atelierWin[k] === 'function'), waiting = window.atelierWin.updateWaiting();
+    showUpdateBar('9.9.9'); showUpdateBar('9.9.9');
+    const bars = document.querySelectorAll('#updBar').length, text = document.getElementById('updBar').textContent, now = document.getElementById('updNow').title;
+    document.getElementById('updLater').click();
+    return { bridge, waiting, bars, text, now, gone: !document.getElementById('updBar'), toast: document.getElementById('toast').textContent };`);
+  assert.ok(v.bridge, "the window can tell the page, and the page can ask to restart"); assert.strictEqual(v.waiting, null, "nothing waiting when not installed");
+  assert.strictEqual(v.bars, 1, "one bar, however often it's told"); assert.match(v.text, /Atelier 9\.9\.9 is ready\.Restart nowLater/);
+  assert.match(v.now, /Saves your work/); assert.ok(v.gone, "Later hides it"); assert.match(v.toast, /will install when you close it/);
+});

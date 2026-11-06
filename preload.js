@@ -8,4 +8,7 @@ contextBridge.exposeInMainWorld("atelierWin", {
   logError: (text) => ipcRenderer.send("log:error", text),
   setBar: (color, symbolColor) => ipcRenderer.send("win:bar", { color, symbolColor }),
   onOpenFile: (cb) => ipcRenderer.on("file:open", (e, f) => cb(f.name, f.bytes)),
+  onUpdateReady: (cb) => ipcRenderer.on("update:ready", (e, version) => cb(version)),
+  updateWaiting: () => ipcRenderer.sendSync("update:waiting"),
+  restartToUpdate: () => ipcRenderer.send("update:restart"),
 });

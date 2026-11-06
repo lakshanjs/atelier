@@ -16,7 +16,7 @@ Any panel in a design can be sent to Carve, ready to cut: its outline with tabs,
 
 ![A shelf panel from the design, ready to cut](docs/cut-in-carve.png)
 
-Current version: **1.0.29**. Updates come from this repository's releases. Free for noncommercial use under the [PolyForm Strict License 1.0.0](LICENSE): no changes or redistribution.
+Current version: **1.0.30**. Updates come from this repository's releases. Free for noncommercial use under the [PolyForm Strict License 1.0.0](LICENSE): no changes or redistribution.
 
 ## Notes
 
@@ -57,7 +57,7 @@ npm run release
 
 1. Raise `"version"` in `package.json` first. `scripts/release.js` refuses a version that's already released.
 2. This builds the NSIS installer and publishes it, with `latest.yml` and the blockmap, as release `v<version>` of `github.com/lakshanjs/atelier`. The upload uses the GitHub CLI's login (`gh auth login`), so no token is stored anywhere. The repo must be public for installed copies to read its releases.
-3. The installed app checks GitHub shortly after launch and every 6 hours, downloads an update, and installs it on quit.
+3. The installed app checks GitHub shortly after launch and every 6 hours and downloads an update. Then a bar says it's ready (`showUpdateBar` in `src/ui.js`): Restart now saves the work at once and restarts into it (`update:restart`, `quitAndInstall`), and otherwise it installs when the app is closed. A page that reloads asks `update:waiting`, so the bar comes back.
 4. It also copies the files to `D:\wamp\www\atelier-updates`, for copies built before the switch to GitHub (1.0.28 and older), which still check `http://localhost/atelier-updates/`. Once those have updated, that step can go. `npm run release:local` still does only the local copy.
 
 Licence: PolyForm Strict 1.0.0 (`LICENSE`): anyone may use it for noncommercial purposes, but not change or redistribute it. The bundled libraries keep their own licences, listed at the end of `LICENSE`.
