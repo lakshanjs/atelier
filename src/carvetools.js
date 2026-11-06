@@ -656,3 +656,63 @@ function cvSaveShapes(kind) {
   if (kind === 'svg') downloadBlob(`${P.name} shapes.svg`, cvShapesSvg(cv), 'image/svg+xml'); else downloadBlob(`${P.name} shapes.dxf`, cvShapesDxf(cv), 'application/dxf');
   toast(`Shapes saved as ${kind.toUpperCase()}, in mm, as they sit on the board.`);
 }
+
+// ---------- a panel from the design ----------
+// A Design panel becomes the board in Carve, ready to cut on this machine. The board is the panel with a margin all round, in
+// its material and thickness. The face with most work on it is up, as Design's own layout chooses. Its outline is cut out
+// with tabs and a finishing pass; holes are drilled where a bit you own is their size, and milled to size where it isn't;
+// grooves are pocketed; cut-outs are cut through. Holes in its edges and work on the other face are listed to do by hand.
+const CV_PANEL_MARGIN = 10;
+function cvPanelJob(it) {
+  const m = CV_PANEL_MARGIN, cv = { ...CV_DEFAULT(), ...(P.carve ? { safeZ: P.carve.safeZ, airZ: P.carve.airZ, ramp: P.carve.ramp, workX: P.carve.workX, workY: P.carve.workY, maxRate: P.carve.maxRate, tabW: P.carve.tabW, tabH: P.carve.tabH, zero: P.carve.zero, arcs: P.carve.arcs, clampH: P.carve.clampH, tile: P.carve.tile } : {}) };
+  cv.board = { wood: CV_WOODS[it.mat] ? it.mat : 'bass', l: it.l + 2 * m, w: it.w + 2 * m, t: it.t }; Object.assign(cv.board, cvRatesFor(cv.board.wood));
+  if (!CV_WOODS[it.mat]) cv.board.customT = true;
+  cv.items = []; cv.nextId = 1; cv.nextGid = 1;
+  const lay = partLayout(it, { l: it.l, w: it.w, x: m, y: m }, 0, 0), at = p => lay.map(p), gid = 1, byHand = [], everyday = cvBitOf(cvBestBit('outside')), flats = cvOwned().filter(b => b.type === 'flat' && b.d > 0).sort((a, b) => a.d - b.d || (b === everyday) - (a === everyday) || (a.family === 'corn') - (b.family === 'corn'));   // of bits the same size, the one cutting the outline first, so fewer bit changes
+  const add = o => { const item = { id: cv.nextId++, rot: 0, gid, ...o }; cv.items.push(item); return item; };
+  const path = (pts, op) => { const b = cvBox([pts]), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2; return add({ type: 'path', x: cx, y: cy, paths: [{ closed: true, pts: pts.map(q => [q[0] - cx, q[1] - cy]) }], op }); };
+  const opOf = (kind, bit, more) => ({ kind, bit: bit ? bit.id : null, depth: 1, through: false, tabs: 4, finish: 0, peck: true, clear: null, ...more });
+  const depthOf = (through, d) => (through ? { through: true } : { through: false, depth: Math.min(d, it.t) });
+  const round = (c, d, through, depth, why) => {   // a round hole: drilled by a bit its size, else milled out by the biggest flat bit that fits
+    const exact = flats.filter(b => Math.abs(b.d - d) <= .1).sort((a, b) => Math.abs(a.d - d) - Math.abs(b.d - d))[0];   // sort keeps the preferred one first among equals
+    if (exact) return add({ type: 'circle', w: d, h: d, x: c[0], y: c[1], op: opOf('drill', exact, depthOf(through, depth)) });
+    const fits = flats.filter(b => b.d <= d * .95), mill = everyday && everyday.d <= d * .95 ? everyday : fits.filter(b => b.d === (fits[fits.length - 1] || {}).d)[0];
+    if (!mill) { byHand.push(`${why}: a ${cvLen(d)} hole, smaller than any flat bit you have`); return null; }
+    // a small hole right through is cleared out, so no loose disc is left to fly about; a big one is cut round, with tabs
+    return add({ type: 'circle', w: d, h: d, x: c[0], y: c[1], op: opOf(through && d >= 30 ? 'inside' : 'pocket', mill, { ...depthOf(through, depth), tabs: through && d >= 30 ? 2 : 0, finish: 0 }) });
+  };
+  // the outline, cut free last
+  path(outlinePts(it).map(at), opOf('outside', everyday, { through: true, tabs: 4, finish: CV_FINISH }));
+  // cut-outs, right through
+  if (it.shape) it.shape.holes.filter(h => holeFits(it, h)).forEach(h => {
+    if (h.k === 'circle') round(at([h.x, h.z]), h.w, true, it.t, 'A round cut-out');
+    else path(holePts(h).map(at), opOf('inside', everyday, { through: true, tabs: 0, finish: CV_FINISH }));
+  });
+  // holes and grooves from the face that's up
+  opsOf(it).forEach(o => {
+    const side = { top: 'top face', bottom: 'bottom face', a: 'back edge', b: 'front edge', c: 'left edge', d: 'right edge' }[o.face], why = o.why || (o.k === 'hole' ? 'Hole' : 'Groove');
+    if (o.jig) { byHand.push(`${why}: a pocket hole, made with its jig`); return; }
+    if (o.k === 'hole' && !isFace(o.face)) { byHand.push(`${why}: a ${cvLen(o.d)} hole in the ${side}, ${cvLen(o.depth)} deep`); return; }
+    if (!reachable(o, lay)) { byHand.push(`${why}: ${o.k === 'hole' ? `a ${cvLen(o.d)} hole` : `a ${cvLen(o.width)} groove`} on the other face, the ${side}`); return; }
+    if (o.k === 'hole') { round(at([o.x, o.z]), o.d, !!o.through, o.depth, why); return; }
+    const a = at([o.x0, o.z0]), b = at([o.x1, o.z1]), len = Math.hypot(b[0] - a[0], b[1] - a[1]), fits = flats.filter(f => f.d <= o.width + .01), fit = everyday && everyday.d <= o.width + .01 ? everyday : fits.filter(f => f.d === (fits[fits.length - 1] || {}).d)[0];
+    if (!fit) { byHand.push(`${why}: a ${cvLen(o.width)} groove, narrower than any flat bit you have`); return; }
+    add({ type: 'rect', w: len, h: o.width, x: (a[0] + b[0]) / 2, y: (a[1] + b[1]) / 2, rot: Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI, op: opOf('pocket', fit, depthOf(false, o.depth)) });
+  });
+  cv.fromPanel = { id: it.id, name: it.name || 'Panel', up: lay.up, byHand };
+  return cv;
+}
+function cvFromPanel(it) {
+  if (!it || it.kind !== 'panel') { toast('Pick a panel first.', true); return; }
+  if (!cvOwned().some(b => b.type === 'flat')) { toast('Tick a flat bit in your bits first: Carve needs one to cut the panel out.', true); return; }
+  const had = P.carve && P.carve.items.length && !(P.carve.fromPanel && P.carve.fromPanel.id === it.id), cv = cvPanelJob(it);
+  edit(() => { P.carve = cv; cvBitsSync(); });
+  openCarve(); cvPickOnly(null); carveRender();
+  const n = cv.fromPanel.byHand.length;
+  toast(`${cv.fromPanel.name} is ready to cut${cv.fromPanel.up ? '' : ', other side up'}.${n ? ` ${n} ${n === 1 ? 'thing' : 'things'} to do by hand are listed in the panel.` : ''}${had ? ' What was on the board before is back with Undo.' : ''}`);
+}
+function cvFromPanelHtml(cv) {
+  const f = cv.fromPanel; if (!f) return '';
+  return cvSec('frompanel', 'From the design', '<p class="note">' + esc(f.name) + ', panel ' + f.id + (f.up ? ', top face up.' : ', its bottom face up, so the side with most work is cut.') + ' A margin of ' + esc(cvLen(CV_PANEL_MARGIN)) + ' is left round it to clamp.</p>'
+    + (f.byHand.length ? '<p class="cvSub">To do by hand</p><ul class="opsum">' + f.byHand.map(t => '<li>' + esc(t) + '</li>').join('') + '</ul>' : '<p class="note">Everything on it is cut here.</p>'));
+}

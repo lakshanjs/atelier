@@ -390,9 +390,10 @@ function machSectionHtml(it) {
     else { b += `<label class="field">Runs along<select data-opaxis="${i}"><option value="l" ${o.axis === 'l' ? 'selected' : ''}>The length</option><option value="w" ${o.axis === 'w' ? 'selected' : ''}>The width</option></select></label>` + (o.axis === 'l' ? lf('From back edge', 'z') : lf('From left', 'x')) + lf('Width', 'width', .5) + lf('Depth', 'depth', .1); }
     b += `<label class="field">Side<select data-opface="${i}"><option value="top" ${o.face === 'top' ? 'selected' : ''}>Top</option><option value="bottom" ${o.face === 'bottom' ? 'selected' : ''}>Bottom</option></select></label></div>`;
   });
-  return sec('mach', `Machining${list.length ? `: ${list.length}` : ''}`, `${b}<div class="rowb" style="margin-top:6px"><button class="btn line" data-opadd="hole">Add hole</button><button class="btn line" data-opadd="groove">Add groove</button></div>`);
+  return sec('mach', `Machining${list.length ? `: ${list.length}` : ''}`, `${b}<div class="rowb" style="margin-top:6px"><button class="btn line" data-opadd="hole">Add hole</button><button class="btn line" data-opadd="groove">Add groove</button></div><div class="rowb"><button class="btn line" data-carvepanel="1" title="Opens this panel in Carve, ready to cut on your machine: its outline with tabs, its holes, grooves and cut-outs">${ic('drill')}Cut in Carve</button></div>`);
 }
 function machBind(it) {
+  side.querySelectorAll('[data-carvepanel]').forEach(b => b.onclick = () => cvFromPanel(it));
   side.querySelectorAll('[data-opadd]').forEach(b => b.onclick = () => edit(() => { (it.ops = it.ops || []).push(b.dataset.opadd === 'hole' ? { k: 'hole', x: it.l / 2, z: it.w / 2, d: 8, depth: Math.min(12, it.t), face: 'top' } : { k: 'groove', axis: 'l', x: it.l / 2, z: 20, width: Math.max(cnc('cutter'), 6), depth: Math.min(8, it.t / 2), face: 'top' }); }));
   side.querySelectorAll('[data-opdel]').forEach(b => b.onclick = () => edit(() => { it.ops.splice(+b.dataset.opdel, 1); if (!it.ops.length) delete it.ops; }));
   side.querySelectorAll('[data-opaxis]').forEach(s => s.onchange = () => edit(() => { it.ops[+s.dataset.opaxis].axis = s.value; }));
