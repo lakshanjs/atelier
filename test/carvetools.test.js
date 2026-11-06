@@ -127,6 +127,81 @@ test("mirror, outline, and copies in rows or a ring", async () => {
   assert.deepStrictEqual(app.errors, []);
 });
 
+test("editing points: any shape becomes editable, points drag with the real mouse, double-click adds one, Delete takes one away", async () => {
+  await app.run(`${START} const r = cvAddRect(); r.w = 60; r.h = 40; r.x = 150; r.y = 100; r.op = cvOpFor(cv, 'pocket'); cvPickOnly(r.id); carveRender();
+    document.querySelector('[data-cact="t-nodes"]').click();`);
+  const a = await app.run(`${SCREEN} const it = P.carve.items[0], place = cvPlaceFn(it), pts = it.paths[0].pts.map(q => place(q));
+    const right = pts.reduce((m, q) => (q[0] > m[0] || (q[0] === m[0] && q[1] > m[1]) ? q : m)); return { type: it.type, kind: it.op.kind, nodes: document.querySelectorAll('.cvn').length, right, from: scr(...right), to: scr(right[0] + 20, right[1] + 10), label: document.querySelector('[data-cact="t-nodes"]').textContent };`);
+  await mouse("mouseMoved", a.from[0], a.from[1], 0); await mouse("mousePressed", a.from[0], a.from[1], 1); await mouse("mouseMoved", (a.from[0] + a.to[0]) / 2, (a.from[1] + a.to[1]) / 2, 1); await mouse("mouseMoved", a.to[0], a.to[1], 1); await mouse("mouseReleased", a.to[0], a.to[1], 0);
+  const b = await app.run(`${SCREEN} const it = P.carve.items[0], place = cvPlaceFn(it), pts = it.paths[0].pts.map(q => place(q)); return { pts: pts.map(q => q.map(v => Math.round(v * 10) / 10)), edge: scr(150, 80) };`);
+  await mouse("mouseMoved", b.edge[0], b.edge[1], 0);
+  await app.send("Input.dispatchMouseEvent", { type: "mousePressed", x: b.edge[0], y: b.edge[1], button: "left", buttons: 1, clickCount: 1 }); await app.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: b.edge[0], y: b.edge[1], button: "left", buttons: 0, clickCount: 1 });
+  await app.send("Input.dispatchMouseEvent", { type: "mousePressed", x: b.edge[0], y: b.edge[1], button: "left", buttons: 1, clickCount: 2 }); await app.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: b.edge[0], y: b.edge[1], button: "left", buttons: 0, clickCount: 2 });
+  await new Promise(r => setTimeout(r, 200));   // the double-click arrives just after the mouse comes up
+  const c = await app.run(`return P.carve.items[0].paths[0].pts.length`);
+  await app.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Delete", code: "Delete", windowsVirtualKeyCode: 46 });
+  const d = await app.run(`return { n: P.carve.items.length, pts: P.carve.items[0].paths[0].pts.length }`);
+  await app.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+  const e = await app.run(`const out = { editing: cvNodeEdit !== null, handles: document.querySelectorAll('.cvh').length, job: cvJob(P.carve, cvBitOf, 'T').length }; closeCarve(); return out;`);
+  assert.strictEqual(a.type, "path", "the rectangle became editable"); assert.strictEqual(a.kind, "pocket", "and kept its job"); assert.strictEqual(a.nodes, 4); assert.match(a.label, /Stop editing points/);
+  assert.ok(b.pts.some(q => Math.abs(q[0] - (a.right[0] + 20)) < .6 && Math.abs(q[1] - (a.right[1] + 10)) < .6), "the point went where it was dragged: " + JSON.stringify(b.pts));
+  assert.ok(b.pts.some(q => Math.abs(q[0] - 120) < .05 && Math.abs(q[1] - 80) < .05), "the other points stayed put: " + JSON.stringify(b.pts));
+  assert.strictEqual(c, 5, "a double-click on a line adds a point "); assert.strictEqual(d.n, 1, "Delete takes a point, not the shape"); assert.strictEqual(d.pts, 4);
+  assert.ok(!e.editing, "Esc stops"); assert.strictEqual(e.handles, 5, "and its handles come back"); assert.strictEqual(e.job, 1);
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("a drawn shape's corners can be rounded", async () => {
+  const v = await app.run(`${START} const t = cvMakePath([{ closed: true, pts: [[100, 100], [160, 100], [160, 140], [100, 140]] }], null);
+    const a0 = Math.abs(cvArea(cvLocal(t).regions[0])), n0 = cvLocal(t).regions[0].length; t.corner = 5; const a1 = Math.abs(cvArea(cvLocal(t).regions[0])), n1 = cvLocal(t).regions[0].length;
+    cvSel = t.id; carveRender(); const field = !!document.querySelector('[data-cf="t.corner"]'); closeCarve(); return { a0, a1, n0, n1, field };`);
+  assert.ok(v.field); assert.strictEqual(v.n0, 4); assert.ok(v.n1 > 12, "curves at the corners");
+  assert.ok(Math.abs(v.a0 - v.a1 - (4 - Math.PI) * 25) < 1, "each corner loses what a 5 mm round takes away: " + (v.a0 - v.a1));
+});
+
+test("DXF import: lines join into shapes, arcs, bulges and circles come through, in the file's units", async () => {
+  const dxf = (pairs) => pairs.map(([c, v]) => `${c}\n${v}`).join("\n") + "\n";
+  const line = (x0, y0, x1, y1) => [[0, "LINE"], [8, "0"], [10, x0], [20, y0], [11, x1], [21, y1]];
+  const file = dxf([[0, "SECTION"], [2, "HEADER"], [9, "$INSUNITS"], [70, 1], [0, "ENDSEC"], [0, "SECTION"], [2, "ENTITIES"],
+    ...line(0, 0, 2, 0), ...line(2, 2, 2, 0), ...line(2, 2, 0, 2), ...line(0, 0, 0, 2),   // a 2 inch square, its lines in any order and direction
+    [0, "CIRCLE"], [8, "0"], [10, 1], [20, 1], [40, .25],
+    [0, "LWPOLYLINE"], [8, "0"], [90, 2], [70, 0], [10, 3], [20, 0], [42, 1], [10, 4], [20, 0],   // a half circle, from a bulge of 1
+    [0, "ARC"], [8, "0"], [10, 3], [20, 2], [40, .5], [50, 0], [51, 90],
+    [0, "TEXT"], [8, "0"], [10, 0], [20, 0], [1, "hello"], [0, "ENDSEC"], [0, "EOF"]]);
+  const v = await app.run(`${START} cv.board = { wood: 'bass', l: 300, w: 200, t: 6 };
+    const parsed = cvParseDxf(${JSON.stringify(file)}), lines = parsed.lines.map(l => ({ closed: l.closed, n: l.pts.length, box: cvBox([l.pts]) }));
+    const it = await cvImportFile(new File([${JSON.stringify(file)}], 'part.dxf')), s = cvLocal(it);
+    const out = { skipped: parsed.skipped, lines: lines.map(l => [l.closed, Math.round((l.box.x1 - l.box.x0) * 100) / 100, Math.round((l.box.y1 - l.box.y0) * 100) / 100]), type: it.type, w: s.w, h: s.h, x: it.x, y: it.y, regions: s.regions.length };
+    closeCarve(); return out;`);
+  assert.deepStrictEqual(v.skipped, ["TEXT"]);
+  assert.deepStrictEqual(v.lines, [[true, 12.7, 12.7], [true, 50.8, 50.8], [false, 25.4, 12.7], [false, 12.7, 12.7]], "circle, the joined square, bulge and arc, in mm");
+  assert.strictEqual(v.type, "path"); assert.ok(Math.abs(v.w - 101.6) < .01 && Math.abs(v.h - 76.2) < .01, "real size, the half circle curving below: " + v.w + " x " + v.h);
+  assert.ok(Math.abs(v.x - 150) < .01 && Math.abs(v.y - 100) < .01, "placed in the middle of the board"); assert.strictEqual(v.regions, 2, "the square and the circle are closed shapes");
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("tracing a picture: its dark parts become shapes, with holes, and the split, side and detail can change", async () => {
+  const v = await app.run(`${START}
+    const c = new OffscreenCanvas(400, 300), x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, 400, 300);
+    x.fillStyle = '#111'; x.beginPath(); x.arc(200, 150, 120, 0, Math.PI * 2); x.fill(); x.fillStyle = '#bbb'; x.beginPath(); x.arc(200, 150, 50, 0, Math.PI * 2); x.fill();
+    const blob = await c.convertToBlob({ type: 'image/png' }), it = await cvImportFile(new File([blob], 'disc.png', { type: 'image/png' }));
+    const k = it.w / 400, s = cvLocal(it), sum = rs => Math.abs(rs.reduce((n, p) => n + cvArea(p), 0));
+    const ring = { n: s.regions.length, area: sum(s.regions), want: Math.PI * (120 * 120 - 50 * 50) * k * k, w: s.w, want_w: 240 * k, thr: it.threshold };
+    it.threshold = 200; const full = sum(cvLocal(it).regions), fullWant = Math.PI * 120 * 120 * k * k;
+    it.threshold = 128; it.invert = true; const light = cvLocal(it).regions.length;
+    it.invert = false; it.detail = .5; const fine = cvLocal(it).regions[0].length; it.detail = 2.5; const smooth = cvLocal(it).regions[0].length;
+    it.op = cvOpFor(cv, 'pocket'); const job = cvJob(cv, cvBitOf, 'T').length, name = cvItemName(it);
+    cvSel = it.id; carveRender(); const fields = ['t.thr', 't.invert', 't.detail'].every(k => document.querySelector('[data-cf="' + k + '"]'));
+    closeCarve(); return { ring, full, fullWant, light, fine, smooth, job, name, fields };`);
+  assert.ok(v.ring.thr > 17 && v.ring.thr < 187, "the split falls between the dark and the grey: " + v.ring.thr);
+  assert.strictEqual(v.ring.n, 2, "the disc and its hole"); assert.ok(Math.abs(v.ring.area / v.ring.want - 1) < .03, "the ring's area: " + v.ring.area + " vs " + v.ring.want);
+  assert.ok(Math.abs(v.ring.w / v.ring.want_w - 1) < .02, "its size in the picture");
+  assert.ok(Math.abs(v.full / v.fullWant - 1) < .03, "a lighter split takes in the grey middle too");
+  assert.ok(v.light >= 2, "the light parts traced instead"); assert.ok(v.fine > v.smooth, "more detail, more points: " + v.fine + " vs " + v.smooth);
+  assert.strictEqual(v.job, 1); assert.strictEqual(v.name, "Traced picture"); assert.ok(v.fields);
+  assert.deepStrictEqual(app.errors, []);
+});
+
 test("text bends round an arc, over the top or underneath, and stays the same length along it", async () => {
   const v = await app.run(`${START}
     const font = 'Hershey Sans 1-stroke'; await cvFontLoad(font);

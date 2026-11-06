@@ -96,7 +96,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
   <div id="carve" aria-label="Carve on a board">
     <nav id="cvRail" aria-label="Add to the board">
       <button class="btn tool" id="cvAddText" title="Add text" aria-label="Add text"></button>
-      <button class="btn tool" id="cvAddSvg" title="Add an SVG file" aria-label="Add an SVG file"></button>
+      <button class="btn tool" id="cvAddSvg" title="Import an SVG or DXF drawing, or a picture to trace" aria-label="Import a drawing or picture"></button>
       <button class="btn tool" id="cvAddRect" title="Add a rectangle" aria-label="Add a rectangle"></button>
       <button class="btn tool" id="cvAddCircle" title="Add an ellipse" aria-label="Add an ellipse"></button>
       <button class="btn tool" id="cvAddPolygon" title="Add a polygon" aria-label="Add a polygon"></button>
@@ -108,7 +108,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
       <button class="btn tool" id="cvFitBtn" title="Fit the board (F)" aria-label="Fit the board"></button>
       <span class="grow"></span>
       <button class="btn tool" id="cvBits" title="Your bits" aria-label="Your bits"></button>
-      <input type="file" id="cvSvgIn" accept=".svg,image/svg+xml" hidden>
+      <input type="file" id="cvSvgIn" accept=".svg,image/svg+xml,.dxf,.png,.jpg,.jpeg,.bmp,.gif,.webp,image/png,image/jpeg,image/bmp,image/gif,image/webp" hidden>
     </nav>
     <div id="cvStageWrap"><svg id="cvStage" role="img" aria-label="The board"></svg><div id="cv3d" hidden><p id="cv3dNote">Worked out from the bit paths. Drag to turn, right drag to slide, wheel to zoom.</p><div id="cvPlay" role="group" aria-label="Play the cut"><button class="ic" id="cvPlayBack" title="Back to the start" aria-label="Back to the start"></button><button class="ic" id="cvPlayBtn" title="Play the cut (Space)" aria-label="Play the cut"></button><button class="ic" id="cvPlayNext" title="To the end of this toolpath" aria-label="To the end of this toolpath"></button><input type="range" id="cvPlayAt" min="0" max="1000" value="1000" aria-label="How far through the cut"><select id="cvPlaySpeed" title="How fast it plays, times real speed" aria-label="Playing speed"><option value="10">10x</option><option value="30" selected>30x</option><option value="100">100x</option><option value="300">300x</option><option value="1000">1000x</option></select><span id="cvPlayText"></span></div></div></div>
     <aside id="cvPanel"><div id="cvHead"></div><div id="cvSide"></div><div id="cvChecks" aria-live="polite"></div><div id="cvSaveBar"><button class="btn line" id="cvAir" title="Save an air test" aria-label="Save an air test"></button><button class="btn main" id="cvExport">Save G-code</button></div></aside>

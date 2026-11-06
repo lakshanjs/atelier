@@ -169,7 +169,7 @@ test("single-line fonts are engraved once along each stroke, are offered first, 
     const it = add({ type: 'text', text: 'HI', font, size: 10, spacing: 0, leading: 1, align: 'center' }, { kind: 'line', bit: 'v-30', depth: .3 });
     const s = cvLocal(it), job = cvJob(cv, cvBitOf, 'T')[0].text;
     it.op = { kind: 'pocket', bit: 'flat-1-8', depth: 1 }; const refused = cvChecks(cv, cvBitOf, true).filter(c => c.bad).map(c => c.text);
-    cvSel = it.id; carveRender(); await new Promise(r => setTimeout(r, 300));
+    cvSel = it.id; carveRender(); for (let i = 0; i < 50 && !document.querySelector('#cvFont optgroup'); i++) await new Promise(r => setTimeout(r, 100));
     const sel = document.getElementById('cvFont'), group = sel.querySelector('optgroup') && sel.querySelector('optgroup').label, first = sel.options[0].value;
     sel.value = 'EMS Readability'; sel.dispatchEvent(new Event('change', { bubbles: true })); await new Promise(r => setTimeout(r, 300));
     const after = { font: it.font, kind: it.op.kind, bit: cvBitOf(it.op.bit).type, drawn: !!document.querySelector('.cvitem path').getAttribute('d') };

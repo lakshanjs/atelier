@@ -235,7 +235,7 @@ function cvArt(key) {
   let art = null; try { art = cvParseSvg(text); } catch (e) { art = null; }
   cvArtCache.set(key, art); return art;
 }
-const cvShapeKey = it => JSON.stringify([it.type, it.w, it.h, it.art, it.text, it.font, it.size, it.spacing, it.leading, it.align, !!cvFontOf(it.font), !!(it.art && TEXTURES[it.art]), it.sides, it.points, it.inner, it.corner, it.smooth, it.arc, it.type === 'path' ? it.paths : 0]);
+const cvShapeKey = it => JSON.stringify([it.type, it.w, it.h, it.art, it.text, it.font, it.size, it.spacing, it.leading, it.align, !!cvFontOf(it.font), !!(it.art && TEXTURES[it.art]), it.sides, it.points, it.inner, it.corner, it.smooth, it.arc, it.threshold, it.invert, it.detail, it.type === 'trace' && typeof cvImgCache !== 'undefined' && cvImgCache.has(it.art), it.type === 'path' ? it.paths : 0]);
 function cvEllipse(w, h) { const pts = [], n = 180; for (let i = 0; i < n; i++) { const t = i / n * Math.PI * 2; pts.push([Math.cos(t) * w / 2, Math.sin(t) * h / 2]); } return pts; }
 // a regular polygon or a star, point up, stretched to fill w by h
 function cvPolygon(w, h, n, inner) {
@@ -266,13 +266,19 @@ function cvLocal(it) {
   let regions = [], lines = [];
   if (it.type === 'rect') { const p = cvRound([[-it.w / 2, -it.h / 2], [it.w / 2, -it.h / 2], [it.w / 2, it.h / 2], [-it.w / 2, it.h / 2]], Math.min(it.corner || 0, it.w / 2 - .01, it.h / 2 - .01)); regions = [p]; lines = [{ pts: p, closed: true }]; }
   else if (it.type === 'polygon' || it.type === 'star') { const p = cvRound(cvPolygon(it.w, it.h, Math.max(3, Math.min(64, Math.round(it.type === 'star' ? it.points || 5 : it.sides || 6))), it.type === 'star' ? Math.max(.05, Math.min(.95, it.inner || .5)) : 0), it.corner || 0); regions = [p]; lines = [{ pts: p, closed: true }]; }
-  else if (it.type === 'path') { lines = (it.paths || []).filter(l => l.pts.length > 1).map(l => ({ closed: l.closed, pts: it.smooth ? cvSmoothLine(l.pts, l.closed) : l.pts })); const shut = lines.filter(l => l.closed && l.pts.length > 2); regions = shut.length ? cvUnion(shut.map(l => l.pts), true) : []; }
+  else if (it.type === 'path') {
+    lines = (it.paths || []).filter(l => l.pts.length > 1).map(l => ({ closed: l.closed, pts: it.smooth ? cvSmoothLine(l.pts, l.closed) : l.pts })); const shut = lines.filter(l => l.closed && l.pts.length > 2); regions = shut.length ? cvUnion(shut.map(l => l.pts), true) : [];
+    if (it.corner > 0 && regions.length) { const r = cvOffset(cvOffset(regions, -it.corner), it.corner); if (r.length) { regions = r; lines = lines.filter(l => !l.closed).concat(r.map(p => ({ pts: p, closed: true }))); } }   // rounding a shape's corners
+  }
+  else if (it.type === 'trace') { regions = cvTraceRegions(it); lines = regions.map(p => ({ pts: p, closed: true })); }
   else if (it.type === 'circle') { const p = cvEllipse(it.w, it.h); regions = [p]; lines = [{ pts: p, closed: true }]; }
   else if (it.type === 'text') { const font = cvFontOf(it.font), R = Math.abs(it.arc) >= 1 ? it.arc : 0; if (font && font.line) { lines = cvLineText(font, it); if (R) lines = lines.map(l => ({ closed: l.closed, pts: cvBend(l.pts, R, l.closed) })); } else if (font) { let polys = cvTextPolys(font, it); if (R) polys = polys.map(p => cvBend(p, R, true)); regions = cvUnion(polys); lines = regions.map(p => ({ pts: p, closed: true })); } }
   else if (it.type === 'svg') { const a = cvArt(it.art); if (a) { const k = it.w / a.w; regions = a.regions.map(p => p.map(q => [q[0] * k, q[1] * k])); lines = a.lines.map(l => ({ closed: l.closed, pts: l.pts.map(q => [q[0] * k, q[1] * k]) })); } }
-  const b = cvBox(regions.concat(lines.map(l => l.pts))), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;   // measured art and text are centred exactly on their middle
+  // Measured art and text are centred exactly on their middle. A path keeps its own points where they are, so editing one
+  // doesn't move the rest: ox, oy say where its middle is.
+  const b = cvBox(regions.concat(lines.map(l => l.pts))), keep = it.type === 'path', cx = keep ? 0 : (b.x0 + b.x1) / 2, cy = keep ? 0 : (b.y0 + b.y1) / 2;
   if (cx || cy) { regions = regions.map(p => p.map(q => [q[0] - cx, q[1] - cy])); lines = lines.map(l => ({ closed: l.closed, pts: l.pts.map(q => [q[0] - cx, q[1] - cy]) })); }
-  s = { regions, lines, w: b.x1 - b.x0, h: b.y1 - b.y0 };
+  s = { regions, lines, w: b.x1 - b.x0, h: b.y1 - b.y0, ox: keep ? (b.x0 + b.x1) / 2 : 0, oy: keep ? (b.y0 + b.y1) / 2 : 0 };
   if (cvShapeCache.size > 300) cvShapeCache.clear();
   cvShapeCache.set(key, s); return s;
 }
@@ -742,7 +748,7 @@ function cvJob(cv, bitOf, name, air) {
 }
 // what's wrong with the job, or worth knowing. bad stops the export.
 function cvChecks(cv, bitOf, have) {
-  const out = [], label = it => (it.type === 'text' ? `"${String(it.text).split('\n')[0].slice(0, 24)}"` : { svg: 'The artwork', rect: 'The rectangle', circle: 'The circle' }[it.type]);
+  const out = [], label = it => (it.type === 'text' ? `"${String(it.text).split('\n')[0].slice(0, 24)}"` : { svg: 'The artwork', rect: 'The rectangle', circle: 'The circle' }[it.type] || 'The ' + (typeof cvItemName === 'function' ? cvItemName(it) : 'shape').toLowerCase());
   if (!cv.items.length) out.push({ bad: true, text: 'Add text, artwork or a shape first.' });
   if (!have) out.push({ bad: true, text: 'Tick the bits you have in Bits.' });
   if (!(cv.board.l > 0 && cv.board.w > 0 && cv.board.t > 0)) out.push({ bad: true, text: 'The board needs a length, width and thickness.' });

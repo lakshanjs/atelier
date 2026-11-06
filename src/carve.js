@@ -88,14 +88,14 @@ const cvOpenD = lines => lines.map(l => `M${l.pts.map(q => `${r2(q[0])} ${r2(q[1
 const cvMatrix = it => { const r = -(it.rot || 0); return `translate(${r2(it.x)} ${r2(P.carve.board.w - it.y)}) rotate(${r}) scale(${it.mx ? -1 : 1} ${it.my ? 1 : -1})`; };
 const CV_INK = { drill: 'none', line: 'none', pocket: '#5a3d22', vcarve: '#5a3d22', outside: 'none', inside: 'none', off: 'none' };
 function cvItemSvg(it) {
-  const s = cvLocal(it), kind = it.op ? it.op.kind : 'off', w = Math.max(s.w, 4), h = Math.max(s.h, 4), hit = `<rect x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" fill="transparent"/>`;
+  const s = cvLocal(it), kind = it.op ? it.op.kind : 'off', w = Math.max(s.w, 4), h = Math.max(s.h, 4), hit = `<rect x="${(s.ox || 0) - w / 2}" y="${(s.oy || 0) - h / 2}" width="${w}" height="${h}" fill="transparent"/>`;
   const line = kind === 'line' || kind === 'off' || !s.regions.length, d = line && (it.type === 'svg' || !s.regions.length) ? cvOpenD(s.lines) : cvPathD(s.regions);
   return `<g class="cvitem" data-it="${it.id}" transform="${cvMatrix(it)}">${hit}<path d="${d}" fill="${CV_INK[kind] === 'none' ? 'none' : cvWood(P.carve.board).ink}" fill-rule="nonzero" stroke="${kind === 'off' ? '#8a7a64' : cvWood(P.carve.board).ink}" stroke-width="${kind === 'pocket' || kind === 'vcarve' ? 0 : .5}" ${kind === 'outside' || kind === 'inside' ? 'stroke-dasharray="2 1.5"' : ''} vector-effect="none"/></g>`;
 }
 function cvHandles(it, px) {
   const s = cvLocal(it), w = Math.max(s.w, 4) / 2 + 3 * px, h = Math.max(s.h, 4) / 2 + 3 * px, H = 5 * px, up = h + 22 * px, stroke = 1.5 * px;
   const corner = (x, y, k) => `<rect class="cvh" data-h="${k}" x="${x - H}" y="${y - H}" width="${H * 2}" height="${H * 2}" fill="#fff" stroke="#e5a900" stroke-width="${stroke}"/>`;
-  return `<g transform="${cvMatrix(it)}"><rect x="${-w}" y="${-h}" width="${w * 2}" height="${h * 2}" fill="none" stroke="#ffc928" stroke-width="${stroke}" pointer-events="none"/><line x1="0" y1="${h}" x2="0" y2="${up}" stroke="#ffc928" stroke-width="${stroke}" pointer-events="none"/>${corner(-w, -h, 'a')}${corner(w, -h, 'b')}${corner(w, h, 'c')}${corner(-w, h, 'd')}<circle class="cvh" data-h="r" cx="0" cy="${up}" r="${H}" fill="#fff" stroke="#e5a900" stroke-width="${stroke}"/></g>`;
+  return `<g transform="${cvMatrix(it)}"><g transform="translate(${s.ox || 0} ${s.oy || 0})"><rect x="${-w}" y="${-h}" width="${w * 2}" height="${h * 2}" fill="none" stroke="#ffc928" stroke-width="${stroke}" pointer-events="none"/><line x1="0" y1="${h}" x2="0" y2="${up}" stroke="#ffc928" stroke-width="${stroke}" pointer-events="none"/>${corner(-w, -h, 'a')}${corner(w, -h, 'b')}${corner(w, h, 'c')}${corner(-w, h, 'd')}<circle class="cvh" data-h="r" cx="0" cy="${up}" r="${H}" fill="#fff" stroke="#e5a900" stroke-width="${stroke}"/></g></g>`;
 }
 function cvPathsSvg(cv) {
   if (!cvShowPaths) return ''; let s = '';
@@ -323,13 +323,13 @@ function cvPanelHtml() {
     if (bit) { const on = cvRated(cv, bit); cut += '<p class="note">On ' + esc(cvWood(cv.board).name.toLowerCase()) + ': ' + Math.round(on.feed) + ' mm/min, ' + (Math.round(on.step * 100) / 100) + ' mm per pass.</p>'; }
   }
   h += cvSec('cut', 'How to cut it', cut);
-  const fieldSize = it.type === 'text' ? cvF('i.size', 'Letter height', cvNum(it.size)) + cvF('i.spacing', 'Letter spacing', cvNum(it.spacing || 0)) : it.type === 'svg' || it.type === 'path' ? cvF('i.scaleW', 'Width', cvNum(cvLocal(it).w)) + cvF('i.scaleH', 'Height', cvNum(cvLocal(it).h)) : cvF('i.w', 'Width', cvNum(it.w)) + cvF('i.h', 'Height', cvNum(it.h));
+  const fieldSize = it.type === 'text' ? cvF('i.size', 'Letter height', cvNum(it.size)) + cvF('i.spacing', 'Letter spacing', cvNum(it.spacing || 0)) : it.type === 'svg' || it.type === 'path' || it.type === 'trace' ? cvF('i.scaleW', 'Width', cvNum(cvLocal(it).w)) + cvF('i.scaleH', 'Height', cvNum(cvLocal(it).h)) : cvF('i.w', 'Width', cvNum(it.w)) + cvF('i.h', 'Height', cvNum(it.h));
   h += cvSec('place', 'Size and position', fieldSize + cvF('i.x', 'Middle from left', cvNum(it.x)) + cvF('i.y', 'Middle from front', cvNum(it.y)) + '<label class="field">Turn, degrees<input type="text" data-cf="i.rot" value="' + (it.rot || 0) + '"></label><div class="rowb cvicons"><button class="btn line" data-cact="midx" title="Centre across the board" aria-label="Centre across the board">' + ic('align-center-vertical') + '</button><button class="btn line" data-cact="midy" title="Centre along the board" aria-label="Centre along the board">' + ic('align-center-horizontal') + '</button><button class="btn line" data-cact="dup" title="Duplicate (Ctrl+D)" aria-label="Duplicate">' + ic('copy') + '</button><button class="btn line" data-cact="del" title="Delete (Del)" aria-label="Delete">' + ic('trash-2') + '</button></div>');
   h += cvShapeSecHtml(it);
   return h;
 }
 const cvZeroPlace = name => (name === 'middle' ? 'middle' : name.endsWith('middle') ? `middle of the ${name.split(' ')[0]} edge` : `${name} corner`);
-const cvItemName = i => (i.type === 'text' ? String(i.text).split('\n')[0] || 'Text' : i.type === 'svg' ? 'Artwork' : { rect: 'Rectangle', circle: 'Ellipse', polygon: 'Polygon', star: 'Star', path: i.paths && i.paths.every(l => l.closed) ? 'Shape' : 'Line' }[i.type] || 'Shape');
+const cvItemName = i => (i.type === 'text' ? String(i.text).split('\n')[0] || 'Text' : i.type === 'svg' ? 'Artwork' : { rect: 'Rectangle', circle: 'Ellipse', polygon: 'Polygon', star: 'Star', trace: 'Traced picture', path: i.paths && i.paths.every(l => l.closed) ? 'Shape' : 'Line' }[i.type] || 'Shape');
 function cvPanelRender() {
   const box = cvEl('cvSide'), active = document.activeElement, focusKey = active && active.dataset ? active.dataset.cf : null, at = active && active.selectionStart;
   const openItem = cvItem(), many = cvPicked().length; cvEl('cvHead').innerHTML = cvTool ? '<span>' + esc(cvToolTitle()) + '</span><button class="ic" data-cdone="1" title="Stop drawing (Esc)" aria-label="Stop drawing">' + ic('x') + '</button>' : openItem ? '<span>' + esc(many > 1 ? many + ' items' : cvItemName(openItem)) + '</span><button class="ic" data-cdone="1" title="Back to the board (Esc)" aria-label="Back to the board">' + ic('x') + '</button>' : '<span>Board</span>';
@@ -362,7 +362,7 @@ function cvFieldChange(el) {
     const v = cvParse(el.value); if (!isFinite(v) || !CV_INPUT_NUM[k](v)) { toast("That size won't work."); carveRender(); return; }
     cvEdit(() => {
       if (k.startsWith('b.')) { cv.board[k[2]] = v; cvView = null; } else if (['safeZ', 'airZ', 'tabW', 'tabH', 'workX', 'workY'].includes(k)) cv[k] = v;
-      else if (k === 'i.scaleW') { if (it.type === 'path') cvScalePath(it, v / Math.max(cvLocal(it).w, 1e-6)); else it.w = v; }
+      else if (k === 'i.scaleW') { if (it.type === 'path') cvScalePath(it, v / Math.max(cvLocal(it).w, 1e-6)); else if (it.type === 'trace') it.w = it.w * v / Math.max(cvLocal(it).w, 1e-6); else it.w = v; }
       else if (k === 'i.scaleH') { if (it.type === 'path') cvScalePath(it, v / Math.max(cvLocal(it).h, 1e-6)); else it.w = it.w * v / Math.max(cvLocal(it).h, 1e-6); }
       else if (k.startsWith('i.')) it[k.slice(2)] = v; else if (k === 'op.finish') it.op.finish = v; else it.op.depth = v;
     });
@@ -421,6 +421,7 @@ function cvStageDown(e) {
   const svg = cvEl('cvStage');
   if (e.button === 1 || e.button === 2) { cvDrag = { pan: true, x: e.clientX, y: e.clientY, vx: cvView.x, vy: cvView.y }; svg.setPointerCapture(e.pointerId); return; }
   if (cvTool) { cvToolDown(e, cvPoint(e)); return; }
+  if (cvNodeDown(e, cvPoint(e))) return;
   const h = e.target.closest && e.target.closest('.cvh'), g = e.target.closest && e.target.closest('.cvitem'), p = cvPoint(e);
   document.activeElement && document.activeElement.blur && document.activeElement !== document.body && document.activeElement.blur();
   if (h && cvItem() && !cvMore.size) { const it = cvItem(), s = cvLocal(it); cvDrag = { handle: h.dataset.h, it, start: p, size: it.size, spacing: it.spacing, w: it.w, h: it.h, paths: it.paths && JSON.parse(JSON.stringify(it.paths)), rot: it.rot || 0, a0: Math.atan2(p[1] - it.y, p[0] - it.x), r0: Math.hypot(p[0] - it.x, p[1] - it.y) || 1, lw: s.w, lh: s.h, moved: false }; svg.setPointerCapture(e.pointerId); return; }
@@ -441,6 +442,7 @@ function cvStageDown(e) {
 function cvStageMove(e) {
   if (cvTool && !cvDrag) { cvToolMove(e, cvPoint(e)); return; }
   if (!cvDrag) return;
+  if (cvDrag.onMove) { cvDrag.onMove(e, cvPoint(e)); return; }
   if (cvDrag.pan) { cvView.x = cvDrag.vx - (e.clientX - cvDrag.x) * cvView.k; cvView.y = cvDrag.vy - (e.clientY - cvDrag.y) * cvView.k; cvStageRender(); return; }
   const p = cvPoint(e), it = cvDrag.it, b = P.carve.board;
   if (cvDrag.box) {
@@ -458,7 +460,7 @@ function cvStageMove(e) {
     let a = cvDrag.rot + (Math.atan2(p[1] - it.y, p[0] - it.x) - cvDrag.a0) * 180 / Math.PI; if (e.shiftKey) a = Math.round(a / 15) * 15; it.rot = Math.round((((a % 360) + 360) % 360) * 10) / 10;
   } else {
     const f = Math.max(.02, Math.hypot(p[0] - it.x, p[1] - it.y) / cvDrag.r0);
-    if (it.type === 'text') { it.size = Math.max(1, cvDrag.size * f); it.spacing = (cvDrag.spacing || 0) * f; } else if (it.type === 'svg') it.w = Math.max(1, cvDrag.w * f);
+    if (it.type === 'text') { it.size = Math.max(1, cvDrag.size * f); it.spacing = (cvDrag.spacing || 0) * f; } else if (it.type === 'svg' || it.type === 'trace') it.w = Math.max(1, cvDrag.w * f);
     else if (it.type === 'path') it.paths = cvDrag.paths.map(l => ({ closed: l.closed, pts: l.pts.map(q => [q[0] * f, q[1] * f]) }));
     else if (e.shiftKey) { it.w = Math.max(1, cvDrag.w * f); it.h = Math.max(1, cvDrag.h * f); }
     else { const r = -(it.rot || 0) * Math.PI / 180, dx = p[0] - it.x, dy = p[1] - it.y, lx = dx * Math.cos(r) - dy * Math.sin(r), ly = dx * Math.sin(r) + dy * Math.cos(r); it.w = Math.max(1, Math.abs(lx) * 2); it.h = Math.max(1, Math.abs(ly) * 2); }
@@ -467,6 +469,7 @@ function cvStageMove(e) {
 }
 function cvStageUp() {
   const d = cvDrag; cvDrag = null; if (!d) return;
+  if (d.onUp) { d.onUp(); return; }
   if (d.box) {
     const r = cvEl('cvBoxSel'); if (r) r.remove();
     if (Math.hypot(d.now[0] - d.start[0], d.now[1] - d.start[1]) / cvView.k < 3) { if (!d.add && cvSel !== null) { cvPickOnly(null); carveRender(); } return; }
@@ -609,10 +612,10 @@ window.addEventListener('keydown', e => {
   if (mod && k === 'd') { e.preventDefault(); cvCopy(); return; }
   if (mod && k === 'a') { e.preventDefault(); cvPickList(P.carve.items.slice()); carveRender(); return; }
   if (mod) return;
-  if (k === 'escape') { if (cvTool) { cvToolCancel(); return; } if (cvSel !== null) { cvPickOnly(null); carveRender(); } return; }
+  if (k === 'escape') { if (cvTool) { cvToolCancel(); return; } if (cvNodesStop()) return; if (cvSel !== null) { cvPickOnly(null); carveRender(); } return; }
   if (k === 'p' && !cvTool) { cvToolStart('pen'); return; }
   if (k === 'enter' && cvTool) { e.preventDefault(); cvToolFinish(false); return; }
-  if (k === 'delete' || k === 'backspace') { e.preventDefault(); cvRemove(); return; }
+  if (k === 'delete' || k === 'backspace') { e.preventDefault(); if (!cvNodeDelete()) cvRemove(); return; }
   if (k === 'f') { if (CV3D.on) cv3dAim(); else { cvView = null; cvStageRender(); } return; }
   if (k === ' ' && CV3D.on) { e.preventDefault(); if (cvPlayFrame) cvPlayStop(); else cvPlayStart(); return; }
   const it = cvItem(), step = e.shiftKey ? 10 : 1, nudge = { arrowleft: [-step, 0], arrowright: [step, 0], arrowup: [0, step], arrowdown: [0, -step] }[k];
@@ -651,12 +654,11 @@ cvEl('cvAddCircle').onclick = cvAddCircle;
 cvEl('cvAddPolygon').onclick = () => cvAddPolygon('polygon');
 cvEl('cvAddStar').onclick = () => cvAddPolygon('star');
 cvEl('cvAddPen').onclick = () => cvToolStart('pen');
-cvEl('cvStage').addEventListener('dblclick', e => { if (cvTool) { e.preventDefault(); cvToolFinish(false); } });
+cvEl('cvStage').addEventListener('dblclick', e => { if (cvTool) { e.preventDefault(); cvToolFinish(false); } else if (cvNodeItem()) { e.preventDefault(); cvNodeAdd(cvPoint(e)); } });
 cvEl('cvAddSvg').onclick = () => cvEl('cvSvgIn').click();
 cvEl('cvSvgIn').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-  if (f.size > 8e6) { toast('That SVG is too large to cut. Simplify it first.', true); return; }
-  try { await cvAddSvgText(await f.text()); } catch (err) { toast(`Couldn't use ${f.name}: ${err.message}.`, true); }
+  try { await cvImportFile(f); } catch (err) { toast(`Couldn't use ${f.name}: ${err.message}.`, true); }
 };
 const cvStage = cvEl('cvStage');
 cvStage.addEventListener('pointerdown', cvStageDown);
