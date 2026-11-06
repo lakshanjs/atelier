@@ -218,3 +218,64 @@ test("text bends round an arc, over the top or underneath, and stays the same le
   assert.ok(Math.abs(v.tiny.w - v.flat.w) < .01, "a radius under 1 mm is taken as straight");
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("trim: clicking a line cuts it back to where it crosses others, open or closed", async () => {
+  await app.run(`${START}
+    cvMakePath([{ closed: false, pts: [[100, 100], [200, 100]] }], null); cvMakePath([{ closed: false, pts: [[150, 50], [150, 150]] }], null);
+    cvMakePath([{ closed: true, pts: [[60, 20], [90, 20], [90, 60], [60, 60]] }], null); cvMakePath([{ closed: false, pts: [[50, 40], [100, 40]] }], null);
+    cvToolStart('trim');`);
+  const p = await app.run(`${SCREEN} return { h: scr(120, 100), v: scr(150, 140), box: scr(75, 60), lone: scr(200, 180) };`);
+  await click(p.h[0], p.h[1]); await click(p.v[0], p.v[1]); await click(p.box[0], p.box[1]);
+  const v = await app.run(`${HELP} const w = it => cvWorldShape(it).lines.map(l => ({ closed: l.closed, pts: l.pts.map(q => q.map(n => Math.round(n * 100) / 100)) }));
+    const [h, ve, sq] = P.carve.items; const out = { h: w(h), v: w(ve), sq: w(sq), tool: cvTool && cvTool.kind, head: document.getElementById('cvHead').textContent }; return out;`);
+  await click(p.lone[0], p.lone[1]);
+  const after = await app.run(`const n = P.carve.items.length; cvToolCancel(); closeCarve(); return n;`);
+  const ends = l => [l.pts[0], l.pts[l.pts.length - 1]].map(q => q.join(",")).sort();
+  assert.deepStrictEqual(v.h.map(ends), [["150,100", "200,100"]], "the left stretch of the level line is gone");
+  assert.deepStrictEqual(v.v.map(ends), [["150,100", "150,50"]], "the top stretch of the upright line is gone");
+  assert.strictEqual(v.sq.length, 1); assert.strictEqual(v.sq[0].closed, false, "the square is opened where it was trimmed");
+  assert.deepStrictEqual(ends(v.sq[0]), ["60,40", "90,40"], "from crossing to crossing, the long way round");
+  assert.ok(!v.sq[0].pts.some(q => q[1] === 60), "its top is gone");
+  assert.strictEqual(v.tool, "trim", "stays on for the next line"); assert.match(v.head, /Trimming/);
+  assert.strictEqual(after, 4, "clicking away from any line trims nothing");
+  assert.deepStrictEqual(app.errors.filter(e => !/toast/i.test(e)), []);
+});
+
+test("dimensions: two clicks catch on corners, show the length, and are never cut", async () => {
+  await app.run(`${START} const r = cvAddRect(); r.w = 80; r.h = 40; r.x = 150; r.y = 100; r.op = cvOpFor(cv, 'pocket'); cvPickOnly(null); carveRender(); cvToolStart('dim');`);
+  const p = await app.run(`${SCREEN} return [scr(111, 79), scr(189.5, 80.5)];`);   // near the corners, not on them
+  for (const q of p) await click(q[0], q[1]);
+  const v = await app.run(`const d = P.carve.items.find(i => i.type === 'dim'), text = [...document.querySelectorAll('.cvitem text')].map(t => t.textContent);
+    const out = { len: d && d.len, rot: d && d.rot, kind: d && d.op.kind, text, plan: cvPlan(P.carve, cvBitOf).flatMap(f => f.items.map(i => i.type)), name: cvItemName(d), bad: cvChecks(P.carve, cvBitOf, true).filter(c => c.bad).length };
+    cvSel = d.id; carveRender(); out.panel = document.getElementById('cvSide').textContent; closeCarve(); return out;`);
+  assert.ok(Math.abs(v.len - 80) < 1e-6, "caught on the corners exactly: " + v.len); assert.ok(Math.abs(v.rot) < 1e-6, "level");
+  assert.strictEqual(v.kind, "off"); assert.ok(!v.plan.includes("dim"), "never cut"); assert.strictEqual(v.bad, 0);
+  assert.ok(v.text.includes('3.15"'), "shows its length in the board's units: " + v.text); assert.strictEqual(v.name, "Dimension"); assert.match(v.panel, /only drawn, never cut/);
+});
+
+test("inlay: the plug, cut by the same bit, fits inside the pocket with the gap all round", async () => {
+  const v = await app.run(`${START}
+    const s = cvAddPolygon('star'); s.w = s.h = 60; s.x = 80; s.y = 100; s.op = cvOpFor(cv, 'pocket'); s.op.depth = 2; cvPickOnly(s.id); carveRender();
+    const set = (k, val) => { const el = document.querySelector('[data-cf="' + k + '"]'); el.value = val; el.dispatchEvent(new Event('change', { bubbles: true })); };
+    set('t.igap', '0.15mm'); document.querySelector('[data-cact="t-plug"]').click();
+    const plug = P.carve.items[1], bit = cvBitOf(s.op.bit), R = bit.d / 2, star = cvUnion(cvWorldShape(s).regions), pocket = cvOffset(cvOffset(star, -R), R);
+    const pbox = cvWorldBox(plug), sbox = cvWorldBox(s), shift = (pbox.x0 + pbox.x1) / 2 - (sbox.x0 + sbox.x1) / 2;
+    const cut = cvOffset(cvOffset(cvUnion(cvWorldShape(plug).regions), R), -R).map(p => p.map(q => [q[0] - shift, q[1]]));   // the plug as the bit leaves it, put back over the pocket
+    const outside = Math.abs(cvMinus(cut, pocket).reduce((n, p) => n + cvArea(p), 0)), tight = Math.abs(cvMinus(cut, cvOffset(pocket, -.149)).reduce((n, p) => n + cvArea(p), 0)), corners = cvMinus(cut, cvOffset(pocket, -.149)).length;
+    const out = { corners, kind: plug.op.kind, through: plug.op.through, bit: plug.op.bit === s.op.bit, outside, tight, pk: s.op.kind, apart: pbox.x0 > sbox.x1, jobs: cvChecks(cv, cvBitOf, true).filter(c => c.bad).map(c => c.text) };
+    closeCarve(); return out;`);
+  assert.strictEqual(v.kind, "outside"); assert.ok(v.through); assert.ok(v.bit, "cut with the same bit"); assert.strictEqual(v.pk, "pocket"); assert.ok(v.apart, "added beside it");
+  assert.ok(v.outside < .05, "the plug fits inside the pocket, give or take rounding far below a micron round its edge: " + v.outside); assert.ok(v.tight < 1 && v.corners <= 5, "the full gap all round, but for a little at each of the star's five inside corners, where the bit can't cut the plug sharp: " + v.tight + " in " + v.corners);
+});
+
+test("the shape checker warns of open lines a job can't use, outlines that cross themselves, and copies on top of each other", async () => {
+  const v = await app.run(`${START}
+    const open = cvMakePath([{ closed: false, pts: [[20, 20], [60, 20], [60, 60]] }], null); open.op = cvOpFor(cv, 'pocket');
+    const bow = cvMakePath([{ closed: true, pts: [[100, 20], [140, 60], [140, 20], [100, 60]] }], null); bow.op = cvOpFor(cv, 'pocket');
+    const r = cvAddRect(); r.w = r.h = 20; r.x = 220; r.y = 150; r.op = cvOpFor(cv, 'pocket'); cvPickOnly(r.id); cvCopy(); const copy = P.carve.items[P.carve.items.length - 1]; copy.x = r.x; copy.y = r.y;
+    const msg = cvChecks(cv, cvBitOf, true).map(c => c.text), out = { open: msg.filter(t => /open line/.test(t)), bow: msg.filter(t => /crosses itself/.test(t)), dup: msg.filter(t => /on top of a copy/.test(t)), bad: cvChecks(cv, cvBitOf, true).filter(c => c.bad && /open|crosses|copy/.test(c.text)).length };
+    closeCarve(); return out;`);
+  assert.strictEqual(v.open.length, 1); assert.match(v.open[0], /has 1 open line, which this job leaves out/);
+  assert.strictEqual(v.bow.length, 1); assert.strictEqual(v.dup.length, 2, "both copies are named");
+  assert.strictEqual(v.bad, 0, "warnings, not stops");
+});

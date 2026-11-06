@@ -8,10 +8,11 @@ let app;
 before(async () => { app = await openApp(); });
 after(async () => { if (app) await app.close(); });
 
-// An independent reader: accepts only what GRBL 1.1 accepts, and tracks where the bit goes.
+// An independent reader: accepts only what GRBL 1.1 accepts, and tracks where the bit goes. Arcs (G2, G3) are checked the
+// way GRBL checks them, and followed in short steps, so every cut is a straight piece the tests can measure.
 function readGcode(text) {
-  const st = { x: null, y: null, z: null, f: null, mode: null, spindle: false }, cuts = [], rapids = [], problems = [];
-  const OK_G = new Set(["G0", "G1", "G4", "G17", "G21", "G90", "G94"]), OK_M = new Set(["M3", "M5", "M30"]);
+  const st = { x: null, y: null, z: null, f: null, mode: null, spindle: false }, cuts = [], rapids = [], problems = []; let arcs = 0;
+  const OK_G = new Set(["G0", "G1", "G2", "G3", "G4", "G17", "G21", "G90", "G94"]), OK_M = new Set(["M3", "M5", "M30"]);
   text.split(/\r?\n/).forEach((raw, n) => {
     const line = raw.replace(/\([^)]*\)/g, "").trim();
     if (/[()]/.test(line)) problems.push(`line ${n}: broken comment`);
@@ -23,18 +24,27 @@ function readGcode(text) {
     let motion = null; const to = {};
     for (const w of words) {
       const c = w[0], v = parseFloat(w.slice(1));
-      if (c === "G") { if (!OK_G.has(w)) problems.push(`line ${n}: ${w}`); if (w === "G0" || w === "G1") motion = w; if (w === "G4") return; }
+      if (c === "G") { if (!OK_G.has(w)) problems.push(`line ${n}: ${w}`); if (["G0", "G1", "G2", "G3"].includes(w)) motion = w; if (w === "G4") return; }
       else if (c === "M") { if (!OK_M.has(w)) problems.push(`line ${n}: ${w}`); if (w === "M3") st.spindle = true; if (w === "M5") st.spindle = false; }
-      else if (c === "F") st.f = v; else if (c === "S") { /* speed */ } else if ("XYZ".includes(c)) to[c.toLowerCase()] = v; else problems.push(`line ${n}: word ${w}`);
+      else if (c === "F") st.f = v; else if (c === "S") { /* speed */ } else if ("XYZIJ".includes(c)) to[c.toLowerCase()] = v; else problems.push(`line ${n}: word ${w}`);
     }
     if (motion) st.mode = motion;
     if (!("x" in to || "y" in to || "z" in to)) return;
     const from = { x: st.x, y: st.y, z: st.z }, next = { x: to.x ?? st.x, y: to.y ?? st.y, z: to.z ?? st.z };
-    if (st.mode === "G1") { if (!st.f) problems.push(`line ${n}: cut with no feed`); if (!st.spindle) problems.push(`line ${n}: cut with spindle off`); cuts.push({ from, to: next, f: st.f }); }
+    if (st.mode === "G2" || st.mode === "G3") {
+      arcs++; if (!st.f) problems.push(`line ${n}: arc with no feed`); if (!st.spindle) problems.push(`line ${n}: arc with spindle off`);
+      if (!("i" in to) || !("j" in to)) problems.push(`line ${n}: arc without I and J`);
+      const cx = from.x + (to.i || 0), cy = from.y + (to.j || 0), r0 = Math.hypot(from.x - cx, from.y - cy), r1 = Math.hypot(next.x - cx, next.y - cy);
+      if (Math.abs(r1 - r0) > .005 && Math.abs(r1 - r0) > .001 * r0) problems.push(`line ${n}: arc radius doesn't match (GRBL error 33)`);
+      let a0 = Math.atan2(from.y - cy, from.x - cx), a1 = Math.atan2(next.y - cy, next.x - cx), sweep = a1 - a0;
+      if (st.mode === "G2") { while (sweep >= 0) sweep -= Math.PI * 2; } else { while (sweep <= 0) sweep += Math.PI * 2; }
+      const steps = Math.max(1, Math.ceil(Math.abs(sweep) * r0 / .1)); let prev = from;
+      for (let k = 1; k <= steps; k++) { const t = a0 + sweep * k / steps, p = k === steps ? { x: next.x, y: next.y, z: next.z } : { x: cx + r0 * Math.cos(t), y: cy + r0 * Math.sin(t), z: from.z + (next.z - from.z) * k / steps }; cuts.push({ from: prev, to: p, f: st.f, arc: true }); prev = p; }
+    } else if (st.mode === "G1") { if (!st.f) problems.push(`line ${n}: cut with no feed`); if (!st.spindle) problems.push(`line ${n}: cut with spindle off`); cuts.push({ from, to: next, f: st.f }); }
     else { rapids.push({ from, to: next }); if (next.z !== null && next.z < 0) problems.push(`line ${n}: rapid into the wood`); if (("x" in to || "y" in to) && st.z !== null && st.z <= 0) problems.push(`line ${n}: rapid sideways while in the wood`); }
     Object.assign(st, next);
   });
-  return { cuts, rapids, problems, end: st };
+  return { cuts, rapids, problems, end: st, arcs };
 }
 const SETUP = `
   loadProject(TEMPLATES[0].make()); document.querySelectorAll('dialog[open]').forEach(d => d.close());
@@ -675,4 +685,48 @@ test("an air test is the same job lifted clear of the board, saved from its own 
   assert.deepStrictEqual(v.saved, [v.name + " carve AIR TEST.zip"]);
   assert.ok(v.icon, "icon only"); assert.match(v.tip, /air test/i); assert.ok(v.on, "on for a good job"); assert.ok(v.off, "off when the job has a problem");
   assert.deepStrictEqual(app.errors, []);
+});
+
+test("curves go out as true arcs GRBL accepts, on the line, and straight sides stay straight", async () => {
+  const v = await app.run(`${SETUP} cv.ramp = 0;
+    add({ type: 'circle', w: 40, h: 40, x: 80 }, { kind: 'outside', depth: 2, through: false, tabs: 0, bit: 'flat-1-8' });
+    add({ type: 'polygon', w: 60, h: 60, sides: 6, x: 200 }, { kind: 'outside', depth: 2, through: false, tabs: 0, bit: 'flat-1-8' });
+    const on = cvJob(cv, cvBitOf, 'T')[0].text; cv.arcs = false; const off = cvJob(cv, cvBitOf, 'T')[0].text; return { on, off };`);
+  const g = readGcode(v.on), h = readGcode(v.off), R = 3.175 / 2;
+  assert.deepStrictEqual(g.problems, [], "every arc as GRBL wants it"); assert.ok(g.arcs > 0 && /\nG[23] /.test(v.on)); assert.ok(!/\nG[23] /.test(v.off), "off writes lines only");
+  assert.ok(v.on.split("\n").length < v.off.split("\n").length / 3, "far fewer lines: " + v.on.split("\n").length + " vs " + v.off.split("\n").length);
+  const round = g.cuts.filter(c => c.to.x < 140 && c.to.z === -2), far = round.map(c => Math.abs(Math.hypot(c.to.x - 80, c.to.y - 100) - (20 + R)));
+  assert.ok(Math.max(...far) < .02, "the circle's cut stays on its line: " + Math.max(...far));
+  // the hexagon's sides are long straight cuts, not rounded into a circle
+  const sides = g.cuts.filter(c => c.to.x > 140 && !c.arc && c.from.z === c.to.z && Math.hypot(c.to.x - c.from.x, c.to.y - c.from.y) > 20);
+  assert.ok(sides.length >= 6, "straight sides: " + sides.length);
+});
+
+test("climb cutting runs the other way round, for pockets and cut-outs", async () => {
+  const v = await app.run(`${SETUP} cv.ramp = 0;
+    const it = add({ type: 'rect', w: 40, h: 30 }, { kind: 'pocket', depth: 1 }); const way = () => cvJob(cv, cvBitOf, 'T')[0].text;
+    const a = way(); it.op.climb = true; const b = way(); it.op = { kind: 'outside', bit: 'flat-1-8', depth: 1, through: false, tabs: 0 }; const c = way(); it.op.climb = true; const d = way();
+    cvSel = it.id; await openCarve(); P.carve = cv; cvSel = it.id; carveRender(); const box = !!document.querySelector('[data-cf="op.climb"]'); closeCarve();
+    return { a, b, c, d, box };`);
+  const turn = text => { const pts = readGcode(text).cuts.filter(c => c.from.z === -1 && c.to.z === -1).map(c => [c.to.x, c.to.y]); let s = 0; for (let i = 1; i < pts.length; i++) s += pts[i - 1][0] * pts[i][1] - pts[i][0] * pts[i - 1][1]; return Math.sign(s); };
+  assert.strictEqual(turn(v.a), -1, "a conventional pocket goes clockwise"); assert.strictEqual(turn(v.b), 1, "a climb pocket anticlockwise");
+  assert.strictEqual(turn(v.c), 1, "a conventional cut-out goes anticlockwise round the outside"); assert.strictEqual(turn(v.d), -1, "a climb cut-out clockwise");
+  assert.ok(v.box, "the choice is in the panel");
+});
+
+test("clamp zones: nothing cuts into one, the safe height must clear them, and a short hop over one goes up high", async () => {
+  const v = await app.run(`${SETUP} cv.ramp = 0; cv.safeZ = 20; cv.clampH = 15;
+    add({ type: 'circle', w: 1, h: 1, x: 100, y: 100 }, { kind: 'drill', bit: 'v-30', depth: .5, peck: false }); add({ type: 'circle', w: 1, h: 1, x: 104, y: 100 }, { kind: 'drill', bit: 'v-30', depth: .5, peck: false });
+    const free = cvJob(cv, cvBitOf, 'T')[0].text;
+    const clamp = { id: cv.nextId++, type: 'clamp', w: 2, h: 40, x: 102, y: 100, rot: 0, op: { kind: 'off' } }; cv.items.push(clamp);
+    const hop = cvJob(cv, cvBitOf, 'T')[0].text, okChecks = cvChecks(cv, cvBitOf, true).filter(c => c.bad).map(c => c.text);
+    clamp.w = 6; const into = cvChecks(cv, cvBitOf, true).filter(c => c.bad).map(c => c.text); clamp.w = 2;
+    cv.safeZ = 10; const low = cvChecks(cv, cvBitOf, true).filter(c => c.bad).map(c => c.text); cv.safeZ = 20;
+    await openCarve(); P.carve = cv; cvSel = null; carveRender(); const drawn = [...document.querySelectorAll('.cvitem text')].some(t => t.textContent === 'Clamp'); closeCarve();
+    return { free, hop, okChecks, into, low, drawn, name: cvItemName(clamp), plan: cvPlan(cv, cvBitOf).flatMap(f => f.items.map(i => i.type)) };`);
+  const highs = t => readGcode(t).rapids.filter(r => r.to.z === 20).length;
+  assert.ok(highs(v.hop) > highs(v.free), "the hop between the two goes over the clamp at the safe height: " + highs(v.hop) + " vs " + highs(v.free));
+  assert.deepStrictEqual(v.okChecks, [], "a 2 wide clamp between them is clear of both");
+  assert.ok(v.into.some(t => /runs into a clamp zone/.test(t)), "a wider one is cut into"); assert.ok(v.low.some(t => /Safe height must be above your clamps/.test(t)));
+  assert.ok(v.drawn); assert.strictEqual(v.name, "Clamp zone"); assert.ok(!v.plan.includes("clamp"), "never cut");
 });

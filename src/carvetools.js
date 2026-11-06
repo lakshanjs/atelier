@@ -15,10 +15,11 @@ Object.assign(window.LUCIDE || (window.LUCIDE = {}), {
   'cv-offset': '<rect x="8" y="8" width="8" height="8" rx="1" /><rect x="3" y="3" width="18" height="18" rx="4" stroke-dasharray="2 2" />',
   'cv-inset': '<rect x="3" y="3" width="18" height="18" rx="2" /><rect x="8" y="8" width="8" height="8" stroke-dasharray="2 2" />',
   'cv-ring': '<circle cx="12" cy="4.5" r="2" /><circle cx="19" cy="9.5" r="2" /><circle cx="16.5" cy="18" r="2" /><circle cx="7.5" cy="18" r="2" /><circle cx="5" cy="9.5" r="2" />',
+  'cv-clamp': '<path d="M5 4h9v4H9v8h5v4H5Z" /><path d="M14 6h4v12h-4" /><path d="M18 12h3" />',
   'cv-close': '<path d="M5 19 5 9l7-5 7 5v10" /><path d="M5 19h14" stroke-dasharray="2 2" />',
 });
 
-[['cvAddPolygon', 'pentagon'], ['cvAddStar', 'star'], ['cvAddPen', 'pen-tool']].forEach(([id, name]) => addIcon(cvEl(id), name));
+[['cvAddPolygon', 'pentagon'], ['cvAddStar', 'star'], ['cvAddPen', 'pen-tool'], ['cvTrim', 'scissors'], ['cvDim', 'ruler'], ['cvAddClamp', 'cv-clamp']].forEach(([id, name]) => addIcon(cvEl(id), name));
 
 const cvTypeIcon = type => ({ text: 'type', svg: 'image', trace: 'image', circle: 'circle', polygon: 'pentagon', star: 'star', path: 'pen-tool' }[type] || 'square');
 function cvAddPolygon(kind) { const b = cvNow().board, d = Math.min(b.l, b.w) * .5; return cvAdd(kind === 'star' ? { type: 'star', w: d, h: d, points: 5, inner: .5 } : { type: 'polygon', w: d, h: d, sides: 6 }); }
@@ -39,20 +40,26 @@ function cvPickedSvg(px) {
 // Shift keeps each line level, upright or at 45 degrees. Esc stops.
 function cvToolStart(kind) { cvTool = { kind, pts: [], at: null }; cvPickOnly(null); cvEl('cvStage').classList.add('drawing'); carveRender(); }
 function cvToolCancel() { cvTool = null; cvEl('cvStage').classList.remove('drawing'); carveRender(); }
-const cvToolTitle = () => 'Drawing a line';
-const cvToolClose = p => cvTool.pts.length > 2 && Math.hypot(p[0] - cvTool.pts[0][0], p[1] - cvTool.pts[0][1]) < 8 * cvView.k;
+const cvToolTitle = () => ({ trim: 'Trimming lines', dim: 'Measuring' }[cvTool.kind] || 'Drawing a line');
+const cvToolClose = p => cvTool.kind === 'pen' && cvTool.pts.length > 2 && Math.hypot(p[0] - cvTool.pts[0][0], p[1] - cvTool.pts[0][1]) < 8 * cvView.k;
 function cvToolSnap(e, p) {
   const last = cvTool.pts[cvTool.pts.length - 1]; if (!e.shiftKey || !last) return p;
   const dx = p[0] - last[0], dy = p[1] - last[1], a = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * Math.PI / 4, r = Math.hypot(dx, dy);
   return [last[0] + Math.cos(a) * r, last[1] + Math.sin(a) * r];
 }
 function cvToolDown(e, p) {
+  if (cvTool.kind === 'trim') { cvTrimAt(p); return; }   // stays on, for the next line
+  if (cvTool.kind === 'dim') {
+    p = cvSnapPoint(cvToolSnap(e, p)); cvTool.pts.push(p);
+    if (cvTool.pts.length === 2) { const [a, b] = cvTool.pts, len = Math.hypot(b[0] - a[0], b[1] - a[1]); cvToolCancel(); if (len > .01) cvAdd({ type: 'dim', x: (a[0] + b[0]) / 2, y: (a[1] + b[1]) / 2, rot: Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI, len, off: 8 }); const it = cvItem(); if (it && it.type === 'dim') cvEdit(() => { it.op = { kind: 'off' }; }); return; }
+    cvToolDraw(p); cvPanelRender(); return;
+  }
   if (cvToolClose(p)) { cvToolFinish(true); return; }
   p = cvToolSnap(e, p); const last = cvTool.pts[cvTool.pts.length - 1];
   if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) > 1e-3) cvTool.pts.push(p);
   cvToolDraw(p); cvPanelRender();
 }
-function cvToolMove(e, p) { cvTool.at = cvToolClose(p) ? cvTool.pts[0] : cvToolSnap(e, p); cvToolDraw(cvTool.at); }
+function cvToolMove(e, p) { if (cvTool.kind === 'trim') return; cvTool.at = cvToolClose(p) ? cvTool.pts[0] : cvTool.kind === 'dim' ? cvSnapPoint(cvToolSnap(e, p)) : cvToolSnap(e, p); cvToolDraw(cvTool.at); }
 function cvToolDraw(at) {
   const g = cvEl('cvPen'); if (!g || !cvTool) return; const W = P.carve.board.w, k = cvView.k, pts = cvTool.pts.concat(at ? [at] : []);
   g.innerHTML = (pts.length > 1 ? `<path d="M${pts.map(q => `${r2(q[0])} ${r2(W - q[1])}`).join('L')}" fill="none" stroke="#20262a" stroke-width="${1.5 * k}"/>` : '')
@@ -71,6 +78,8 @@ function cvMakePath(lines, op, extra = {}) {
 }
 function cvToolPanelHtml() {
   const n = cvTool.pts.length;
+  if (cvTool.kind === 'trim') return cvSec('draw', 'Trimming', '<p class="note">Click a drawn line, and the stretch you clicked is cut back to the nearest places it crosses another line, or itself. Shapes that aren\'t drawn lines can be made editable first, with Edit its points. Esc stops.</p>');
+  if (cvTool.kind === 'dim') return cvSec('draw', 'Measuring', '<p class="note">Click the two ends to measure between. They catch on the corners of shapes nearby. Hold Shift for level, upright or 45°. It is only drawn, never cut. Esc stops.</p>');
   return cvSec('draw', 'Drawing', '<p class="note">' + (n ? n + ' point' + (n === 1 ? '' : 's') + '. ' : '') + 'Click on the board for each point. Click the first point to close the shape, or double-click or press Enter to finish an open line. Hold Shift for level, upright or 45° lines. Esc stops.</p><div class="rowb"><button class="btn line" data-cact="pen-open"' + (n < 2 ? ' disabled' : '') + '>Finish line</button><button class="btn line" data-cact="pen-close"' + (n < 3 ? ' disabled' : '') + '>Close shape</button></div>');
 }
 
@@ -94,6 +103,7 @@ function cvShapeSecHtml(it) {
   }
   const tools = '<div class="rowb cvicons">' + cvIconBtn('t-mx', 'flip-horizontal-2', 'Mirror, left to right') + cvIconBtn('t-my', 'cv-flip-v', 'Mirror, front to back') + '</div>'
     + '<p class="cvSub">Outline</p><div class="cvrow">' + cvF('t.off', 'Distance', cvNum(cvToolNum('off', 3))) + '</div><div class="rowb cvicons">' + cvIconBtn('t-out', 'cv-offset', 'Make an outline this far outside it') + cvIconBtn('t-in', 'cv-inset', 'Make an outline this far inside it') + '</div>'
+    + (cvLocal(it).regions.length ? '<p class="cvSub">Inlay</p>' + cvF('t.igap', 'Gap round the plug', cvNum(cvToolNum('igap', .1))) + '<div class="rowb"><button class="btn line" data-cact="t-plug" title="Pockets this shape, and adds a plug beside it, cut to fit, to make from the inlay wood">' + ic('cv-offset') + 'Make an inlay plug</button></div>' : '')
     + '<p class="cvSub">Copies</p>' + '<label class="field">Across<input type="text" data-cf="t.cols" value="' + cvToolNum('cols', 3) + '"></label><label class="field">Back<input type="text" data-cf="t.rows" value="' + cvToolNum('rows', 1) + '"></label>' + cvF('t.gap', 'Gap between', cvNum(cvToolNum('gap', 5)))
     + '<div class="rowb cvicons">' + cvIconBtn('t-grid', 'layout-grid', 'Make copies in rows and columns') + '</div>'
     + '<label class="field">In a ring<input type="text" data-cf="t.ring" value="' + cvToolNum('ring', 6) + '"></label><div class="rowb cvicons">' + cvIconBtn('t-ring', 'cv-ring', 'Make a ring of copies round the middle of the board, each turned to face it') + '</div>';
@@ -120,9 +130,9 @@ function cvMultiPanelHtml() {
 function cvToolField(el) {
   const k = el.dataset.cf; if (!k || !(k.startsWith('t.') || k.startsWith('m.'))) return false;
   const it = cvItem(), cv = cvNow(), f = k.slice(2);
-  if (k === 'm.kind') { const kind = el.value, list = cvPicked(); cvEdit(() => { list.forEach(i => { if (kind === 'line' || kind === 'off' || cvLocal(i).regions.length) i.op = cvOpFor(cv, kind); }); }); return true; }
-  if (['off', 'cols', 'rows', 'gap', 'ring'].includes(f)) {
-    const v = f === 'off' || f === 'gap' ? cvParse(el.value) : parseInt(el.value, 10), ok = f === 'off' ? v > 0 : f === 'gap' ? v >= 0 : f === 'ring' ? v >= 2 && v <= 360 : v >= 1 && v <= 100;
+  if (k === 'm.kind') { const kind = el.value, list = cvPicked(); cvEdit(() => { list.forEach(i => { if (!cvNeverCut(i) && (kind === 'line' || kind === 'off' || cvLocal(i).regions.length)) i.op = cvOpFor(cv, kind); }); }); return true; }
+  if (['off', 'cols', 'rows', 'gap', 'ring', 'igap'].includes(f)) {
+    const v = f === 'off' || f === 'gap' || f === 'igap' ? cvParse(el.value) : parseInt(el.value, 10), ok = f === 'off' ? v > 0 : f === 'gap' || f === 'igap' ? v >= 0 : f === 'ring' ? v >= 2 && v <= 360 : v >= 1 && v <= 100;
     if (isFinite(v) && ok) cvToolNums[f] = v; else { toast("That number won't work.", true); cvPanelRender(); }
     return true;
   }
@@ -141,6 +151,7 @@ function cvToolAction(a) {
   if (a === 'pen-open') { cvToolFinish(false); return true; }
   if (a === 'pen-close') { cvToolFinish(true); return true; }
   if (!it) return a.startsWith('t-') || a.startsWith('m-');
+  if (a === 't-plug') { cvMakePlug(it); return true; }
   if (a === 't-nodes') { if (cvNodeItem()) cvNodesStop(); else cvNodesStart(it); return true; }
   if (a === 't-mx' || a === 't-my') { const k = a === 't-mx' ? 'mx' : 'my'; cvEdit(() => { list.forEach(i => { i[k] = !i[k]; }); }); return true; }
   if (a === 't-close') { cvEdit(() => { it.paths = it.paths.map(l => ({ closed: l.pts.length > 2 ? true : l.closed, pts: l.pts })); }); return true; }
@@ -170,7 +181,7 @@ function cvToolAction(a) {
     let at = x ? all.x0 : all.y0; cvEdit(() => s.forEach(o => { if (x) shift(o, at - o.b.x0, 0); else shift(o, 0, at - o.b.y0); at += (x ? o.b.x1 - o.b.x0 : o.b.y1 - o.b.y0) + gap; })); return true;
   }
   if (a === 'm-weld' || a === 'm-subtract' || a === 'm-intersect') {
-    const shapes = list.map(i => ({ i, r: cvUnion(cvWorldShape(i).regions) })).filter(o => o.r.length); if (shapes.length < 2) { toast('Joining needs two closed shapes or more.', true); return true; }
+    const shapes = list.filter(i => !cvNeverCut(i)).map(i => ({ i, r: cvUnion(cvWorldShape(i).regions) })).filter(o => o.r.length); if (shapes.length < 2) { toast('Joining needs two closed shapes or more.', true); return true; }
     const first = shapes[0], rest = cvUnion(shapes.slice(1).flatMap(o => o.r));
     const out = a === 'm-weld' ? cvUnion(shapes.flatMap(o => o.r)) : a === 'm-subtract' ? cvMinus(first.r, rest) : cvClip(ClipperLib.ClipType.ctIntersection, first.r, rest);
     if (!out.length) { toast(a === 'm-intersect' ? "They don't overlap, so there's nothing left." : 'Nothing would be left.', true); return true; }
@@ -382,4 +393,105 @@ async function cvImportFile(f) {
   if (/\.(png|jpe?g|bmp|gif|webp)$/.test(name) || /^image\/(png|jpeg|bmp|gif|webp)$/.test(f.type)) { if (f.size > 25e6) throw new Error("it's too large. Use a picture under 25 MB"); return cvAddImage(f); }
   if (f.size > 8e6) throw new Error('it is too large to cut. Simplify it first');
   return cvAddSvgText(await f.text());
+}
+
+// ---------- clamps and dimensions ----------
+// Both sit on the board and are never cut. A clamp zone is where a clamp holds the board: nothing may cut into it, and the
+// bit stays at the safe height crossing it. A dimension shows a measurement between two points.
+function cvAddClamp() {   // the safe height goes up to clear the clamps, if it was lower
+  const cv = cvNow(), b = cv.board, it = cvAdd({ type: 'clamp', w: 30, h: 20, x: 15, y: b.w / 2 }), need = cvClampH(cv) + 5, raise = !(cv.safeZ > cvClampH(cv));
+  cvEdit(() => { it.op = { kind: 'off' }; if (raise) cv.safeZ = need; });
+  if (raise) toast(`Safe height raised to ${cvLen(need)}, to clear clamps ${cvLen(cvClampH(cv))} high. Set their real height in Machine.`);
+  return it;
+}
+const cvNeverCut = it => it.type === 'clamp' || it.type === 'dim';
+function cvSpecialSvg(it) {
+  const W = P.carve.board.w, place = cvPlaceFn(it), px = cvView ? cvView.k : 1, sy = q => W - q[1];
+  if (it.type === 'clamp') {
+    const p = cvLocal(it).regions[0].map(place), c = place([0, 0]);
+    return `<g class="cvitem" data-it="${it.id}"><path d="M${p.map(q => `${r2(q[0])} ${r2(sy(q))}`).join('L')}Z" fill="#c0392b" fill-opacity=".16" stroke="#c0392b" stroke-width="${1.5 * px}" stroke-dasharray="${5 * px} ${3 * px}"/><text x="${r2(c[0])}" y="${r2(sy(c) + 4 * px)}" text-anchor="middle" font-size="${11 * px}" fill="#c0392b" font-family="Barlow,sans-serif" pointer-events="none">Clamp</text></g>`;
+  }
+  const L = it.len / 2, o = it.off || 0, A = place([-L, 0]), B = place([L, 0]), e = Math.sign(o || 1) * 2 * px, A2 = place([-L, o]), B2 = place([L, o]), A3 = place([-L, o + e]), B3 = place([L, o + e]);
+  const ink = '#20262a', ang = Math.atan2(B2[1] - A2[1], B2[0] - A2[0]), head = 7 * px, mid = place([0, o + Math.sign(o || 1) * 9 * px]);
+  const arrow = (P1, dir) => { const a1 = ang + dir + .35, a2 = ang + dir - .35; return `M${r2(P1[0])} ${r2(sy(P1))}L${r2(P1[0] + Math.cos(a1) * head)} ${r2(sy([0, P1[1] + Math.sin(a1) * head]))}M${r2(P1[0])} ${r2(sy(P1))}L${r2(P1[0] + Math.cos(a2) * head)} ${r2(sy([0, P1[1] + Math.sin(a2) * head]))}`; };
+  let deg = -ang * 180 / Math.PI; if (deg > 90) deg -= 180; if (deg < -90) deg += 180;
+  const d = `M${r2(A[0])} ${r2(sy(A))}L${r2(A3[0])} ${r2(sy(A3))}M${r2(B[0])} ${r2(sy(B))}L${r2(B3[0])} ${r2(sy(B3))}M${r2(A2[0])} ${r2(sy(A2))}L${r2(B2[0])} ${r2(sy(B2))}` + arrow(A2, 0) + arrow(B2, Math.PI);
+  return `<g class="cvitem" data-it="${it.id}"><path d="${d}" fill="none" stroke="transparent" stroke-width="${10 * px}"/><path d="${d}" fill="none" stroke="${ink}" stroke-width="${px}"/><text x="${r2(mid[0])}" y="${r2(sy(mid))}" text-anchor="middle" dominant-baseline="middle" font-size="${12 * px}" fill="${ink}" font-family="Barlow,sans-serif" transform="rotate(${r2(deg)} ${r2(mid[0])} ${r2(sy(mid))})">${esc(cvLen(it.len))}</text></g>`;
+}
+function cvSpecialPanelHtml(it) {
+  if (it.type === 'clamp') return cvSec('cut', 'Clamp zone', '<p class="note">Where a clamp holds the board. Nothing is cut here, and the bit stays at the safe height crossing it. Set how high your clamps stand in Machine.</p>') + cvSec('place', 'Size and position', cvF('i.w', 'Width', cvNum(it.w)) + cvF('i.h', 'Height', cvNum(it.h)) + cvF('i.x', 'Middle from left', cvNum(it.x)) + cvF('i.y', 'Middle from front', cvNum(it.y)) + '<label class="field">Turn, degrees<input type="text" data-cf="i.rot" value="' + (it.rot || 0) + '"></label><div class="rowb cvicons">' + cvIconBtn('dup', 'copy', 'Duplicate (Ctrl+D)') + cvIconBtn('del', 'trash-2', 'Delete (Del)') + '</div>');
+  return cvSec('cut', 'Dimension', '<p class="note">' + esc(cvLen(it.len)) + ' between its two ends. It is only drawn, never cut.</p>' + cvF('i.off', 'Line drawn this far off', cvNum(it.off || 0)) + '<div class="rowb cvicons">' + cvIconBtn('dup', 'copy', 'Duplicate (Ctrl+D)') + cvIconBtn('del', 'trash-2', 'Delete (Del)') + '</div>');
+}
+// the nearest corner of anything on the board, within 8 pixels, so dimensions measure exactly
+function cvSnapPoint(p) {
+  let best = null, d = 8 * cvView.k;
+  P.carve.items.forEach(i => { if (i.type === 'dim') return; const w = cvWorldShape(i); w.lines.forEach(l => l.pts.forEach(q => { const v = Math.hypot(q[0] - p[0], q[1] - p[1]); if (v < d) { d = v; best = q; } })); });
+  return best ? best.slice() : p;
+}
+
+// ---------- trimming ----------
+// Click a drawn line and the stretch you clicked, between the nearest places it crosses other lines (or itself), is cut away.
+function cvSegHit(a, b, c, d) {   // where segment ab meets segment cd, as how far along ab, or null
+  const r = [b[0] - a[0], b[1] - a[1]], s = [d[0] - c[0], d[1] - c[1]], den = r[0] * s[1] - r[1] * s[0]; if (Math.abs(den) < 1e-12) return null;
+  const t = ((c[0] - a[0]) * s[1] - (c[1] - a[1]) * s[0]) / den, u = ((c[0] - a[0]) * r[1] - (c[1] - a[1]) * r[0]) / den;
+  return t > 1e-9 && t < 1 - 1e-9 && u >= -1e-9 && u <= 1 + 1e-9 ? t : null;
+}
+function cvTrimAt(p) {
+  let best = null, d = 8 * cvView.k;
+  P.carve.items.forEach(it => {
+    if (it.type !== 'path') return; const place = cvPlaceFn(it);
+    it.paths.forEach((l, li) => { const pts = l.pts.map(place), n = pts.length; for (let i = 0; i < (l.closed ? n : n - 1); i++) { const a = pts[i], b = pts[(i + 1) % n], dx = b[0] - a[0], dy = b[1] - a[1], t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy || 1))), v = Math.hypot(p[0] - a[0] - dx * t, p[1] - a[1] - dy * t); if (v < d) { d = v; best = { it, li, i, t }; } } });
+  });
+  if (!best) { toast('Click on a drawn line to trim it. Other shapes can be made editable first, with Edit its points.', true); return false; }
+  const { it, li } = best, l = it.paths[li], place = cvPlaceFn(it), pts = l.pts.map(place); if (l.closed) pts.push(pts[0]);
+  const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const total = cum[cum.length - 1], at = cum[best.i] + best.t * (cum[best.i + 1] - cum[best.i]), cuts = [];
+  const others = []; P.carve.items.forEach(o => { if (cvNeverCut(o)) return; cvWorldShape(o).lines.forEach((ol, k) => { if (o === it && it.type === 'path' && k === li) return; const q = ol.pts.slice(); if (ol.closed) q.push(q[0]); others.push(q); }); });
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const a = pts[i], b = pts[i + 1], L = cum[i + 1] - cum[i];
+    others.forEach(q => { for (let k = 0; k + 1 < q.length; k++) { const t = cvSegHit(a, b, q[k], q[k + 1]); if (t !== null) cuts.push(cum[i] + t * L); } });
+    for (let k = 0; k + 1 < pts.length; k++) { if (Math.abs(k - i) < 2 || (l.closed && Math.abs(k - i) === pts.length - 2)) continue; const t = cvSegHit(a, b, pts[k], pts[k + 1]); if (t !== null) cuts.push(cum[i] + t * L); }
+  }
+  cuts.sort((a, b) => a - b);
+  const point = s => { let i = 1; while (i < cum.length - 1 && cum[i] < s) i++; const t = (s - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1); return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * t, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t]; };
+  const piece = (u, v) => { const out = [point(u)]; for (let i = 0; i < cum.length; i++) if (cum[i] > u + 1e-9 && cum[i] < v - 1e-9) out.push(pts[i]); out.push(point(v)); return out; };
+  let keep = [];
+  if (l.closed) {
+    if (cuts.length < 2) { toast("That line doesn't cross anything twice, so there's nothing to trim it back to.", true); return false; }
+    const after = cuts.find(c => c > at), before = [...cuts].reverse().find(c => c < at), b = after ?? cuts[0] + total, a = before ?? cuts[cuts.length - 1] - total;
+    const run = b < total ? piece(b, total).concat(piece(0, a < 0 ? a + total : a).slice(1)) : piece(b - total, a < 0 ? a + total : a);   // from the far end of the gap round to its near end
+    keep = [run];
+  } else {
+    const a = [...cuts].reverse().find(c => c < at) ?? 0, b = cuts.find(c => c > at) ?? total;
+    if (a < 1e-6 && b > total - 1e-6) { toast("That line doesn't cross anything, so there's nothing to trim it back to.", true); return false; }
+    if (a > 1e-6) keep.push(piece(0, a)); if (b < total - 1e-6) keep.push(piece(b, total));
+  }
+  keep = keep.filter(k => k.length > 1 && Math.hypot(k[k.length - 1][0] - k[0][0], k[k.length - 1][1] - k[0][1]) + k.length > 2);
+  cvEdit(() => {
+    const local = keep.map(k => ({ closed: false, pts: k.map(q => cvToLocal(it, q)) }));
+    it.paths.splice(li, 1, ...local);
+    if (!it.paths.length) P.carve.items = P.carve.items.filter(i => i !== it); else cvRecentre(it);
+  });
+  return true;
+}
+
+// ---------- inlays ----------
+// The pocket is the shape as the bit can cut it, inside corners rounded to the bit. The plug is that, a gap smaller all
+// round, with its outside corners rounded the same way, so it drops in. It's added beside the shape, as a cut-out to make
+// from the inlay wood.
+function cvMakePlug(it) {
+  const regions = cvUnion(cvWorldShape(it).regions); if (!regions.length) { toast('Only closed shapes can be inlaid.', true); return null; }
+  const op = it.op || {}, own = cvBitOf(op.bit), bit = own && own.type === 'flat' ? own : cvBitOf(cvBestBit('outside')); if (!bit) { toast('An inlay needs a flat bit. Tick one in your bits.', true); return null; }
+  const R = bit.d / 2, pocket = cvOffset(cvOffset(regions, -R), R); if (!pocket.length) { toast(`It's too narrow for ${bit.name} to pocket.`, true); return null; }
+  let gap = Math.max(0, cvToolNum('igap', .1)), plug = [];
+  for (let k = 0; k < 12; k++) {   // shrink until the plug, as the bit can cut it, fits inside the pocket
+    const b = cvOffset(pocket, -gap); if (!b.length) break; plug = cvOffset(cvOffset(b, R), -R);
+    const over = cvMinus(plug, pocket), area = Math.abs(over.reduce((s, p) => s + cvArea(p), 0)); if (area < .01) break; gap += .02;
+  }
+  if (!plug.length) { toast('With that gap there would be no plug left.', true); return null; }
+  const box = cvBox(regions), shift = box.x1 - box.x0 + 10, lines = cvAsLines(plug.map(p => p.map(q => [q[0] + shift, q[1]])));
+  const made = cvMakePath(lines, { kind: 'outside', bit: bit.id, depth: cvOpDepth(cvNow(), op) || 3, through: true, tabs: 2, finish: 0, peck: true, clear: null });
+  if (it.op && it.op.kind !== 'pocket') cvEdit(() => { it.op = { ...cvOpFor(cvNow(), 'pocket'), bit: bit.id, depth: it.op.depth || 3, through: false }; });
+  toast(`Plug added beside it, ${cvLen(gap)} smaller all round. Cut it from your inlay wood, then glue it into the pocket.`);
+  return made;
 }

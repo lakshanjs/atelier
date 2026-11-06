@@ -235,7 +235,7 @@ function cvArt(key) {
   let art = null; try { art = cvParseSvg(text); } catch (e) { art = null; }
   cvArtCache.set(key, art); return art;
 }
-const cvShapeKey = it => JSON.stringify([it.type, it.w, it.h, it.art, it.text, it.font, it.size, it.spacing, it.leading, it.align, !!cvFontOf(it.font), !!(it.art && TEXTURES[it.art]), it.sides, it.points, it.inner, it.corner, it.smooth, it.arc, it.threshold, it.invert, it.detail, it.type === 'trace' && typeof cvImgCache !== 'undefined' && cvImgCache.has(it.art), it.type === 'path' ? it.paths : 0]);
+const cvShapeKey = it => JSON.stringify([it.type, it.w, it.h, it.art, it.text, it.font, it.size, it.spacing, it.leading, it.align, !!cvFontOf(it.font), !!(it.art && TEXTURES[it.art]), it.sides, it.points, it.inner, it.corner, it.smooth, it.arc, it.threshold, it.invert, it.detail, it.len, it.off, it.type === 'trace' && typeof cvImgCache !== 'undefined' && cvImgCache.has(it.art), it.type === 'path' ? it.paths : 0]);
 function cvEllipse(w, h) { const pts = [], n = 180; for (let i = 0; i < n; i++) { const t = i / n * Math.PI * 2; pts.push([Math.cos(t) * w / 2, Math.sin(t) * h / 2]); } return pts; }
 // a regular polygon or a star, point up, stretched to fill w by h
 function cvPolygon(w, h, n, inner) {
@@ -271,6 +271,8 @@ function cvLocal(it) {
     if (it.corner > 0 && regions.length) { const r = cvOffset(cvOffset(regions, -it.corner), it.corner); if (r.length) { regions = r; lines = lines.filter(l => !l.closed).concat(r.map(p => ({ pts: p, closed: true }))); } }   // rounding a shape's corners
   }
   else if (it.type === 'trace') { regions = cvTraceRegions(it); lines = regions.map(p => ({ pts: p, closed: true })); }
+  else if (it.type === 'clamp') { const p = [[-it.w / 2, -it.h / 2], [it.w / 2, -it.h / 2], [it.w / 2, it.h / 2], [-it.w / 2, it.h / 2]]; regions = [p]; lines = [{ pts: p, closed: true }]; }
+  else if (it.type === 'dim') { const L = it.len / 2, o = it.off || 0; lines = [{ pts: [[-L, 0], [-L, o], [L, o], [L, 0]], closed: false }]; }
   else if (it.type === 'circle') { const p = cvEllipse(it.w, it.h); regions = [p]; lines = [{ pts: p, closed: true }]; }
   else if (it.type === 'text') { const font = cvFontOf(it.font), R = Math.abs(it.arc) >= 1 ? it.arc : 0; if (font && font.line) { lines = cvLineText(font, it); if (R) lines = lines.map(l => ({ closed: l.closed, pts: cvBend(l.pts, R, l.closed) })); } else if (font) { let polys = cvTextPolys(font, it); if (R) polys = polys.map(p => cvBend(p, R, true)); regions = cvUnion(polys); lines = regions.map(p => ({ pts: p, closed: true })); } }
   else if (it.type === 'svg') { const a = cvArt(it.art); if (a) { const k = it.w / a.w; regions = a.regions.map(p => p.map(q => [q[0] * k, q[1] * k])); lines = a.lines.map(l => ({ closed: l.closed, pts: l.pts.map(q => [q[0] * k, q[1] * k]) })); } }
@@ -328,7 +330,8 @@ function cvRamp(chain, top, angle) {
   return out;
 }
 
-function cvPocketPaths(regions, depth, bit, notes, finish) {
+function cvPocketPaths(regions, depth, bit, notes, finish, climb) {
+  const turn = r => (climb ? r.slice() : r.slice().reverse());   // this way round is a conventional cut, with the spindle turning clockwise
   const R = bit.d / 2, over = Math.max(.05, bit.d * Math.min(50, Math.max(5, bit.over)) / 100), chains = []; let missed = false, nothing = true;
   cvIslands(regions).forEach(island => {
     const gens = [], wall = cvOffset(island, -R);
@@ -340,7 +343,7 @@ function cvPocketPaths(regions, depth, bit, notes, finish) {
     cvPasses(depth, bit.step).forEach(d => {
       let chain = null, end = null;   // inside first, then out to the wall. It stays down between rings when the hop is short and stays in the pocket.
       for (let g = gens.length - 1; g >= 0; g--) gens[g].forEach(ring0 => {
-        const ring = cvRotateTo(ring0.slice().reverse(), end), a = ring[0];
+        const ring = cvRotateTo(turn(ring0), end), a = ring[0];
         const hop = chain && Math.hypot(a[0] - end[0], a[1] - end[1]) < over * 1.6, safe = hop && [.25, .5, .75].every(t => cvInside(gens[g], [end[0] + (a[0] - end[0]) * t, end[1] + (a[1] - end[1]) * t]));
         const pts = cvClosed(ring, -d);
         if (safe) chain.push(...pts); else { chain = pts; chain.top = -before; chains.push(chain); }
@@ -348,7 +351,7 @@ function cvPocketPaths(regions, depth, bit, notes, finish) {
       });
       before = d;
     });
-    if (finish > 0) wall.forEach(r => chains.push(cvClosed(r.slice().reverse(), -depth)));   // the skin left on the walls, in one pass at full depth
+    if (finish > 0) wall.forEach(r => chains.push(cvClosed(turn(r), -depth)));   // the skin left on the walls, in one pass at full depth
   });
   if (nothing) notes.push({ bad: true, text: 'is too narrow for this bit: nothing would be cut' });
   else if (missed) notes.push({ text: 'has details too small for this bit, and they will be left uncut' });
@@ -608,9 +611,10 @@ function cvItemPaths(cv, it, bit, bitOf = typeof cvBitOf === 'function' ? cvBitO
   let chains = [];
   if (!regions.length && !lines.length) notes.push({ bad: true, text: it.type === 'text' ? "has no letters to cut. Check its text and font" : 'has nothing to cut' });
   else if (bit && depth > 0) {
-    if (clearing) chains = vbit ? cvVclearPaths(regions, depth, vbit, bit, notes) : [];
+    if (!regions.length && ['pocket', 'vcarve', 'outside', 'inside', 'drill'].includes(op.kind)) notes.push({ bad: true, text: 'has no closed shape for this job' });
+    else if (clearing) chains = vbit ? cvVclearPaths(regions, depth, vbit, bit, notes) : [];
     else if (op.kind === 'line') chains = cvLinePaths(lines, depth, bit.step);
-    else if (op.kind === 'pocket') chains = cvPocketPaths(regions, depth, bit, notes, cvFinishOf(op));
+    else if (op.kind === 'pocket') chains = cvPocketPaths(regions, depth, bit, notes, cvFinishOf(op), !!op.climb);
     else if (op.kind === 'vcarve') chains = cvVcarvePaths(regions, depth, bit, notes, clear);
     else if (op.kind === 'drill') chains = cvDrillPaths(regions, depth, bit, op.peck !== false, notes);
     else {
@@ -618,7 +622,7 @@ function cvItemPaths(cv, it, bit, bitOf = typeof cvBitOf === 'function' ? cvBitO
       if (op.kind === 'outside' && off.filter(p => cvArea(p) < 0).length < holesBefore) notes.push({ text: 'has inner holes too small for this bit, and they will be left uncut' });
       if (!off.length) notes.push({ bad: true, text: 'is too narrow for this bit: nothing would be cut' });
       // this way round is a conventional cut, with the spindle turning clockwise. Inner pieces first, so nothing's come loose before it's cut.
-      const rings = list => (op.kind === 'outside' ? list : list.map(p => p.slice().reverse())).sort((a, b) => Math.abs(cvArea(a)) - Math.abs(cvArea(b)));
+      const rings = list => ((op.kind === 'outside') !== !!op.climb ? list : list.map(p => p.slice().reverse())).sort((a, b) => Math.abs(cvArea(a)) - Math.abs(cvArea(b)));
       const edge = rings(off), rough = fin > 0 ? rings(cvOffset(base, out * (R + fin))) : edge, tabs = op.tabs ?? 4, tabZ = -Math.min(depth, cv.board.t) + cv.tabH;
       let useTabs = tabs > 0 && cv.tabH > 0;
       if (useTabs && tabZ >= 0) { notes.push({ text: 'has tabs taller than the cut, so they were left out' }); useTabs = false; }
@@ -648,6 +652,39 @@ function cvPlan(cv, bitOf) {
   b.forEach(id => { const list = second.filter(j => j.bit === id).map(j => j.it), last = files[files.length - 1]; if (last && last.bit === id) last.items.push(...list); else files.push({ bit: id, items: list }); });
   files.forEach(f => { f.items = f.items.map((it, n) => [it, n]).sort((p, q) => CV_CUT_ORDER[p[0].op.kind] - CV_CUT_ORDER[q[0].op.kind] || p[1] - q[1]).map(p => p[0]); });
   return files;
+}
+// ---------- arcs ----------
+// GRBL cuts true arcs (G2 clockwise, G3 anticlockwise), so a curve can go out as one line instead of hundreds. A stretch counts
+// as an arc only when every point is on the circle and every short line between them stays within 0.005 mm of it, so a
+// polygon whose corners happen to sit on a circle is never rounded off.
+const CV_ARC_TOL = .005;
+function cvArcFit(ch, s, j) {
+  const A = ch[s], B = ch[(s + j) >> 1], C = ch[j], d = 2 * (A[0] * (B[1] - C[1]) + B[0] * (C[1] - A[1]) + C[0] * (A[1] - B[1])); if (Math.abs(d) < 1e-9) return null;
+  const a2 = A[0] * A[0] + A[1] * A[1], b2 = B[0] * B[0] + B[1] * B[1], c2 = C[0] * C[0] + C[1] * C[1], u = [(a2 * (B[1] - C[1]) + b2 * (C[1] - A[1]) + c2 * (A[1] - B[1])) / d, (a2 * (C[0] - B[0]) + b2 * (A[0] - C[0]) + c2 * (B[0] - A[0])) / d], R = Math.hypot(A[0] - u[0], A[1] - u[1]);
+  if (!(R > .05 && R < 2000)) return null;
+  const most = 2 * Math.sqrt(2 * R * CV_ARC_TOL); let sweep = 0, side = 0;
+  for (let k = s + 1; k <= j; k++) {
+    const p = ch[k - 1], q = ch[k], L = Math.hypot(q[0] - p[0], q[1] - p[1]); if (L > most || L < 1e-6) return null;
+    if (Math.abs(Math.hypot(q[0] - u[0], q[1] - u[1]) - R) > CV_ARC_TOL) return null;
+    const cr = (p[0] - u[0]) * (q[1] - u[1]) - (p[1] - u[1]) * (q[0] - u[0]), sd = Math.sign(cr); if (!sd || (side && sd !== side)) return null; side = sd;
+    sweep += Math.asin(Math.min(1, L / (2 * R))) * 2;
+  }
+  return sweep < Math.PI * 1.75 ? { c: u, cw: side < 0, len: R * sweep } : null;
+}
+function cvArcFrom(ch, s) {   // the longest arc starting at point s, through four points or more, at one depth
+  if (s + 3 >= ch.length) return null; const z = ch[s][2]; let best = null;
+  for (let j = s + 3; j < ch.length && j - s <= 400; j++) { if (Math.abs(ch[j][2] - z) > 1e-9) break; const f = cvArcFit(ch, s, j); if (!f) break; best = { ...f, j }; }
+  return best && best.j >= s + 3 ? best : null;
+}
+// ---------- clamps ----------
+// Clamp zones are where the clamps hold the board. No cut may go into one, the safe height must clear them, and a short hop
+// that would pass over one goes up to the safe height instead.
+const cvClamps = cv => cv.items.filter(i => i.type === 'clamp');
+const cvClampRegions = (cv, R) => cvClamps(cv).map(c => { const s = cvLocal(c), place = cvPlaceFn(c); return cvOffset(s.regions.map(p => p.map(place)), R + .5); }).filter(r => r.length);
+function cvCrossesClamp(cv, a, b, bit) {
+  const zones = cvClampRegions(cv, bit ? bit.d / 2 : 0); if (!zones.length) return false;
+  const n = Math.max(2, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]))); for (let k = 0; k <= n; k++) { const q = [a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n]; if (zones.some(z => cvInside(z, q))) return true; }
+  return false;
 }
 const CV_HOP = 5;   // mm: moves shorter than this between cuts stay just above the board
 const cvCommentText = s => String(s).replace(/[^A-Za-z0-9 .,:=+\/-]/g, '').slice(0, 62);
@@ -689,7 +726,7 @@ function cvGcode(cv, file, bit, n, of, title, opts = {}) {
   const tile = opts.tile, lift = opts.air > 0 ? opts.air : 0, [ox, oy] = tile && cv.tile ? [tile.x0, tile.y0] : cvZeroAt(cv), r = v => { const t = (Math.round(v * 1000) / 1000).toString(); return t === '-0' ? '0' : t; };
   const out = [], say = s => out.push(`(${cvCommentText(s)})`); let minutes = 0, length = 0, where = null, cuts = 0;
   // where[] and the chains are on the board. Only the words written out are moved to the zero point and lifted.
-  const X = v => r(v - ox), Y = v => r(v - oy), Z = v => r(v + lift), safe = cv.safeZ, near = Math.min(safe, 1);
+  const X = v => r(v - ox), Y = v => r(v - oy), Z = v => r(v + lift), safe = cv.safeZ, near = Math.min(safe, 1), arcs = cv.arcs !== false;
   say(`${title}, ${tile && cv.tile ? `tile ${tile.n + 1} of ${opts.tiles}, ` : ''}file ${n} of ${of}`); if (lift) { say(`AIR TEST: everything is ${r(lift)} mm higher,`); say(`so its lowest point is ${r(opts.clear ?? cvAirOf(cv))} mm above the board.`); say('It cuts nothing. Set Z0 on the board top as usual.'); }
   say(`Bit: ${bit.name}, ${r(bit.d)} mm`); if (cv.board.wood && CV_WOODS[cv.board.wood]) say(`Wood: ${CV_WOODS[cv.board.wood].name}`);
   say(`Board ${r(cv.board.l)} x ${r(cv.board.w)} x ${r(cv.board.t)} mm`);
@@ -701,12 +738,17 @@ function cvGcode(cv, file, bit, n, of, title, opts = {}) {
   const run = chain => {
     if (!chain.length) return; cuts++;
     // a short hop to the next start only lifts clear of the board; a longer one goes up to the safe height first
-    const p0 = chain[0], hop = where && Math.hypot(p0[0] - where[0], p0[1] - where[1]) < CV_HOP;
+    const p0 = chain[0], hop = where && Math.hypot(p0[0] - where[0], p0[1] - where[1]) < CV_HOP && !cvCrossesClamp(cv, where, p0, raw);
     if (where) { out.push(`G0 Z${Z(hop ? near : safe)}`); minutes += hop ? .005 : .02; }
     out.push(`G0 X${X(p0[0])} Y${Y(p0[1])}`); if (!hop) out.push(`G0 Z${Z(near)}`); where = [p0[0], p0[1], near];
     out.push(`G1 Z${Z(p0[2])}${F(bit.plunge)}`); feedTo(p0[0], p0[1], p0[2], bit.plunge); where = p0;
     let line = null;
     for (let i = 1; i < chain.length; i++) {
+      const arc = arcs && Math.hypot(chain[i - 1][0] - where[0], chain[i - 1][1] - where[1]) < 1e-6 && Math.abs(chain[i - 1][2] - where[2]) < 1e-9 ? cvArcFrom(chain, i - 1) : null;
+      if (arc) {   // a stretch along one circle at one depth goes out as one arc
+        const e = chain[arc.j]; line = `${arc.cw ? 'G2' : 'G3'} X${X(e[0])} Y${Y(e[1])} I${r(arc.c[0] - where[0])} J${r(arc.c[1] - where[1])}${F(bit.feed)}`; out.push(line);
+        minutes += arc.len / bit.feed; length += arc.len; where = e; i = arc.j; continue;
+      }
       const q = chain[i], flat = Math.abs(q[0] - where[0]) < 5e-4 && Math.abs(q[1] - where[1]) < 5e-4;
       if (flat && Math.abs(q[2] - where[2]) < 5e-4) continue;
       const down = flat && q[2] < where[2], rate = down ? bit.plunge : bit.feed, words = flat ? `Z${Z(q[2])}` : `X${X(q[0])} Y${Y(q[1])}${q[2] !== where[2] ? ` Z${Z(q[2])}` : ''}`;
@@ -746,6 +788,20 @@ function cvJob(cv, bitOf, name, air) {
   });
   return out;
 }
+const cvClampH = cv => (cv.clampH > 0 ? cv.clampH : 15);
+// ---------- checking shapes ----------
+// Like VCarve's vector validator: what's likely to cut differently from how it looks. These are warnings, not stops.
+function cvShapeProblems(cv, it) {
+  const out = [], s = cvLocal(it), kind = it.op && it.op.kind, open = s.lines.filter(l => !l.closed).length;
+  if (open && ['pocket', 'vcarve', 'outside', 'inside', 'drill'].includes(kind)) out.push(`has ${open} open ${open === 1 ? 'line' : 'lines'}, which this job leaves out. Close ${open === 1 ? 'it' : 'them'} with Edit its points, or engrave instead`);
+  if (['path', 'svg', 'trace'].includes(it.type)) {
+    const crossed = s.lines.filter(l => l.closed && l.pts.length > 3).some(l => { const p = cvIn([l.pts])[0], parts = ClipperLib.Clipper.SimplifyPolygon(p, ClipperLib.PolyFillType.pftNonZero); return parts.length > 1 || (parts.length === 1 && Math.abs(Math.abs(ClipperLib.Clipper.Area(parts[0])) - Math.abs(ClipperLib.Clipper.Area(p))) > Math.abs(ClipperLib.Clipper.Area(p)) * .001 + 1e4); });
+    if (crossed) out.push('has an outline that crosses itself, so part of it may not cut as drawn');
+  }
+  const key = JSON.stringify([cvShapeKey(it), Math.round(it.x * 100), Math.round(it.y * 100), it.rot || 0, !!it.mx, !!it.my]);
+  if (cv.items.some(o => o !== it && o.op && o.op.kind !== 'off' && JSON.stringify([cvShapeKey(o), Math.round(o.x * 100), Math.round(o.y * 100), o.rot || 0, !!o.mx, !!o.my]) === key)) out.push('is exactly on top of a copy of itself, so it would be cut twice');
+  return out;
+}
 // what's wrong with the job, or worth knowing. bad stops the export.
 function cvChecks(cv, bitOf, have) {
   const out = [], label = it => (it.type === 'text' ? `"${String(it.text).split('\n')[0].slice(0, 24)}"` : { svg: 'The artwork', rect: 'The rectangle', circle: 'The circle' }[it.type] || 'The ' + (typeof cvItemName === 'function' ? cvItemName(it) : 'shape').toLowerCase());
@@ -753,6 +809,7 @@ function cvChecks(cv, bitOf, have) {
   if (!have) out.push({ bad: true, text: 'Tick the bits you have in Bits.' });
   if (!(cv.board.l > 0 && cv.board.w > 0 && cv.board.t > 0)) out.push({ bad: true, text: 'The board needs a length, width and thickness.' });
   if (!(cv.safeZ > 0)) out.push({ bad: true, text: 'Safe height must be above the board.' });
+  const clamps = cvClamps(cv); if (clamps.length && !(cv.safeZ > cvClampH(cv))) out.push({ bad: true, text: `Safe height must be above your clamps, which stand ${cvLenNote(cvClampH(cv))} high. Raise it in Machine.` });
   let any = false;
   cv.items.forEach(it => {
     const op = it.op; if (!op || op.kind === 'off') return; any = true;
@@ -765,7 +822,9 @@ function cvChecks(cv, bitOf, have) {
     if (it.type === 'text' && !cvFontOf(it.font)) out.push({ bad: true, id: it.id, text: `${who}: the font ${it.font} isn't available or can't be read.` });
     if (it.type === 'text' && cvIsLineFont(it.font) && op.kind !== 'line') { out.push({ bad: true, id: it.id, text: `${who}: ${it.font} is a single-line font, so it can only be engraved along its lines.` }); return; }
     if (it.type === 'svg' && !cvArt(it.art)) out.push({ bad: true, id: it.id, text: `${who} couldn't be read.` });
+    cvShapeProblems(cv, it).forEach(t => out.push({ id: it.id, text: `${who} ${t}.` }));
     const { chains, notes } = cvItemPaths(cv, it, bit, bitOf);
+    if (clamps.length) { const zones = cvClampRegions(cv, bit.type === 'v' ? 0 : bit.d / 2); if (chains.some(c => c.some(q => q[2] < 0 && zones.some(z => cvInside(z, q))))) out.push({ bad: true, id: it.id, text: `${who} runs into a clamp zone. Move it, or the clamp.` }); }
     if (op.kind === 'vcarve' && op.clear) { const c = cvClearBit(it, bitOf); if (!c && op.clear === 'auto') { /* nothing fits, so the V-bit does it all */ } else if (!c) out.push({ bad: true, id: it.id, text: `${who}: its clearing bit must be a flat bit you have.` }); else cvItemPaths(cv, it, c, bitOf).notes.forEach(n => out.push({ info: true, id: it.id, text: `${who} ${n.text}.` })); }
     notes.forEach(n => out.push({ bad: !!n.bad, info: !!n.info, id: it.id, text: `${who} ${n.text}.` }));
     if (bit.reach > 0 && depth > bit.reach) out.push({ id: it.id, text: `${who} is deeper than ${bit.name} can cut.` });
