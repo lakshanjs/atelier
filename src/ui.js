@@ -110,7 +110,7 @@ menus.forEach(m => {
 window.addEventListener('pointerdown', e => { if (!e.target.closest('.menu')) closeMenus(); });
 const DO = {
   new: () => document.getElementById('bNew').click(), open: () => document.getElementById('bOpen').click(), save: () => document.getElementById('bSave').click(),
-  palette: () => openPalette(), keys: () => openKeys(), render: openRender, hwcat: openCatalogue, drawings: () => { if (panelsOnly().length) openDrawings(); else toast('There are no panels to draw yet.', true); }, cnc: exportCnc, history: openHistory, resizable: () => { if (selected().length) edit(fxMakeResizable); else toast('Select the parts first.', true); },
+  palette: () => openPalette(), keys: () => openKeys(), render: openRender, carve: () => openCarve(), hwcat: openCatalogue, drawings: () => { if (panelsOnly().length) openDrawings(); else toast('There are no panels to draw yet.', true); }, cnc: exportCnc, history: openHistory, resizable: () => { if (selected().length) edit(fxMakeResizable); else toast('Select the parts first.', true); },
   plans: () => document.getElementById('bPack').click(), print: () => { renderPack(); window.print(); },
   undo, redo, dup: () => { if (sel.length) edit(duplicateSel); }, del: () => { if (sel.length) edit(removeSel); }, all: () => { sel = shown().filter(i => !i.locked).map(i => i.id); render(); },
   layouts: () => toggleLayPop(true), layreset: resetLayout,
@@ -124,7 +124,7 @@ const DO = {
 document.getElementById('menus').addEventListener('click', e => {
   const b = e.target.closest('[data-do]'); if (!b) return; closeMenus(); runDo(b.dataset.do);
 });
-const runDo = a => { if (a.startsWith('big:')) setBig(a.slice(4)); else if (a.startsWith('recent:')) openRecent(+a.slice(7)); else DO[a](); };
+const runDo = a => { if (cvOpen() && cvRoute(a)) return; if (a.startsWith('big:')) setBig(a.slice(4)); else if (a.startsWith('recent:')) openRecent(+a.slice(7)); else DO[a](); };
 
 function applyTheme() {
   const d = isDark();
@@ -246,7 +246,8 @@ applyLayout();
 render();
 (async () => {
   const fromDb = await autosaveRestore();
-  if (!saved && !fromDb) { fillCatalog(); dlg.showModal(); }
+  if (!saved && !fromDb && !projectChosen && !document.querySelector('dialog[open]')) openStart();
   if (crashedLastTime && (saved || fromDb)) toast("Atelier didn't close properly last time. Your work is back as it was. File > Version history has earlier versions.", true);
+  cvSyncMode();
   snapQuiet('When Atelier started');
 })();

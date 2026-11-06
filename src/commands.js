@@ -43,6 +43,7 @@ const cmdById = id => commandList().find(c => c.id === id);
 function runCommand(c) {
   if (!c) return;
   if (c.id !== 'palette' && c.id !== 'keys') { cmdRecent = [c.id, ...cmdRecent.filter(x => x !== c.id)].slice(0, 12); try { localStorage.setItem(CMD_RECENT_STORE, JSON.stringify(cmdRecent)); } catch (e) {} }
+  if (c.group === 'Tools' && cvOpen()) closeCarve();
   c.run();
 }
 // shows each command's key wherever it's written
@@ -74,9 +75,9 @@ window.addEventListener('keydown', e => {
   if (e.defaultPrevented || e.repeat && !/^(Ctrl\+[ZY]|Ctrl\+Shift\+Z)$/.test(comboOf(e))) return;
   if (precBuffer) return;
   const combo = comboOf(e), a = document.activeElement, typing = a && /INPUT|SELECT|TEXTAREA/.test(a.tagName) && a.type !== 'checkbox' && a.type !== 'range';
-  const open = document.querySelector('dialog[open], #pack.open, #draw.open, #rend.open');
+  const open = document.querySelector('dialog[open], #pack.open, #draw.open, #rend.open, #carve.open');
   const anywhere = keysOf('palette').includes(combo) || keysOf('help').includes(combo);
-  if ((typing || open) && !(anywhere && !document.getElementById('cmdDlg').open && !document.getElementById('keysDlg').open && !open)) return;
+  if ((typing || open) && !(anywhere && !document.getElementById('cmdDlg').open && !document.getElementById('keysDlg').open && !document.querySelector('dialog[open], #pack.open, #draw.open, #rend.open'))) return;
   const id = Object.keys(KEY_DEFAULTS).concat(Object.keys(keyOverrides)).find(i => keysOf(i).includes(combo)) || commandList().find(c => keysOf(c.id).includes(combo))?.id; if (!id) return;
   const c = cmdById(id); if (!c) return;
   e.preventDefault(); e.stopPropagation(); runCommand(c);

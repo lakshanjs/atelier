@@ -35,8 +35,9 @@ function renderChrome() {
   const tips = { select: 'Drag it to move. Arrows move it one way.', rotate: 'Drag it to spin. Arcs turn it the other ways. Alt for any angle.', scale: 'Drag a square to stretch that side. Shift for both ways. Alt for free sizing.' };
   q('hint3d').textContent = tool === 'measure' ? (mEdit ? 'Drop this end where it should go. Esc cancels.' : measA ? 'Click the second point. The line stays on X, Y or Z. Esc cancels.' : 'Click a corner or a panel edge to start measuring. Tab picks another point nearby. Drag a dot to change a measurement, or click it to measure on from there. Drag elsewhere to look around.') : selected().length ? `${tips[tool]} Ctrl + drag rotates the view.` : 'Click something to select it. Ctrl + drag rotates the view.';
 }
-function render() { hoverBox.visible = false; renderChrome(); renderSide(); renderStatus(); dirty = true; }
-function loadProject(p) { if (P && typeof snapQuiet === 'function' && P.items.some(i => !isRoomPart(i))) snapQuiet(`Before opening ${p.name || 'another project'}`); openedName = null; setTimeout(ensureModels); P = ensureFloor(p); hwAdopt(); sel = []; undoS = []; redoS = []; camSet = false; Object.keys(vt).forEach(n => { vt[n] = {}; }); fileHandle = null; sect.on = false; updateSection(); syncSection(); persist(); markSaved(false); render(); }
+function render() { hoverBox.visible = false; renderChrome(); renderSide(); renderStatus(); dirty = true; if (typeof carveRender === 'function') carveRender(); }
+let projectChosen = false;
+function loadProject(p) { projectChosen = true; const startDlg = document.getElementById('newDlg'); if (startDlg.open) startDlg.close(); if (P && typeof snapQuiet === 'function' && P.items.some(i => !isRoomPart(i))) snapQuiet(`Before opening ${p.name || 'another project'}`); openedName = null; setTimeout(ensureModels); P = ensureFloor(p); hwAdopt(); if (typeof cvBitsAdopt === 'function') cvBitsAdopt(); sel = []; undoS = []; redoS = []; camSet = false; Object.keys(vt).forEach(n => { vt[n] = {}; }); fileHandle = null; sect.on = false; updateSection(); syncSection(); persist(); markSaved(false); render(); if (typeof cvSyncMode === 'function') cvSyncMode(); }
 
 // ---------- plans ----------
 function renderPack() {
@@ -98,7 +99,14 @@ function download(name, text, type) { const a = document.createElement('a'); a.h
 
 // ---------- top bar ----------
 const dlg = document.getElementById('newDlg');
-document.getElementById('bNew').onclick = () => { fillCatalog(); dlg.showModal(); };
+function openStart() { fillCatalog(); dlg.showModal(); dlg.focus(); }
+document.getElementById('bNew').onclick = openStart;
+document.getElementById('startBlank').onclick = () => { dlg.close(); loadProject(TEMPLATES[0].make()); };
+document.getElementById('startCarve').onclick = () => { dlg.close(); loadProject(newProject('My carving')); openCarve(); };
+document.getElementById('startOpen').onclick = () => { dlg.close(); document.getElementById('bOpen').click(); };
+document.getElementById('startImport').onclick = () => { dlg.close(); document.getElementById('sh3dIn').click(); };
+dlg.querySelectorAll('[data-ic]').forEach(el => { el.innerHTML = ic(el.dataset.ic); });
+addIcon(document.getElementById('newClose'), 'x');
 document.getElementById('newClose').onclick = () => dlg.close();
 function miniFront(p) {
   const list = p.items.filter(i => i.kind === 'panel'); const W = 220, H = 100;
@@ -108,7 +116,10 @@ function miniFront(p) {
 }
 function fillCatalog() {
   const cat = document.getElementById('cat'); cat.innerHTML = '';
-  TEMPLATES.forEach(t => {
+  const seen = recents.slice(0, 4);
+  document.getElementById('startRecent').innerHTML = seen.length ? `<h3>Recent</h3>${seen.map((r, i) => `<button class="startRecentRow" data-recent="${i}" title="${esc(r.name)}">${esc(r.name)}</button>`).join('')}` : '';
+  document.querySelectorAll('[data-recent]').forEach(b => { b.onclick = () => { dlg.close(); runDo('recent:' + b.dataset.recent); }; });
+  TEMPLATES.slice(1).forEach(t => {
     const b = document.createElement('button'); b.className = 'card';
     b.innerHTML = `<svg viewBox="0 0 220 100">${miniFront(t.make())}</svg><b>${t.name}</b><span>${t.sub}</span>`;
     b.onclick = () => { dlg.close(); loadProject(t.make()); };
@@ -343,6 +354,7 @@ function usedTextures() {
     add(i.ptex); Object.values(i.matTex || {}).forEach(add);
     if (i.model && MODELS[i.model]) MODELS[i.model].parts.forEach(q => add(q.map));
   });
+  if (P.carve) P.carve.items.forEach(i => add(i.art));
   return [...out];
 }
 // An .atlr file is a zip: project.json holds the design and its camera view, and every 3D model and image sits beside it.
@@ -560,7 +572,7 @@ window.addEventListener('keydown', e => {
   if (e.key === 'Escape' && !document.getElementById('warnPop').hidden) { document.getElementById('warnPop').hidden = true; return; }
   if (document.getElementById('helpDlg').open) return;
   const a = document.activeElement, typing = a && /INPUT|SELECT/.test(a.tagName) && a.type !== 'checkbox' && a.type !== 'range';
-  if (document.querySelector('dialog[open], #pack.open, #draw.open, #rend.open') || typing) return;
+  if (document.querySelector('dialog[open], #pack.open, #draw.open, #rend.open, #carve.open') || typing) return;
   const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
   if (k === 'tab' && tool === 'measure' && mCands.length > 1) { e.preventDefault(); mIdx = (mIdx + 1) % mCands.length; mHover = mCands[mIdx]; if (measA && mCur) mHover = lockAxis(mHover); else if (measA && mFlat) mHover = flatLock(mHover, mFlat.vn, mFlat.x, mFlat.y); readout(pointName(mHover)); dirty = true; return; }
   if (mod || e.altKey) return;

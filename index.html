@@ -21,7 +21,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
         <div id="recentList"></div>
         <button data-do="history">Version history…</button><button data-do="hwcat">Hardware catalogue…</button><hr>
         <button data-do="plans">Cut list and plans</button><button data-do="drawings">Workshop drawings</button><button data-do="print">Print or save PDF</button><hr>
-        <button data-do="render">Photoreal picture…</button><button data-do="picture">Save picture of 3D view</button><button data-do="cnc">Export for CNC (DXF and G-code)</button><button data-do="dxf">Export cut parts (DXF)</button><button data-do="stl">Export 3D model (STL)</button>
+        <button data-do="carve">Carve on a board (text, SVG, G-code)</button><hr><button data-do="render">Photoreal picture…</button><button data-do="picture">Save picture of 3D view</button><button data-do="cnc">Export for CNC (DXF and G-code)</button><button data-do="dxf">Export cut parts (DXF)</button><button data-do="stl">Export 3D model (STL)</button>
       </div></div>
       <div class="menu"><button class="mbtn">Edit</button><div class="mlist" hidden>
         <button data-do="undo">Undo<kbd>Ctrl+Z</kbd></button><button data-do="redo">Redo<kbd>Ctrl+Y</kbd></button><hr>
@@ -34,6 +34,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
       </div></div>
       <div class="menu"><button class="mbtn">Help</button><div class="mlist" hidden><button data-do="palette">Find a command…</button><button data-do="keys">Keyboard shortcuts…</button><button data-do="help">Keyboard and mouse<kbd>F1</kbd></button></div></div>
     </nav>
+    <div id="modes" role="tablist" aria-label="Workspace"><button role="tab" id="modeDesign" aria-selected="true">Design</button><button role="tab" id="modeCarve" aria-selected="false">Carve</button></div>
     <div id="docTitle"><input id="pname" aria-label="Project name" title="Click to rename"><span id="saveState" aria-live="polite"></span></div>
     </div>
     <div id="toolbar">
@@ -92,8 +93,29 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
   </main>
 
 
+  <div id="carve" aria-label="Carve on a board">
+    <nav id="cvRail" aria-label="Add to the board">
+      <button class="btn tool" id="cvAddText" title="Add text" aria-label="Add text"></button>
+      <button class="btn tool" id="cvAddSvg" title="Add an SVG file" aria-label="Add an SVG file"></button>
+      <button class="btn tool" id="cvAddRect" title="Add a rectangle" aria-label="Add a rectangle"></button>
+      <button class="btn tool" id="cvAddCircle" title="Add an ellipse" aria-label="Add an ellipse"></button>
+      <button class="btn tool" id="cvAddPolygon" title="Add a polygon" aria-label="Add a polygon"></button>
+      <button class="btn tool" id="cvAddStar" title="Add a star" aria-label="Add a star"></button>
+      <button class="btn tool" id="cvAddPen" title="Draw lines and curves: click for each point, click the first to close, double-click or Enter to finish (P)" aria-label="Draw lines and curves"></button>
+      <hr>
+      <button class="btn tool" id="cv3dBtn" title="See it carved in 3D" aria-label="See it carved in 3D" aria-pressed="false"></button>
+      <button class="btn tool" id="cvPaths" title="Show or hide the bit's path" aria-label="Show or hide the bit's path"></button>
+      <button class="btn tool" id="cvFitBtn" title="Fit the board (F)" aria-label="Fit the board"></button>
+      <span class="grow"></span>
+      <button class="btn tool" id="cvBits" title="Your bits" aria-label="Your bits"></button>
+      <input type="file" id="cvSvgIn" accept=".svg,image/svg+xml" hidden>
+    </nav>
+    <div id="cvStageWrap"><svg id="cvStage" role="img" aria-label="The board"></svg><div id="cv3d" hidden><p id="cv3dNote">Worked out from the bit paths. Drag to turn, right drag to slide, wheel to zoom.</p><div id="cvPlay" role="group" aria-label="Play the cut"><button class="ic" id="cvPlayBack" title="Back to the start" aria-label="Back to the start"></button><button class="ic" id="cvPlayBtn" title="Play the cut (Space)" aria-label="Play the cut"></button><button class="ic" id="cvPlayNext" title="To the end of this toolpath" aria-label="To the end of this toolpath"></button><input type="range" id="cvPlayAt" min="0" max="1000" value="1000" aria-label="How far through the cut"><select id="cvPlaySpeed" title="How fast it plays, times real speed" aria-label="Playing speed"><option value="10">10x</option><option value="30" selected>30x</option><option value="100">100x</option><option value="300">300x</option><option value="1000">1000x</option></select><span id="cvPlayText"></span></div></div></div>
+    <aside id="cvPanel"><div id="cvHead"></div><div id="cvSide"></div><div id="cvChecks" aria-live="polite"></div><div id="cvSaveBar"><button class="btn line" id="cvAir" title="Save an air test" aria-label="Save an air test"></button><button class="btn main" id="cvExport">Save G-code</button></div></aside>
+  </div>
+
   <footer id="foot">
-    <span id="hint3d"></span><span id="fSize"></span><span id="fBoards"></span><span id="fSheets"></span><span id="fBand"></span>
+    <span id="hint3d"></span><span id="fSize"></span><span id="fBoards"></span><span id="fSheets"></span><span id="fBand"></span><span id="fCarve"></span>
     <button id="warnBtn" hidden></button>
   </footer>
 </div>
@@ -105,10 +127,23 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
   <h3>Selecting</h3><dl class="keys"><dt>Click</dt><dd>Select one item</dd><dt>Shift + click</dt><dd>Select more</dd><dt>Double-click</dt><dd>Select its whole layer</dd><dt>Drag empty flat view</dt><dd>Box select</dd><dt>Shift + drag empty 3D</dt><dd>Box select</dd><dt>Right-click</dt><dd>Menu for what's under the mouse</dd></dl>
   <h3>Changing things</h3><dl class="keys"><dt>V, E, S, M</dt><dd>Select, Rotate, Scale, Measure</dd><dt>Drag</dt><dd>Move along the floor</dd><dt>Shift + drag</dt><dd>Move up or down</dd><dt>Shift + stretch</dt><dd>Grow both ways</dd><dt>Alt + drag</dt><dd>Turn snapping off</dd><dt>G</dt><dd>Snapping on or off</dd><dt>R, Shift + R</dt><dd>Spin 90°</dd><dt>Arrow keys</dt><dd>Nudge by one grid step</dd><dt>Up or down in a size box</dt><dd>Change it by one grid step</dd></dl>
 </dialog>
-<dialog id="newDlg">
-  <div style="display:flex;align-items:center"><h2 style="margin:0">What are you making?</h2><span class="grow"></span><button class="btn line" id="newClose">Close</button></div>
-  <p class="note">Every starting piece is made of loose panels, so you can change all of it.</p>
-  <div id="cat"></div>
+<dialog id="newDlg" aria-labelledby="startTitle">
+  <div id="startSide">
+    <h2 id="startTitle">Start something new</h2>
+    <button class="startAct" id="startBlank"><span class="startIc" data-ic="file-plus"></span><span><b>Blank design</b><small>An empty space to build in</small></span></button>
+    <button class="startCarve" id="startCarve">
+      <svg viewBox="0 0 230 72" aria-hidden="true"><defs><pattern id="startGrain" width="120" height="24" patternUnits="userSpaceOnUse"><rect width="120" height="24" fill="#dcc29a"/><path d="M0 5C30 2 70 9 120 5M0 15C40 19 80 11 120 15" fill="none" stroke="#b8935f" stroke-opacity=".5" stroke-width=".6"/></pattern></defs><rect width="230" height="72" fill="url(#startGrain)"/><rect x="9.5" y="9.5" width="211" height="53" fill="none" stroke="#5a3d22" stroke-width="1"/><text x="115" y="48" text-anchor="middle" font-family="Barlow,sans-serif" font-weight="600" font-size="31" fill="#5a3d22" stroke="#f1e0c3" stroke-width=".5" paint-order="stroke">Your text</text></svg>
+      <span><b>Carve on a board</b><small>Text and SVG art, cut on your CNC</small></span>
+    </button>
+    <button class="startAct" id="startOpen"><span class="startIc" data-ic="folder-open"></span><span><b>Open a file</b><small>An Atelier project</small></span></button>
+    <button class="startAct" id="startImport"><span class="startIc" data-ic="file-box"></span><span><b>Import a house</b><small>From Sweet Home 3D</small></span></button>
+    <div id="startRecent"></div>
+  </div>
+  <div id="startMain">
+    <div id="startHead"><h3>Ready-made furniture</h3><button class="ic" id="newClose" title="Close" aria-label="Close"></button></div>
+    <p class="note">Every piece is loose panels, so you can change all of it.</p>
+    <div id="cat"></div>
+  </div>
 </dialog>
 
 <dialog id="histDlg">
@@ -134,6 +169,12 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
   <input id="keysQ" placeholder="Find a command or key" aria-label="Find a shortcut" autocomplete="off" spellcheck="false">
   <p class="note" id="keysNote" aria-live="polite"></p>
   <div id="keysList"></div>
+</dialog>
+
+<dialog id="bitsDlg" aria-labelledby="bitsTitle">
+  <div id="bitsHead"><h2 id="bitsTitle">Your bits</h2><button class="btn main" id="bitsClose">Done</button></div>
+  <p class="note">Tick each bit you own. You'll only be offered these when you choose how to cut something.</p>
+  <div id="bitList"><div id="bitRack"></div><div id="bitDetail"><div id="bitBig"></div><div id="bitForm"></div></div></div>
 </dialog>
 
 <section id="rend" aria-label="Photoreal picture">
@@ -181,6 +222,9 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
 <script src="lib/OrbitControls.js"></script>
 <script src="lib/RoomEnvironment.js"></script>
 <script src="lib/icons.js"></script>
+<script src="lib/clipper.js"></script>
+<script src="lib/opentype.min.js"></script>
+<script src="lib/linefonts.js"></script>
 <script src="src/base.js"></script>
 <script src="src/model.js"></script>
 <script src="src/formulas.js"></script>
@@ -196,6 +240,9 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
 <script src="src/files.js"></script>
 <script src="src/drawings.js"></script>
 <script src="src/render.js"></script>
+<script src="src/carvepaths.js"></script>
+<script src="src/carve.js"></script>
+<script src="src/carvetools.js"></script>
 <script src="src/safety.js"></script>
 <script src="src/ui.js"></script>
 <script src="src/commands.js"></script>

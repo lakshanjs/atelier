@@ -1,7 +1,7 @@
 "use strict";
 // Starts the real app with its own empty data folder and drives it over the Chrome DevTools Protocol.
 // Never touches the user's Atelier, library or autosave.
-const { spawn } = require("child_process");
+const { spawn, execFileSync } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -10,19 +10,49 @@ const ROOT = path.join(__dirname, "..");
 const ELECTRON = path.join(ROOT, "node_modules", "electron", "dist", "electron.exe");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Test windows always open on virtual desktop 1, not on whichever desktop is in front, so they don't pop up where you're
+// working. Windows only lets an app move its own windows, so the test copy loads a tiny helper (vdesk/) that does it.
+// ATELIER_TEST_DESKTOP picks another desktop by number, or "off" leaves windows where Windows puts them. If the helper
+// can't be built or there's no such desktop, windows open as usual.
+const VDESK = path.join(__dirname, "vdesk");
+let home;
+function homeDesktop() {
+  if (home !== undefined) return home;
+  home = null;
+  const want = process.env.ATELIER_TEST_DESKTOP || "1";
+  if (process.platform !== "win32" || !/^\d+$/.test(want)) return home;
+  const ps = (file, args = []) => execFileSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(VDESK, file), ...args], { encoding: "utf8", timeout: 120000, windowsHide: true }).trim();
+  try {
+    if (!fs.existsSync(path.join(VDESK, "vdesk.node"))) ps("build.ps1");
+    const id = ps("desktop.ps1", ["-Number", want]);
+    if (/^\{[0-9a-f-]{36}\}$/i.test(id) && fs.existsSync(path.join(VDESK, "vdesk.node"))) home = id;
+  } catch (e) { home = null; }
+  return home;
+}
+
 function launcher(dir, port, userData) {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "atelier-test", main: "main.js" }));
+  const desk = homeDesktop();
   fs.writeFileSync(path.join(dir, "main.js"), `
 const { app } = require('electron');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.setPath('userData', ${JSON.stringify(userData.replace(/\\/g, "/"))});
+${process.env.ATELIER_TEST_SHOW === "on" ? "" : `// off the screen and never in front, so you can carry on working while tests run. Not minimized: Windows stops a
+// minimized window drawing, and some tests watch it draw. ATELIER_TEST_SHOW=on shows them as usual.
+{ const { BrowserWindow } = require('electron'), P = BrowserWindow.prototype;
+  P.show = function () { if (!this.isVisible()) { this.setPosition(-30000, -30000); this.showInactive(); } };
+  P.maximize = function () {}; P.focus = function () {}; P.moveTop = function () {}; }`}
+${desk ? `try {
+  const vd = require(${JSON.stringify(path.join(VDESK, "vdesk.node").replace(/\\/g, "/"))});
+  app.on('browser-window-created', (e, w) => { try { const hr = vd.move(w.getNativeWindowHandle(), ${JSON.stringify(desk)}); if (hr) console.error('test desktop: 0x' + (hr >>> 0).toString(16)); } catch (err) {} });
+} catch (err) { console.error('test desktop:', err && err.message); }` : ""}
 require(${JSON.stringify(path.join(ROOT, "main.js").replace(/\\/g, "/"))});
 `);
 }
 
-async function openApp({ port = 9400 + Math.floor(Math.random() * 400), userData, file } = {}) {
+async function openApp({ port = 9400 + Math.floor(Math.random() * 400), userData, file, keepDialogs } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "atelier-test-"));
   const data = userData || path.join(tmp, "data");
   launcher(path.join(tmp, "launcher"), port, data);
@@ -79,7 +109,7 @@ async function openApp({ port = 9400 + Math.floor(Math.random() * 400), userData
   };
   await app.ready();
   await sleep(500);   // the starting-piece window opens just after start-up
-  await app.run("const d = document.querySelector('dialog[open]'); if (d) d.close();");
+  if (!keepDialogs) await app.run("const d = document.querySelector('dialog[open]'); if (d) d.close();");
   return app;
 }
 

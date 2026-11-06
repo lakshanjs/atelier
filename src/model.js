@@ -19,14 +19,12 @@ const BOARDS = {
 };
 let lastBoard = { mat: 'eco', t: 19.05 };
 // walls are ordinary objects that start locked, so clicks and drags pass through them
-const wallItem = (name, x0, x1, h, z0, z1) => { const it = { kind: 'object', type: 'wall', name, l: x1 - x0, t: h, w: z1 - z0, pos: [(x0 + x1) / 2, h / 2, (z0 + z1) / 2], q: IDQ.slice(), locked: true, gname: 'Room' }; return it; };
 // the floor's top is at height 0
 const floorItem = (x0, x1, z0, z1) => ({ kind: 'object', type: 'floor', name: 'Floor', l: x1 - x0, t: 20, w: z1 - z0, pos: [(x0 + x1) / 2, -10, (z0 + z1) / 2], q: IDQ.slice(), locked: true, gname: 'Room' });
 const isRoomPart = i => i.type === 'wall' || i.type === 'floor';
 const newProject = (name, items = [], o = {}) => {
-  const { wallW = 3000, wallD = 2000, wallH = 2500, ...rest } = o;
-  const p = { name, items: [], groups: [], nextId: 1, in: true, SL: 2438.4, SW: 1219.2, grid: 25.4, snap: true, ...rest };
-  const all = [floorItem(0, wallW + 20, -20, Math.max(wallD, 2000)), wallItem('Back wall', 0, wallW, wallH, -20, 0), wallItem('Side wall', wallW, wallW + 20, wallH, 0, wallD), ...items];
+  const p = { name, items: [], groups: [], nextId: 1, in: true, SL: 2438.4, SW: 1219.2, grid: 25.4, snap: true, noRoom: true, ...o };   // starts empty: walls and floors are added from the gallery when wanted
+  const all = items;
   const gid = {};
   all.forEach(i => {
     if (i.gname) { if (!gid[i.gname]) { gid[i.gname] = p.nextId++; p.groups.push({ id: gid[i.gname], name: i.gname, hidden: false, open: false }); } i.group = gid[i.gname]; delete i.gname; }
@@ -43,7 +41,7 @@ const shown = () => P.items.filter(i => !isHidden(i));
 const realItems = () => shown().filter(i => !isRoomPart(i));
 // projects saved before the floor became an object get one when opened
 function ensureFloor(p) {
-  if (p.items.some(i => i.type === 'floor')) return p;
+  if (p.noRoom || p.items.some(i => i.type === 'floor')) return p;
   const f = floorItem(-500, 3500, -500, 3000); f.id = p.nextId++; const room = p.groups.find(g => g.name === 'Room');
   if (room) f.group = room.id; delete f.gname; p.items.unshift(f); return p;
 }
@@ -202,11 +200,11 @@ const DESIGN3 = `Side panel 1240.95 1260 19.05 520 0 992.15|Top 0 1240.95 19.05 
 const DESIGN3B = `Side panel 0 19.05 19.05 300 0 1853|Top 19.05 800 19.05 300 1833.95 1853|Bottom 19.05 800 19.05 300 75 94.05|Kick board 19.05 800 280.95 300 0 75|Kick board end 780.95 800 19.05 280.95 0 75|Divider 341.43 360.48 19.05 300 94.05 624.05|Divider 458.57 477.62 19.05 300 643.1 973.1|Divider 341.43 360.48 19.05 300 992.15 1262.15|Divider 458.57 477.62 19.05 300 1281.2 1551.2|Divider 341.43 360.48 19.05 300 1570.25 1833.95|Shelf 19.05 800 19.05 300 624.05 643.1|Shelf 19.05 800 19.05 300 973.1 992.15|Shelf 19.05 800 19.05 300 1262.15 1281.2|Shelf 19.05 800 19.05 300 1551.2 1570.25|Back panel 0 800 0 19.05 0 1853`;
 const parseD3 = (src, map) => src.split('|').map(r => { const m = r.match(/^(.*?) ([\d. ]+)$/), v = m[2].split(' ').map(Number); return panelBox(m[1], map(v)); });
 const TEMPLATES = [
-  { name: 'Blank', sub: 'Start from an empty room', make: () => newProject('My furniture') },
+  { name: 'Blank', sub: 'Start from an empty space', make: () => newProject('My furniture') },
   { name: 'Corner rack', sub: 'Your L-shaped Design 3', make: () => newProject('Corner rack', [
     ...parseD3(DESIGN3, ([s0, s1, u0, u1, z0, z1]) => [1260 - s1, 1260 - s0, z0, z1, 40 + u0, 40 + u1]),
     ...parseD3(DESIGN3B, ([s0, s1, u0, u1, z0, z1]) => [1560 - u1, 1560 - u0, z0, z1, 40 + s0, 40 + s1]),
-  ].map((p, i) => { p.gname = p.gname || (i < 8 ? 'Wing A' : 'Wing B'); return p; }), { wallW: 1600, wallD: 940 }) },
+  ].map((p, i) => { p.gname = p.gname || (i < 8 ? 'Wing A' : 'Wing B'); return p; })) },
   { name: 'Bookshelf', sub: 'Tall, with five shelves', make: () => {
     const c = cabinet({ x: 900, w: 800, h: 1980, d: 300 });
     evenly(c.y0, c.y1, 5, t19).forEach(y => c.items.push(panelBox('Shelf', [c.x0, c.x1, y, y + t19, c.u0, c.f])));

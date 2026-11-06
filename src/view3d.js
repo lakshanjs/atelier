@@ -392,7 +392,7 @@ function detailStepAside() {
 }
 function detailBack() { group.children.forEach(o => { if (o.isMesh && o.userData.keepGeo && !o.userData.batched) o.visible = true; }); detailHidden = false; }
 const viewNow = () => [camera.position.x, camera.position.y, camera.position.z, camera.quaternion.x, camera.quaternion.y, camera.quaternion.z, camera.quaternion.w, camera.aspect, camera.near, camera.far, controls.target.x, controls.target.y, controls.target.z, hoverBox.visible, hoverBox.position.x, hoverBox.position.y, hoverBox.position.z, hoverBox.scale.x, hoverBox.scale.y, hoverBox.scale.z, giz.visible, giz.position.x, giz.position.y, giz.position.z, gizHover ? gizHover.id : 0].join();
-const COVERED = '#pack.open, #draw.open, #rend.open';
+const COVERED = '#pack.open, #draw.open, #rend.open, #carve.open';
 // With nothing happening it only looks a dozen times a second, and any mouse or key wakes it straight away.
 let loopTimer = 0, loopActive = 0;
 function loopNext(now) {

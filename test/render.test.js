@@ -14,7 +14,7 @@ const OUT = process.env.ATELIER_TEST_OUT;
 
 test("the scene matches what the 3D view draws: real positions, no helpers", async () => {
   const v = await app.run(`
-    loadProject(TEMPLATES[2].make()); sel = panelsOnly().map(p => p.id);
+    loadProject(TEMPLATES[2].make()); { const f = floorItem(-500, 3500, -500, 3000); f.id = nextId(); delete f.gname; P.items.unshift(f); } sel = panelsOnly().map(p => p.id);
     const sc = rendGather(true), u = unionBounds(P.items);
     let lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9]; for (let i = 0; i < sc.pos.length; i++) { const a = i % 3; lo[a] = Math.min(lo[a], sc.pos[i]); hi[a] = Math.max(hi[a], sc.pos[i]); }
     const lens = []; for (let i = 0; i < 300 && i < sc.nor.length / 3; i++) lens.push(Math.hypot(sc.nor[i * 3], sc.nor[i * 3 + 1], sc.nor[i * 3 + 2]));
@@ -102,7 +102,7 @@ test("the sun casts a shadow: a board above the floor darkens what's under it", 
     const read = (x, y) => { const i = (y * w + x) * 4; return (px[i] + px[i + 1] + px[i + 2]) / 3; }, avg = (x, y, r = 3) => { let s = 0, n = 0; for (let a = -r; a <= r; a++) for (let b = -r; b <= r; b++) { s += read(x + a, y + b); n++; } return s / n; };
     const pts = __shadowPts;
     return { shadow: avg(...pts[0]), lit: avg(...pts[1]) };`,
-    `loadProject(TEMPLATES[0].make()); edit(() => { addFromGallery('board:ply:18'); }); const it = byId(sel[0]); edit(() => { it.l = 800; it.w = 800; setQ(it, new THREE.Quaternion()); it.pos = [1000, 300, 1000]; }); sel = [];
+    `loadProject(TEMPLATES[0].make()); { const f = floorItem(-500, 3500, -500, 3000); f.id = nextId(); delete f.gname; P.items.unshift(f); } edit(() => { addFromGallery('board:ply:18'); }); const it = byId(sel[0]); edit(() => { it.l = 800; it.w = 800; setQ(it, new THREE.Quaternion()); it.pos = [1000, 300, 1000]; }); sel = [];
      camera.position.set(1000, 5000, 1001); controls.target.set(1000, 0, 1000); controls.update(); camera.aspect = 240 / 180; camera.updateProjectionMatrix(); camera.updateMatrixWorld();
      window.__ro = { light: 'day', room: true, sunHeight: 45, sunTurn: 0, size: [240, 180], spp: 64 };
      // worked out now, because the view moves itself once a newly loaded project is drawn

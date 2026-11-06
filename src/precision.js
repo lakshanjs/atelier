@@ -55,7 +55,7 @@ const precRemember = t => { precAxis = null; snapHits = []; precLast = (t.type =
 window.addEventListener('keydown', e => {
   const a = document.activeElement;
   if (a && /INPUT|SELECT|TEXTAREA/.test(a.tagName)) return;
-  if (document.querySelector('dialog[open]') || document.getElementById('pack').classList.contains('open') || document.getElementById('draw').classList.contains('open')) return;
+  if (document.querySelector('dialog[open]') || document.getElementById('pack').classList.contains('open') || document.getElementById('draw').classList.contains('open') || document.getElementById('carve').classList.contains('open')) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   const live = precLive(), target = precTarget(), stop = () => { e.preventDefault(); e.stopPropagation(); };
   if (precBuffer) {
