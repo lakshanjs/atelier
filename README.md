@@ -1,25 +1,27 @@
 # Atelier
 
-A personal desktop furniture design app for Windows. Everything is a free panel or object: add boards, move and rotate them in 3D or flat views with snapping, then get a cut list, cutting plan and shopping list. It also imports whole houses from Sweet Home 3D to design furniture inside.
+A desktop furniture design app for Windows, with CNC carving built in. Everything is a free panel or object: add boards, move and rotate them in 3D or flat views with snapping, then get a cut list, cutting plan, shopping list and workshop drawings. It also imports whole houses from Sweet Home 3D, to design furniture inside them.
 
-For one user (Lakshan), not hosted. Current version: **1.0.28**.
+![Designing a cupboard in 3D, with its panel's properties](docs/design.png)
 
-## Start here (next session)
+**Carve** turns a board into G-code for a small GRBL router: text in any font or single-line engraving fonts, SVG, DXF and traced pictures, and shapes drawn with its own tools. It V-carves along the centre of each stroke, pockets, drills, engraves and cuts out with tabs, one file per bit, and shows the board as it will come out, played back cut by cut.
+
+![The cut played back in 3D](docs/carving.gif)
+
+| Drawn on the board, with the bit's paths | As it will come out |
+|---|---|
+| ![A sign laid out in Carve](docs/carve.png) | ![The sign carved, in 3D](docs/carve-3d.png) |
+
+Any panel in a design can be sent to Carve, ready to cut: its outline with tabs, its holes, grooves and cut-outs.
+
+![A shelf panel from the design, ready to cut](docs/cut-in-carve.png)
+
+Current version: **1.0.29**. Updates come from this repository's releases. Free for noncommercial use under the [PolyForm Strict License 1.0.0](LICENSE): no changes or redistribution.
+
+## Notes
 
 - **Never cut from the G-code without simulating it first.** It's only been checked by the tests' own reader, never on a machine. The hole sizes for hinges, cams and slides are common defaults, to be matched to the hardware actually bought.
 - **Furniture libraries:** `.sh3f` import has only been tested on a file built by hand from the test house's models, not on a real downloaded library.
-- **Example file:** `C:\Users\Lakshan\Desktop\myhome.atlr` is a full house saved in the app's own format. Its source is `C:\Users\Lakshan\Desktop\myhome.sh3d.zip`. It includes one test measurement along a wall, which can be deleted.
-- **Open question for the user:** should dark be the default theme for new installs?
-
-## Working with this user
-
-- Keep answers short and in plain English. Sizes in **inches**.
-- They often send changes mid-task, so check for messages and keep going.
-- **Tests must not get in the way of their work.** Test windows open off the screen on virtual desktop 1 and never take focus (they asked for this, on 2026-11-06, because they couldn't work while tests ran). Not minimized: Windows stops minimized windows drawing, and some tests watch the 3D view draw. The harness does all this; keep it that way for any window you open. `ATELIER_TEST_SHOW=on` shows them as before.
-- **Don't force-close their Atelier to install.** Publish the build, install only if it's closed, otherwise ask them to close it.
-- Style: looks like professional desktop software (Photoshop is their reference). Neutral colours. **Icon-only controls with hover tooltips** rather than text labels. No glowing or "AI look".
-- Keep it generic: never add features for one furniture type.
-- Yellow is reserved for the logo, the selection and its size labels.
 
 ## Project layout
 
@@ -38,7 +40,10 @@ There is no framework or bundler. The scripts in `src/` are plain scripts loaded
 | `main.js` | Electron window, single-instance lock, auto-update, opening a double-clicked `.atlr` |
 | `preload.js` | Bridge for title bar colours and file opening (`window.atelierWin`) |
 | `lib/` | `linefonts.js` (11 single-line engraving fonts from the npm package hersheytext 2.0.0, MIT, with each font's own notes kept at its top as the Hershey terms require), three.js r128, OrbitControls, Lucide icon subset (`icons.js`), Barlow fonts, app icon, Clipper 6.4.2 (`clipper.js`, shape offsets), opentype.js 1.3.4 (`opentype.min.js`, font outlines) |
-| `scripts/publish-local.js` | Copies the build to the update folder |
+| `scripts/release.js` | Builds and publishes a GitHub release (`npm run release`) |
+| `scripts/publish-local.js` | Copies the build to the old local update folder |
+| `scripts/readme-images.js` | Makes the README pictures and animation in `docs/` from the app, off the screen like the tests (needs ffmpeg) |
+| `LICENSE` | PolyForm Strict 1.0.0, and the bundled libraries' own licences |
 | `old-box-version.html` | The rejected first version, kept for reference |
 | `Corner rack - rounded.json` | The user's rack design with panel sizes rounded, in the older format |
 
@@ -50,13 +55,15 @@ There is no framework or bundler. The scripts in `src/` are plain scripts loaded
 npm run release
 ```
 
-1. Raise `"version"` in `package.json` first, or the update won't be offered.
-2. This builds the NSIS installer in `dist\` and copies it to `D:\wamp\www\atelier-updates`.
-3. The installed app checks `http://localhost/atelier-updates/` shortly after launch, downloads the update, and installs it on quit. WAMP must be running.
+1. Raise `"version"` in `package.json` first. `scripts/release.js` refuses a version that's already released.
+2. This builds the NSIS installer and publishes it, with `latest.yml` and the blockmap, as release `v<version>` of `github.com/lakshanjs/atelier`. The upload uses the GitHub CLI's login (`gh auth login`), so no token is stored anywhere. The repo must be public for installed copies to read its releases.
+3. The installed app checks GitHub shortly after launch and every 6 hours, downloads an update, and installs it on quit.
+4. It also copies the files to `D:\wamp\www\atelier-updates`, for copies built before the switch to GitHub (1.0.28 and older), which still check `http://localhost/atelier-updates/`. Once those have updated, that step can go. `npm run release:local` still does only the local copy.
+
+Licence: PolyForm Strict 1.0.0 (`LICENSE`): anyone may use it for noncommercial purposes, but not change or redistribute it. The bundled libraries keep their own licences, listed at the end of `LICENSE`.
 
 To install directly: `dist\Atelier Setup <version>.exe /S`. It installs to `%LOCALAPPDATA%\Programs\Atelier`. Installing closes a running copy, so check first.
 
-Dev servers such as WAMP belong to OnCodes Dev Service Manager. Don't start or stop them from a shell.
 
 ## How the data works
 
@@ -138,7 +145,7 @@ A saved library, written by `libPackBytes()` and read by `libTakePack()`. A zip 
 **Built but only partly tested**
 - Toolbar dragging was tested with simulated drags, not by hand.
 - Double-clicking an `.atlr` in Explorer: the file type is registered and launching with a file works, but a real double-click wasn't tried.
-- The taskbar name: the window title is right (`myhome.atlr - Atelier`), but the taskbar itself couldn't be seen.
+- The taskbar name: the window title is right (`<project>.atlr - Atelier`), but the taskbar itself couldn't be seen.
 - The Windows buttons and the title bar border can't be captured in screenshots, so the user has to confirm those.
 - Renaming a level and locking a whole level weren't exercised.
 

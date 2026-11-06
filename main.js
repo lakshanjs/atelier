@@ -1,6 +1,6 @@
 "use strict";
 // Desktop shell for Atelier. The app itself is index.html; this only gives it a window,
-// an installer identity and updates from the local web root (see scripts/publish-local.js).
+// an installer identity and updates from the GitHub releases of lakshanjs/atelier (see scripts/release.js).
 const { app, BrowserWindow, ipcMain, Menu, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
@@ -124,7 +124,9 @@ if (!app.requestSingleInstanceLock()) {
       autoUpdater.autoDownload = true;
       autoUpdater.autoInstallOnAppQuit = true;
       autoUpdater.on("error", (err) => console.error("update:", err && err.message));
-      setTimeout(() => { autoUpdater.checkForUpdates().catch(() => {}); }, 4000);
+      // soon after it starts, then every 6 hours for a copy left open; a new version installs when the app is closed
+      const check = () => autoUpdater.checkForUpdates().catch(() => {});
+      setTimeout(check, 4000); setInterval(check, 6 * 60 * 60 * 1000);
     }
   });
   app.on("window-all-closed", () => app.quit());

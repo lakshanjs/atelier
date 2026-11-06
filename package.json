@@ -1,16 +1,18 @@
 {
   "name": "atelier",
   "productName": "Atelier",
-  "version": "1.0.28",
+  "version": "1.0.29",
   "description": "A desktop furniture design app: free panels, 3D and plan views, cut lists.",
   "author": "Lakshan",
-  "license": "MIT",
+  "license": "PolyForm-Strict-1.0.0",
+  "private": true,
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "test": "node --test --test-concurrency=1 test/*.test.js",
     "dist": "electron-builder --publish never",
-    "release": "electron-builder --publish never && node scripts/publish-local.js"
+    "release": "node scripts/release.js",
+    "release:local": "electron-builder --publish never && node scripts/publish-local.js"
   },
   "build": {
     "appId": "com.lakshan.atelier",
@@ -31,8 +33,10 @@
       "icon": "lib/icon.ico"
     },
     "publish": {
-      "provider": "generic",
-      "url": "http://localhost/atelier-updates/"
+      "provider": "github",
+      "owner": "lakshanjs",
+      "repo": "atelier",
+      "releaseType": "release"
     },
     "nsis": {
       "oneClick": true,
