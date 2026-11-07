@@ -59,6 +59,7 @@ const std = c => { const m = new THREE.MeshStandardMaterial({ color: c, roughnes
 // walls and floor stay whole when the design is sliced
 const roomMats = {}; const roomMat = hex => roomMats[hex] || (roomMats[hex] = new THREE.MeshStandardMaterial({ color: hex, roughness: .9, envMapIntensity: .12 }));
 allMats.push(EDGE);
+const SEL_THROUGH = new THREE.LineBasicMaterial({ color: 0xe5a900, depthTest: false, transparent: true, opacity: .85 });
 const SELM = std(0xffc928), WALL = std(0xf3f4f1), FLOOR = std(0xd5d9d6);
 const MAT = {
   white: { f: '#dfe3e1', c: 0xf2f2ee, name: 'White' }, mdf: { f: '#c7a57d', c: 0xc5a47e, name: 'Raw board' }, wood: { f: '#d6b283', c: 0xd9b888, name: 'Light wood' },
@@ -242,6 +243,7 @@ function draw3D() {
       capNeeded = true;
     }
     const l = new THREE.LineSegments(new THREE.EdgesGeometry(g, 28), EDGE); l.position.set(...it.pos); l.quaternion.copy(q); group.add(l);
+    if (s.has(it.id)) { const x = new THREE.LineSegments(new THREE.EdgesGeometry(g, 28), SEL_THROUGH); x.position.set(...it.pos); x.quaternion.copy(q); x.renderOrder = 9; group.add(x); }   // its edges show through whatever is in front
   });
   if (capNeeded) {
     const cap = new THREE.Mesh(new THREE.PlaneGeometry(40000, 40000), CAPM), n = secPlane.normal;
@@ -405,7 +407,7 @@ function loop(now) {
   if (document.querySelector(COVERED)) { loopNext(now); return; }   // nothing to see behind a full-page window
   controls.update();
   const changed = dirty && P;
-  if (changed) { dirty = false; draw3D(); drawFlats(); }
+  if (changed) { dirty = false; draw3D(); drawFlats(); if ((typeof fd !== 'undefined' && fd && fd.moved) || (d3 && d3.moved)) warnLive(); }
   const view = viewNow(), moved = view !== lastView;
   if (changed || moved) loopActive = now;
   let detailReturned = false;
@@ -429,6 +431,13 @@ function rayAt(e) {
 const readoutEl = document.getElementById('readout');
 function readout(t) { if (precBuffer) { const at = precTarget(); if (at) t = precPrompt(at); } else if (t && snapHits.length) t += snapNote(); readoutEl.hidden = !t; if (t) readoutEl.textContent = t; }
 // shared move: base positions + delta, snapped on the given axes
+// which world axis a drag on screen follows most closely, seen from where the part is
+function axisOnScreen(at, drag) {
+  const len = Math.hypot(drag[0], drag[1]); if (len < 1) return 0;
+  const c = screen3D([at.x, at.y, at.z]); if (!c) return 0; let best = 0, score = -1;
+  [0, 1, 2].forEach(a => { const e = [at.x, at.y, at.z]; e[a] += 100; const q = screen3D(e); if (!q) return; const dx = q[0] - c[0], dy = q[1] - c[1], l = Math.hypot(dx, dy); if (l < 1e-6) return; const k = Math.abs(dx * drag[0] + dy * drag[1]) / (l * len); if (k > score) { score = k; best = a; } });
+  return best;
+}
 function applyMove(drag, delta, axes, active, thr) {
   const ignore = new Set(sel), nowGuides = [], hits = [];
   if (!movable().length) return;
@@ -467,6 +476,7 @@ function placeDimLabels() {
   const r = host.getBoundingClientRect(); let h = '';
   const one = (a, b, tag) => { const v = V3((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2).project(camera); if (v.z > 1) return ''; return `<span class="dimtag" style="left:${(v.x + 1) / 2 * r.width}px;top:${(1 - v.y) / 2 * r.height}px">${tag ? tag + ' ' : ''}${esc(bare(dist3(a, b)))}</span>`; };
   if (!P.hideDims) drawnDims().forEach(({ a, b }) => { h += one(a, b); });
+  if (typeof warnShown === 'function') warnShown().forEach(it => { const v = V3(...it.pos).project(camera); if (v.z < 1) h += `<span class="dimtag" style="left:${(v.x + 1) / 2 * r.width}px;top:${(1 - v.y) / 2 * r.height}px">${it.id}</span>`; });   // the numbers of the panels a warning names
   if (tool === 'measure' && !measA && !P.hideDims) visDims().forEach(({ a, b }) => [a, b].forEach(w => { const q = screen3D(w); if (q) h += `<span class="dimend" style="left:${q[0]}px;top:${q[1]}px"></span>`; }));
   if (tool === 'measure' && measA && mHover) { const a = ptWorld(measA), b = mEndWorld(); if (a && b) h += one(a, b, mAxis != null ? AXN[mAxis] : ''); }
   if (dimLabels.innerHTML !== h) dimLabels.innerHTML = h;
@@ -557,7 +567,11 @@ window.addEventListener('pointermove', e => {
     d3.anchor[d3.axis] = e.shiftKey ? d3.mid : d3.fixed;
     applyScale(d3, size / d3.ext, d3.axis); readout(`${bare(size)}${sizeNote(hit)}${e.shiftKey ? ', both ways' : ''}`);
   } else if (d3.type === 'plane') {
-    if (e.shiftKey || precAxis === 1) {
+    const lockTo = e.shiftKey && precAxis == null ? axisOnScreen(d3.start, [e.clientX - d3.down[0], e.clientY - d3.down[1]]) : precAxis;
+    if (lockTo === 0 || lockTo === 2) {
+      if (!ray.ray.intersectPlane(d3.plane, p)) return;
+      const dv = [0, 0, 0]; dv[lockTo] = lockTo === 0 ? p.x - d3.start.x : p.z - d3.start.z; applyMove(d3, dv, [lockTo], active, thr);
+    } else if (lockTo === 1) {
       const c = d3.start, view = V3().subVectors(camera.position, c); view.y = 0; view.normalize();
       const pl = new THREE.Plane().setFromNormalAndCoplanarPoint(view, c);
       if (!ray.ray.intersectPlane(pl, p)) return;

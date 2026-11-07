@@ -128,6 +128,10 @@ body.splitting, body.splitting * { user-select: none; }
 .pane:hover .vbar, .vbar:focus-within { opacity: 1; }
 #pane3d .vbar { top: 6px; opacity: 1; }
 .vbar .btn { padding: 1px 7px; font-size: 13px; }
+.gfind { display: flex; align-items: center; gap: 6px; margin: 6px 0 4px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--field); color: var(--soft); }
+.gfind:focus-within { border-color: var(--ink); }
+.gfind .lu { width: 14px; height: 14px; flex: none; }
+.gfind input { flex: 1; min-width: 0; border: 0; background: none; color: var(--ink); padding: 1px 0; font: inherit; outline: none; }
 
 
 #view3d { position: absolute; inset: 0; }
@@ -343,22 +347,7 @@ dialog { background: var(--panel); border: 0; border-radius: 4px; padding: 22px;
 dialog::backdrop { background: rgba(32, 38, 42, .45); }
 #newDlg { padding: 0; width: min(940px, calc(100vw - 32px)); overflow: hidden; outline: none; }
 #newDlg[open] { display: flex; max-height: calc(100vh - 48px); }
-#startSide { width: 270px; flex: none; display: flex; flex-direction: column; gap: 4px; padding: 18px 16px; background: var(--bar); border-right: 1px solid var(--line); overflow-y: auto; }
-#startSide h2 { font-size: 18px; font-weight: 600; margin: 0 0 10px; }
-#startSide h3 { font-size: 13px; font-weight: 600; margin: 12px 0 2px; color: var(--soft); }
-#startSide small { display: block; font-size: 12.5px; color: var(--soft); margin-top: 1px; }
-#startSide b { font-weight: 600; }
-.startAct { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; text-align: left; background: none; border: 1px solid transparent; border-radius: 3px; color: inherit; cursor: pointer; }
-.startAct:hover, .startRecentRow:hover { background: var(--canvas); }
 .startIc { display: flex; flex: none; color: var(--soft); }
-.startCarve { display: block; width: 100%; padding: 0; margin: 4px 0; text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 3px; color: inherit; cursor: pointer; overflow: hidden; }
-.startCarve:hover { border-color: var(--ink); }
-.startCarve svg { display: block; width: 100%; height: auto; }
-.startCarve > span { display: block; padding: 7px 9px 8px; }
-.startRecentRow { display: block; width: 100%; padding: 4px 8px; text-align: left; background: none; border: 0; border-radius: 3px; color: inherit; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#startMain { flex: 1; min-width: 0; padding: 18px 20px 20px; overflow-y: auto; }
-#startHead { display: flex; align-items: center; justify-content: space-between; }
-#startHead h3 { font-size: 15px; font-weight: 600; margin: 0; }
 #cat { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin-top: 10px; }
 .card { display: flex; flex-direction: column; justify-content: flex-start; text-align: left; background: var(--panel); color: inherit; border: 1px solid var(--line); border-radius: 3px; padding: 0 0 9px; cursor: pointer; overflow: hidden; }
 .card:hover { border-color: var(--ink); }
@@ -587,3 +576,103 @@ body.carving #work { visibility: hidden; }
 #cvStage.drawing, #cvStage.drawing * { cursor: crosshair; }
 #updBar { position: fixed; right: 16px; bottom: 34px; z-index: 60; display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px rgba(0, 0, 0, .16); font-size: 13px; }
 #updBar .lu { width: 18px; height: 18px; flex: none; }
+
+/* ---------- Carve, made easy to start with ---------- */
+/* the rail: a few buttons, with the shapes, drawing tools and other tools behind three of them */
+#cvRail { width: 44px; padding: 6px 5px; gap: 2px; }
+#cvRail .tool { height: 34px; }
+#cvRail .tool .lu { width: 19px; height: 19px; }
+#cvRail .tool[data-fly]::after { content: ''; position: absolute; right: 3px; bottom: 3px; border-left: 4px solid transparent; border-bottom: 4px solid var(--soft); }   /* a corner mark: there's more behind it */
+#cvRail .tool { position: relative; }
+#cvRail .tool[aria-expanded="true"] { background: var(--canvas); }
+#cvRail .tool.on { background: var(--rowon); color: var(--ink); }
+#cvFly { position: absolute; left: 42px; z-index: 30; min-width: 212px; background: var(--panel); border: 1px solid var(--soft); box-shadow: 0 3px 10px rgba(20, 30, 35, .25); padding: 4px 0; }
+#cvFly[hidden], .flyGroup[hidden], #cvRail [hidden], #menus .menu[hidden], .mlist [hidden], #modes[hidden] { display: none; }
+.flyItem { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none; color: var(--ink); text-align: left; padding: 6px 14px 6px 12px; font: inherit; cursor: default; }
+.flyItem:hover, .flyItem:focus-visible { background: var(--canvas); }
+.flyItem.on { background: var(--rowon); }
+.flyItem .lu { width: 18px; height: 18px; flex: none; }
+.flyItem kbd { font: inherit; color: var(--soft); margin-left: auto; }
+/* the board, the carving, or both side by side */
+#cvStageWrap { display: flex; }
+#cvStage { flex: 1; min-width: 0; }
+#cvLayout { position: absolute; left: 12px; top: 10px; z-index: 6; box-shadow: 0 1px 3px rgba(20, 30, 35, .12); }
+#cvLayout button { border: 0; background: none; padding: 0; width: 32px; height: 26px; display: grid; place-items: center; color: var(--soft); cursor: default; }
+#cvLayout .lu { width: 17px; height: 17px; }
+#cvLayout button + button { border-left: 1px solid var(--line); }
+#cvLayout button:hover { color: var(--ink); }
+#cvLayout button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
+#carve.lay-split #cv3d { position: relative; inset: auto; flex: 1; min-width: 0; border-left: 1px solid var(--line); }
+#carve.lay-3d #cvStage { visibility: hidden; }
+#carve.lay-3d #cv3dNote { left: auto; right: 12px; }
+#carve.lay-split #cv3dNote { left: 12px; right: 12px; }
+#carve.lay-split #cvPlayText { width: auto; flex: 1; }
+#carve.lay-split #cvPlayAt { width: 120px; flex: 1 1 60px; min-width: 60px; }
+#carve.lay-split #cvPlay { width: calc(100% - 24px); }
+/* settings that a first carving doesn't need, folded away */
+details.cvmore { margin: 8px 0 2px; }
+details.cvmore > summary { cursor: pointer; color: var(--soft); font-size: 12.5px; padding: 3px 0; list-style: none; display: flex; align-items: center; gap: 5px; }
+details.cvmore > summary::-webkit-details-marker { display: none; }
+details.cvmore > summary::before { content: ''; width: 0; height: 0; border-left: 4px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform .12s; }
+details.cvmore[open] > summary::before { transform: rotate(90deg); }
+details.cvmore > summary:hover { color: var(--ink); }
+details.cvmore[open] { padding-bottom: 4px; }
+/* the depth gauge: a slice through the board, with the bit's groove and the depth marked in tape yellow */
+.gauge { margin: 2px 0 4px; }
+.gauge svg { display: block; width: 100%; height: auto; }
+.gauge input[type=range] { display: block; width: 100%; margin: 2px 0 0; accent-color: var(--ink); }
+@media (prefers-reduced-motion: reduce) { details.cvmore > summary::before { transition: none; } }
+
+/* ---------- the start window ---------- */
+#startSide { width: 236px; flex: none; display: flex; flex-direction: column; gap: 6px; padding: 18px 14px; background: var(--bar); border-right: 1px solid var(--line); overflow-y: auto; }
+#startBrand { display: flex; align-items: center; gap: 9px; margin: 0 2px 12px; }
+#startBrand img { display: block; border-radius: 4px; }
+#startBrand h2 { margin: 0; font-size: 17px; font-weight: 600; }
+#startSide hr { border: 0; border-top: 1px solid var(--line); margin: 8px 2px; width: auto; }
+.startNew { display: flex; align-items: center; gap: 11px; width: 100%; padding: 9px 10px; text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; color: inherit; cursor: pointer; font: inherit; }
+.startNew:hover { border-color: var(--ink); }
+.startNew b { display: block; font-weight: 600; }
+.startNew small { display: block; font-size: 12.5px; color: var(--soft); margin-top: 1px; }
+.startNew .startIc { width: 34px; height: 34px; border-radius: 3px; background: var(--canvas); display: grid; place-items: center; flex: none; }
+.startNew .startIc .lu { width: 19px; height: 19px; }
+.startAct { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 10px; text-align: left; background: none; border: 0; border-radius: 3px; color: inherit; cursor: pointer; font: inherit; }
+.startAct:hover { background: var(--canvas); }
+.startAct .startIc { display: grid; place-items: center; color: var(--soft); }
+.startAct .lu { width: 17px; height: 17px; }
+#startMain { flex: 1; min-width: 0; padding: 16px 20px 20px; overflow-y: auto; }
+#startHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+#startKind button { border: 0; background: none; color: var(--soft); padding: 4px 14px; font: inherit; font-weight: 500; cursor: pointer; }
+#startKind button + button { border-left: 1px solid var(--line); }
+#startKind button:hover { color: var(--ink); }
+#startKind button[aria-selected="true"] { background: var(--ink); color: var(--on-ink); }
+.startH { font-size: 13px; font-weight: 600; color: var(--soft); margin: 16px 0 8px; }
+#cat { margin-top: 0; }
+.startList { border: 1px solid var(--line); border-radius: 4px; overflow: hidden; background: var(--panel); }
+.startRecentRow { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 12px; text-align: left; background: none; border: 0; color: inherit; cursor: pointer; font: inherit; }
+.startRecentRow + .startRecentRow { border-top: 1px solid var(--hairline); }
+.startRecentRow:hover { background: var(--canvas); }
+.startRecentRow .lu { width: 16px; height: 16px; flex: none; color: var(--soft); }
+.startRecentRow span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.startRecentRow small { flex: none; color: var(--soft); font-size: 12.5px; }
+
+/* one line per menu command, however long */
+.mlist button, #ctx button { white-space: nowrap; }
+/* a kind of bit with none yet keeps its add button full size */
+.bitRow .bitAdd:only-child { min-height: 96px; }
+
+/* ---------- the picture window ---------- */
+#rendTop { flex-wrap: nowrap; gap: 12px; }
+#rendTop .rsep { width: 1px; height: 22px; background: var(--line); }
+#rendLook button { border: 0; background: none; padding: 4px 12px; font: inherit; color: var(--soft); cursor: pointer; }
+#rendLook button + button { border-left: 1px solid var(--line); }
+#rendLook button:hover { color: var(--ink); }
+#rendLook button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
+#rendLook button[hidden] { display: none; }
+#rendAdjustBtn[aria-expanded="true"] { border-color: var(--ink); }
+#rendState { color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#rendAdjust { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 8px 16px; background: var(--bar); border-bottom: 1px solid var(--line); }
+#rendAdjust[hidden] { display: none; }
+#rendAdjust input[type=range] { width: 110px; padding: 0; }
+#rendAdjust input[type=checkbox] { width: auto; margin: 0; }
+#rendAdjust .check { gap: 6px; }
+#rend input[type=range] { accent-color: var(--ink); }

@@ -4,7 +4,7 @@ A desktop furniture design app for Windows, with CNC carving built in. Everythin
 
 ![Designing a cupboard in 3D, with its panel's properties](docs/design.png)
 
-**Carve** turns a board into G-code for a small GRBL router: text in any font or single-line engraving fonts, SVG, DXF and traced pictures, and shapes drawn with its own tools. It V-carves along the centre of each stroke, pockets, drills, engraves and cuts out with tabs, one file per bit, and shows the board as it will come out, played back cut by cut.
+**Carve** turns a board into G-code for a small GRBL router: text in any font or single-line engraving fonts, SVG, DXF and traced pictures, and shapes drawn with its own tools. It V-carves along the centre of each stroke, pockets, drills, engraves and cuts out with tabs, one file per bit, and shows the board as it will come out, played back cut by cut. Pockets clear in rings or straight lines, with a narrower bit after for the corners, and STL models carve as 3D reliefs, roughed out and then finished, by one bit or two. Sizes, positions and depths can follow smart values, the same named parameters the design uses. Bits can be flat, V or ball nose. Right-click for copy and paste, mirroring, breaking apart and filling the board, and choose to show uncut areas in red, shapes as outlines, and the board and wasteboard in 3D.
 
 ![The cut played back in 3D](docs/carving.gif)
 
@@ -12,11 +12,8 @@ A desktop furniture design app for Windows, with CNC carving built in. Everythin
 |---|---|
 | ![A sign laid out in Carve](docs/carve.png) | ![The sign carved, in 3D](docs/carve-3d.png) |
 
-Any panel in a design can be sent to Carve, ready to cut: its outline with tabs, its holes, grooves and cut-outs.
 
-![A shelf panel from the design, ready to cut](docs/cut-in-carve.png)
-
-Current version: **1.0.31**. Updates come from this repository's releases. Free for noncommercial use under the [PolyForm Strict License 1.0.0](LICENSE): no changes or redistribution.
+Current version: **1.0.32**. Updates come from this repository's releases. Free for noncommercial use under the [PolyForm Strict License 1.0.0](LICENSE): no changes or redistribution.
 
 ## Notes
 
@@ -34,7 +31,7 @@ There is no framework or bundler. The scripts in `src/` are plain scripts loaded
 | `src/model.js`, `edit.js`, `formulas.js` | Items, undo and units; parameters, formulas and Make resizable |
 | `src/view3d.js`, `flat.js`, `precision.js`, `render.js`, `properties.js` | 3D, flat views, typed moves and guides, photoreal pictures, the side panel |
 | `src/cutlist.js`, `machining.js`, `hardware.js`, `drawings.js` | Cut list and checks; holes, DXF and G-code; hinges and slides; workshop drawings |
-| `src/carvepaths.js`, `carve.js`, `carvetools.js` | Carving: SVG and font reading, bit paths and GRBL G-code; the Carve workspace; its drawing tools |
+| `src/carvepaths.js`, `carve.js`, `carvetools.js`, `carveview.js` | Carving: SVG, STL and font reading, bit paths and GRBL G-code; the Carve workspace; its drawing tools; its right-click menu and what's shown |
 | `src/library.js`, `files.js`, `safety.js`, `ui.js`, `commands.js` | My items; saving and imports; autosave and versions; menus and start-up; command list and shortcuts |
 | `test/` | Tests that drive the real app (`npm test`), each with its own empty data folder. `test/vdesk/` is a tiny C helper the test copy of the app loads to move its windows to virtual desktop 1 (Windows only lets an app move its own; `desktop.ps1` reads the desktops' order from the registry). `build.ps1` builds it with Visual Studio's compiler and no Windows SDK; the harness builds it when `vdesk.node` is missing, and windows open as usual if it can't. `ATELIER_TEST_DESKTOP` picks another desktop by number, or `off` |
 | `main.js` | Electron window, single-instance lock, auto-update, opening a double-clicked `.atlr` |

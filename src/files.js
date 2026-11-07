@@ -7,9 +7,19 @@ function renderStatus() {
   q('fBoards').innerHTML = `<b>${ps.length}</b> ${ps.length === 1 ? 'panel' : 'panels'}`;
   q('fSheets').innerHTML = `<b>${sheets}</b> ${sheets === 1 ? 'sheet' : 'sheets'}`;
   q('fBand').innerHTML = `<b>${longLength(band * 1.1)}</b> edge banding${totalCost() > 0 ? `<span style="margin-left:22px"><b>${esc(money(totalCost()))}</b> materials</span>` : ''}`;
-  const w = checks(), wb = q('warnBtn'); lastWarn = w; wb.hidden = !w.length; wb.innerHTML = `${ic('triangle-alert')}${w.length} to check`; wb.title = w[0] || '';
+  showWarn(checks());
+}
+function showWarn(w) {
+  const q = id => document.getElementById(id), wb = q('warnBtn'), text = `${ic('triangle-alert')}${w.length} to check`; lastWarn = w; wb.hidden = !w.length; if (wb.innerHTML !== text) wb.innerHTML = text; wb.title = w[0] || '';
   if (!w.length) q('warnPop').hidden = true; else if (!q('warnPop').hidden) fillWarnPop();
 }
+// while a part is being dragged, the checks are counted again a few times a second
+let warnAt = 0;
+function warnLive() { const now = performance.now(); if (now - warnAt < 150) return; warnAt = now; showWarn(checks()); }
+// the panels a picked warning names, shown with their numbers while they stay picked
+let warnIds = [];
+const warnIdsOf = text => [...String(text).matchAll(/[Pp]anels? (\d+)(?: and (\d+))?/g)].flatMap(m => [m[1], m[2]]).filter(Boolean).map(Number).filter(id => byId(id));
+const warnShown = () => (warnIds.length && warnIds.every(id => sel.includes(id)) ? warnIds.map(byId).filter(Boolean) : []);
 let lastWarn = [], toastT = 0;
 function toast(text, bad) { const el = document.getElementById('toast'); el.textContent = text; el.classList.toggle('err', !!bad); el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { el.hidden = true; }, bad ? 5000 : 1800); }
 function fillWarnPop() { document.getElementById('warnPop').innerHTML = lastWarn.map(w => `<button>${esc(w)}</button>`).join(''); }
@@ -101,8 +111,11 @@ function download(name, text, type) { const a = document.createElement('a'); a.h
 const dlg = document.getElementById('newDlg');
 function openStart() { fillCatalog(); dlg.showModal(); dlg.focus(); }
 document.getElementById('bNew').onclick = openStart;
-document.getElementById('startBlank').onclick = () => { dlg.close(); loadProject(TEMPLATES[0].make()); };
-document.getElementById('startCarve').onclick = () => { dlg.close(); loadProject(newProject('My carving')); openCarve(); };
+// New projects say what they are: a design, or a carving.
+const newDesign = make => { const p = make(); p.kind = 'design'; return p; };
+function newCarving(name = 'My carving', board) { const p = newProject(name); p.kind = 'carve'; p.carve = CV_DEFAULT(); if (board) Object.assign(p.carve.board, board); return p; }
+document.getElementById('startBlank').onclick = () => { dlg.close(); loadProject(newDesign(TEMPLATES[0].make)); };
+document.getElementById('startCarve').onclick = () => { dlg.close(); loadProject(newCarving()); };
 document.getElementById('startOpen').onclick = () => { dlg.close(); document.getElementById('bOpen').click(); };
 document.getElementById('startImport').onclick = () => { dlg.close(); document.getElementById('sh3dIn').click(); };
 dlg.querySelectorAll('[data-ic]').forEach(el => { el.innerHTML = ic(el.dataset.ic); });
@@ -114,18 +127,33 @@ function miniFront(p) {
   const u = unionBounds(list), k = Math.min((W - 10) / (u.max[0] - u.min[0]), (H - 8) / (u.max[1] - u.min[1])), ox = (W - (u.max[0] - u.min[0]) * k) / 2 - u.min[0] * k, oy = H - 4 + u.min[1] * k;
   return list.slice().sort((a, b) => a.pos[2] - b.pos[2]).map(it => { const b = bounds(it); return `<rect x="${ox + b.min[0] * k}" y="${oy - b.max[1] * k}" width="${Math.max(.7, (b.max[0] - b.min[0]) * k)}" height="${Math.max(.7, (b.max[1] - b.min[1]) * k)}" fill="${/Back/.test(it.name) ? '#fff' : /Door|Drawer front/.test(it.name) ? '#c7cfcc' : '#20262a'}" ${/Door|Drawer front/.test(it.name) ? 'stroke="#20262a" stroke-width=".7" fill-opacity=".85"' : ''}/>`; }).join('');
 }
+// Boards a carving can start on, sized in inches like most of the boards sold for it
+const START_BOARDS = [
+  { name: 'Blank board', sub: 'Any size, set it after', l: 203.2, w: 152.4, wood: 'bass', t: 3, art: '' },
+  { name: 'Sign', sub: 'Lettering on plywood', l: 304.8, w: 203.2, wood: 'ply', t: 12, art: 'text' },
+  { name: 'Name plate', sub: 'A long, thin board', l: 254, w: 76.2, wood: 'bass', t: 6, art: 'text' },
+  { name: 'Coaster', sub: 'Round, cut out with tabs', l: 101.6, w: 101.6, wood: 'bass', t: 6, art: 'circle' },
+  { name: 'Cutting board', sub: 'A thick board, rounded corners', l: 406.4, w: 254, wood: 'ply', t: 18, art: 'round' },
+];
+let startKind = 'design'; try { if (localStorage.getItem('atelier-start-kind') === 'carve') startKind = 'carve'; } catch (e) {}
+function boardPic(b) {   // the board to scale, in its wood, with a hint of what goes on it
+  const k = Math.min(196 / b.l, 80 / b.w), w = b.l * k, h = b.w * k, x = (220 - w) / 2, y = (100 - h) / 2, wood = CV_WOODS[b.wood] || CV_WOODS.bass, fill = cvHex(wood.rgb), ink = wood.ink;
+  const art = b.art === 'text' ? `<text x="110" y="${50 + h * .12}" text-anchor="middle" font-family="Barlow,sans-serif" font-weight="600" font-size="${Math.min(h * .42, w * .16)}" fill="${ink}">Your text</text>`
+    : b.art === 'circle' ? `<circle cx="110" cy="50" r="${h * .4}" fill="none" stroke="${ink}" stroke-width="1.2" stroke-dasharray="3 2"/>`
+    : b.art === 'round' ? `<rect x="${x + w * .06}" y="${y + h * .1}" width="${w * .88}" height="${h * .8}" rx="${h * .14}" fill="none" stroke="${ink}" stroke-width="1.2" stroke-dasharray="3 2"/><rect x="${x + w * .1}" y="${50 - h * .08}" width="${w * .1}" height="${h * .16}" rx="${h * .08}" fill="none" stroke="${ink}" stroke-width="1.2" stroke-dasharray="3 2"/>` : '';
+  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}" stroke="${wood.edge}"/><path d="M${x} ${y + h * .3}C${x + w * .3} ${y + h * .26} ${x + w * .6} ${y + h * .36} ${x + w} ${y + h * .3}M${x} ${y + h * .7}C${x + w * .4} ${y + h * .74} ${x + w * .7} ${y + h * .64} ${x + w} ${y + h * .7}" fill="none" stroke="${wood.edge}" stroke-opacity=".35" stroke-width=".7"/>${art}`;
+}
 function fillCatalog() {
   const cat = document.getElementById('cat'); cat.innerHTML = '';
-  const seen = recents.slice(0, 4);
-  document.getElementById('startRecent').innerHTML = seen.length ? `<h3>Recent</h3>${seen.map((r, i) => `<button class="startRecentRow" data-recent="${i}" title="${esc(r.name)}">${esc(r.name)}</button>`).join('')}` : '';
+  document.querySelectorAll('#startKind [data-kind]').forEach(b => b.setAttribute('aria-selected', b.dataset.kind === startKind));
+  const card = (pic, name, sub, go) => { const b = document.createElement('button'); b.className = 'card'; b.innerHTML = `<svg viewBox="0 0 220 100" aria-hidden="true">${pic}</svg><b>${esc(name)}</b><span>${esc(sub)}</span>`; b.onclick = () => { dlg.close(); go(); }; cat.appendChild(b); };
+  if (startKind === 'carve') START_BOARDS.forEach(b => card(boardPic(b), b.name, `${cvLen(b.l)} x ${cvLen(b.w)}. ${b.sub}`, () => loadProject(newCarving(b.name === 'Blank board' ? 'My carving' : b.name, { l: b.l, w: b.w, t: b.t, wood: b.wood }))));
+  else TEMPLATES.forEach((t, i) => card(i ? miniFront(t.make()) : '<rect x="30" y="18" width="160" height="64" fill="none" stroke="#8a969b" stroke-dasharray="4 3"/>', i ? t.name : 'Blank design', i ? t.sub : 'An empty space to build in', () => loadProject(newDesign(t.make))));
+  const kinds = { design: ['layout-grid', 'Design'], carve: ['drill', 'Carving'] };
+  document.getElementById('startRecent').innerHTML = recents.length ? '<h3 class="startH">Recent</h3><div class="startList">' + recents.map((r, i) => { const k = kinds[r.kind] || ['folder-open', '']; return `<button class="startRecentRow" data-recent="${i}" title="${esc(r.name)}">${ic(k[0])}<span>${esc(r.name)}</span><small>${k[1]}</small></button>`; }).join('') + '</div>' : '';
   document.querySelectorAll('[data-recent]').forEach(b => { b.onclick = () => { dlg.close(); runDo('recent:' + b.dataset.recent); }; });
-  TEMPLATES.slice(1).forEach(t => {
-    const b = document.createElement('button'); b.className = 'card';
-    b.innerHTML = `<svg viewBox="0 0 220 100">${miniFront(t.make())}</svg><b>${t.name}</b><span>${t.sub}</span>`;
-    b.onclick = () => { dlg.close(); loadProject(t.make()); };
-    cat.appendChild(b);
-  });
 }
+document.getElementById('startKind').addEventListener('click', e => { const b = e.target.closest('[data-kind]'); if (!b) return; startKind = b.dataset.kind; try { localStorage.setItem('atelier-start-kind', startKind); } catch (err) {} fillCatalog(); });
 // Saving goes straight back to the same file where the browser allows it. Files opened or saved here stay in File > recent.
 let fileHandle = null, unsaved = false, recents = [];
 let kvDb = null;
@@ -140,7 +168,7 @@ async function rememberFile(h) {
   fileHandle = h;
   try {
     const keep = []; for (const r of recents) if (!(await r.handle.isSameEntry(h))) keep.push(r);
-    recents = [{ name: h.name, handle: h }, ...keep].slice(0, 6); renderRecents(); await kvSet('recents', recents); await kvSet('current', h);
+    recents = [{ name: h.name, handle: h, kind: P && typeof cvKind === 'function' ? cvKind(P) : 'design' }, ...keep].slice(0, 6); renderRecents(); await kvSet('recents', recents); await kvSet('current', h);
   } catch (e) {}
 }
 function markSaved(state) { unsaved = state; const el = document.getElementById('saveState'); if (el) { el.textContent = state ? 'Not saved' : fileHandle ? 'Saved' : ''; el.title = fileHandle ? fileHandle.name : ''; } updateTitle(); }

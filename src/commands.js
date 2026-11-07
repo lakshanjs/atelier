@@ -26,11 +26,12 @@ function commandList() {
   document.querySelectorAll('#menus .menu').forEach(menu => {
     const group = menu.querySelector('.mbtn').textContent.trim();
     menu.querySelectorAll('.mlist [data-do]').forEach(b => {
-      const a = b.dataset.do; if (a === 'tbsep' || a.startsWith('recent:') || a === 'palette' || a === 'keys') return;
+      const a = b.dataset.do; if (a === 'tbsep' || a.startsWith('recent:') || a === 'palette' || a === 'keys' || b.hidden) return;
       const kbd = b.querySelector('kbd'), name = (kbd ? b.textContent.replace(kbd.textContent, '') : b.textContent).replace(/…$/, '').trim();
       add(a, name, () => runDo(a), group);
     });
   });
+  if (typeof cvOpen === 'function' && cvOpen()) { recents.forEach((r, i) => add('recent:' + i, `Open ${r.name}`, () => runDo('recent:' + i), 'File')); return out; }   // a carving has only its own
   TOOLS.forEach(([k, n]) => add('tool.' + k, `${n} tool`, () => setTool(k), 'Tools'));
   add('snap', 'Snapping on or off', () => { P.snap = !P.snap; persist(); render(); }, 'Tools');
   add('fit', 'Fit everything', () => { Object.keys(VIEWS).forEach(fitView); resetCam(); dirty = true; }, 'View');

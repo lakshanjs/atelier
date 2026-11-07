@@ -130,6 +130,17 @@ function alignSel(axis, mode) {   // lines the selection up with its own outer e
   const u = unionBounds(list), target = mode === 'min' ? u.min[axis] : mode === 'max' ? u.max[axis] : (u.min[axis] + u.max[axis]) / 2;
   list.filter(i => !i.locked).forEach(it => { const b = bounds(it), now = mode === 'min' ? b.min[axis] : mode === 'max' ? b.max[axis] : (b.min[axis] + b.max[axis]) / 2; it.pos[axis] += target - now; });
 }
+// Turned and moved to its mirror image across the selection's middle. A box is its own mirror image, so panels come out exactly;
+// a model keeps its own handedness, and holes added by hand stay where they are on the panel.
+function mirrorSel(axis) {
+  const list = turnable(); if (!list.length) return;
+  const u = unionBounds(list), mid = (u.min[axis] + u.max[axis]) / 2, at = (b, a) => (b.min[a] + b.max[a]) / 2;
+  list.forEach(it => {
+    const q = Q(it), v = [q.x, q.y, q.z], b0 = bounds(it); v[axis] = -v[axis];
+    setQ(it, new THREE.Quaternion(-v[0], -v[1], -v[2], q.w));   // a mirror of a turn is the same turn the other way, about the mirrored axis
+    const b1 = bounds(it); [0, 1, 2].forEach(a => { it.pos[a] += (a === axis ? 2 * mid - at(b0, a) : at(b0, a)) - at(b1, a); });
+  });
+}
 function spreadSel(axis) {   // first and last stay; the gaps between them become equal
   const list = selected().map(it => ({ it, b: bounds(it) })).sort((a, c) => a.b.min[axis] - c.b.min[axis]); if (list.length < 3) return;
   const start = list[0].b.min[axis], end = list.at(-1).b.max[axis], used = list.reduce((a, x) => a + x.b.max[axis] - x.b.min[axis], 0), gap = (end - start - used) / (list.length - 1);

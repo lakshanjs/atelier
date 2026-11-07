@@ -361,35 +361,3 @@ test("copies along a line, turning to follow it, and the shapes saved as SVG and
   assert.strictEqual(v.paths, v.n); assert.match(v.svgHead, /width="300mm" height="200mm"/);
   assert.strictEqual(v.back, v.n, "the DXF reads back"); assert.ok(v.sameBox, "in the same place"); assert.strictEqual(v.closed, 7, "the seven circles closed");
 });
-
-test("a Design panel goes to Carve ready to cut: outline, holes, grooves and cut-outs, with what's left listed", async () => {
-  const v = await app.run(`loadProject(newProject('Box')); document.querySelectorAll('dialog[open]').forEach(d => d.close());
-    cvBits = JSON.parse(JSON.stringify(CV_BITS_START));
-    P.carve = CV_DEFAULT(); P.carve.items.push({ id: 1, type: 'rect', w: 10, h: 10, x: 50, y: 50, rot: 0, op: { kind: 'pocket', bit: 'flat-2f', depth: 1 } }); P.carve.nextId = 2;
-    const it = panelBox('Shelf', [0, 200, 0, 6, 0, 150]); it.mat = 'bass'; it.id = nextId(); P.items.push(it);
-    it.ops = [{ k: 'hole', x: 50, z: 40, d: 3.175, depth: 3, face: 'top' }, { k: 'hole', x: 150, z: 40, d: 10, depth: 4, face: 'top' }, { k: 'hole', x: 100, z: 100, d: .5, depth: 2, face: 'top' },
-      { k: 'hole', x: 100, z: 75, d: 5, depth: 6, face: 'top' }, { k: 'hole', x: 20, z: 20, d: 5, depth: 2, face: 'bottom' }, { k: 'groove', axis: 'l', x: 100, z: 120, width: 6, depth: 2, face: 'top' }];
-    const s = shapeOf(it); s.holes.push({ k: 'rect', x: 40, z: -20, w: 30, h: 20 }); s.c[0] = { k: 'round', a: 20, b: 20 };
-    machInvalidate(); const button = /data-carvepanel/.test(machSectionHtml(it));
-    cvFromPanel(it); await new Promise(r => setTimeout(r, 300));
-    const cv = P.carve, items = cv.items.map(i => ({ type: i.type, kind: i.op.kind, bit: i.op.bit, through: !!i.op.through, depth: i.op.depth, x: Math.round(i.x * 100) / 100, y: Math.round(i.y * 100) / 100, w: i.w, gid: i.gid }));
-    const out = { button, board: cv.board, items, byHand: cv.fromPanel.byHand, up: cv.fromPanel.up, bad: cvChecks(cv, cvBitOf, true).filter(c => c.bad).map(c => c.text), files: cvJob(cv, cvBitOf, 'T').map(f => f.name),
-      panel: document.getElementById('cvSide').textContent, open: cvOpen(), outline: cvWorldBox(cv.items[0]) };
-    undo(); out.undone = P.carve.items.length === 1 && P.carve.items[0].type === 'rect'; closeCarve(); return out;`);
-  assert.ok(v.button, "Cut in Carve is in the panel's machining section"); assert.ok(v.open, "and Carve opens");
-  assert.deepStrictEqual([v.board.l, v.board.w, v.board.t, v.board.wood], [220, 170, 6, "bass"], "the panel with a 10 mm margin, in its wood");
-  assert.ok(v.up, "top face up: it has the most work");
-  const by = (t, k) => v.items.filter(i => i.type === t && i.kind === k);
-  assert.strictEqual(by("path", "outside").length, 1); assert.ok(by("path", "outside")[0].through, "cut out right through");
-  const ob = v.outline; assert.ok(Math.abs(ob.x0 - 10) < .01 && Math.abs(ob.x1 - 210) < .01 && Math.abs(ob.y0 - 10) < .01 && Math.abs(ob.y1 - 160) < .01, "in the middle of the board: " + JSON.stringify(ob));
-  const drill = by("circle", "drill"); assert.strictEqual(drill.length, 1); assert.strictEqual(drill[0].bit, "flat-2f", "a 1/8 hole is drilled with the 1/8 bit");
-  assert.deepStrictEqual([drill[0].x, drill[0].y, drill[0].depth], [60, 120, 3], "where it is on the panel, 50 from the left and 40 from the back");
-  assert.strictEqual(by("circle", "pocket").length, 2, "a 10 mm hole is milled out, and a small one right through is cleared, with no loose disc"); assert.ok(by("circle", "pocket").some(i => i.through));
-assert.ok(new Set(v.items.filter(i => i.bit !== "v-30").map(i => i.bit)).size === 1, "all with the one everyday bit, so no bit changes: " + JSON.stringify(v.items.map(i => i.bit)));
-  assert.strictEqual(by("rect", "pocket").length, 1, "the groove is pocketed"); assert.strictEqual(by("path", "inside").length, 1, "the cut-out goes through");
-  assert.ok(v.items.every(i => i.gid === v.items[0].gid), "all in one group, so they move together");
-  assert.strictEqual(v.byHand.length, 2); assert.ok(v.byHand.some(t => /smaller than any flat bit/.test(t)) && v.byHand.some(t => /other face/.test(t)), JSON.stringify(v.byHand));
-  assert.deepStrictEqual(v.bad, [], "nothing stops it being cut"); assert.strictEqual(v.files.length, 1, "one file, one bit: " + v.files);
-  assert.match(v.panel, /From the design/); assert.match(v.panel, /To do by hand/);
-  assert.ok(v.undone, "undo brings back what was on the board before");
-});

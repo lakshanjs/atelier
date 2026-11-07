@@ -329,21 +329,28 @@ test("real mouse and file: an SVG is picked, dragged, and saved with the app's o
   assert.deepStrictEqual(app.errors, []);
 });
 
-test("the starting popup: offers carving, starts a carving project, and gets out of the way of an opened project", async () => {
+test("the start window: designs or carvings to start from, each starting the right kind of project, and recent files", async () => {
   const v = await app.run(`
-    document.getElementById('bNew').click();
-    const shown = document.getElementById('newDlg').open, cards = document.querySelectorAll('#cat .card').length, blankInGrid = [...document.querySelectorAll('#cat .card b')].some(b => b.textContent === 'Blank');
+    document.getElementById('bNew').click(); const kind = b => document.querySelector('#startKind [data-kind="' + b + '"]');
+    kind('design').click(); const shown = document.getElementById('newDlg').open, designs = [...document.querySelectorAll('#cat .card b')].map(b => b.textContent);
+    kind('carve').click(); const boards = [...document.querySelectorAll('#cat .card b')].map(b => b.textContent), picked = kind('carve').getAttribute('aria-selected');
     cvBits.forEach(b => { b.have = true; });
-    document.getElementById('startCarve').click(); await new Promise(r => setTimeout(r, 150));
-    const carving = { popup: document.getElementById('newDlg').open, open: cvOpen(), name: P.name, items: P.carve.items.length };
-    closeCarve();
-    document.getElementById('bNew').click();
+    [...document.querySelectorAll('#cat .card')].find(c => c.querySelector('b').textContent === 'Sign').click(); await new Promise(r => setTimeout(r, 150));
+    const sign = { popup: document.getElementById('newDlg').open, open: cvOpen(), kind: P.kind, board: [Math.round(P.carve.board.l), Math.round(P.carve.board.w), P.carve.board.wood] };
+    document.getElementById('bNew').click(); document.getElementById('startCarve').click(); await new Promise(r => setTimeout(r, 100));
+    const blank = { open: cvOpen(), name: P.name, items: P.carve.items.length, kind: P.kind };
+    document.getElementById('bNew').click(); document.getElementById('startBlank').click(); await new Promise(r => setTimeout(r, 100));
+    const design = { open: cvOpen(), kind: P.kind };
+    document.getElementById('bNew').click(); kind('design').click();
     await openBytes((await atelierBytes()).buffer);   // what a double-clicked file does
     const closedByOpening = !document.getElementById('newDlg').open;
-    return { shown, cards, blankInGrid, carving, closedByOpening, chosen: projectChosen, total: TEMPLATES.length };`);
-  assert.ok(v.shown); assert.strictEqual(v.cards, v.total - 1); assert.strictEqual(v.blankInGrid, false);
-  assert.deepStrictEqual(v.carving, { popup: false, open: true, name: "My carving", items: 0 });
-  assert.ok(v.closedByOpening, "opening a project closes the popup"); assert.ok(v.chosen);
+    return { shown, designs, boards, picked, sign, blank, design, closedByOpening, chosen: projectChosen, total: TEMPLATES.length };`);
+  assert.ok(v.shown); assert.strictEqual(v.designs.length, v.total); assert.strictEqual(v.designs[0], "Blank design");
+  assert.deepStrictEqual(v.boards, ["Blank board", "Sign", "Name plate", "Coaster", "Cutting board"]); assert.strictEqual(v.picked, "true");
+  assert.deepStrictEqual(v.sign, { popup: false, open: true, kind: "carve", board: [305, 203, "ply"] });
+  assert.deepStrictEqual(v.blank, { open: true, name: "My carving", items: 0, kind: "carve" });
+  assert.deepStrictEqual(v.design, { open: false, kind: "design" });
+  assert.ok(v.closedByOpening, "opening a project closes the window"); assert.ok(v.chosen);
   assert.deepStrictEqual(app.errors, []);
 });
 
@@ -371,10 +378,10 @@ test("bits: each is drawn from its own numbers, can be ticked, and a job only of
     const narrow = cvBitArt({ type: 'flat', name: 'a', d: 3.175 }), wide = cvBitArt({ type: 'flat', name: 'a', d: 6.35 }), w = s => +/M[\\d.]+ \\d+H[\\d.]+V126H([\\d.]+)/.exec(s)[1], x = s => +/M0 112H([\\d.]+)/.exec(s)[1];
     cvEl('bitsDlg').close();
     const it = cvAddRect(); cvSel = it.id; carveRender();
-    const offer = kind => { it.op = cvOpFor(P.carve, kind); carveRender(); return [...document.querySelectorAll('.pickBit b')].map(o => o.textContent); };
+    const offer = kind => { it.op = cvOpFor(P.carve, kind); cvPickOpenFor = it.id; carveRender(); return [...document.querySelectorAll('.pickBit b')].map(o => o.textContent); };
     const res = { line: offer('line'), pocket: offer('pocket'), v: offer('vcarve'), out: offer('outside') };
     const on = document.querySelector('.pickBit.on b').textContent;
-    cvBits.forEach(b => { if (b.type === 'v') b.have = false; }); it.op = cvOpFor(P.carve, 'vcarve'); carveRender();
+    cvBits.forEach(b => { if (b.type === 'v') b.have = false; }); it.op = cvOpFor(P.carve, 'vcarve'); cvPickOpenFor = it.id; carveRender();
     const none = document.querySelector('.pickNone p').textContent;
     closeCarve();
     return { dlgOpen, tiles, arts, owned0, owned1, selAfter, tickStays, big, stillHave, bigAfter, widths: [(60 - x(narrow)) * 2, (60 - x(wide)) * 2], res, on, none };`);
@@ -398,7 +405,7 @@ test("the bits owned: all listed and ticked, the everyday wood bit is the defaul
     it.op.depth = 1; it.x = 280; b.l = 400; const far = cvChecks(P.carve, cvBitOf, true).map(c => c.text); b.l = 203.2;
     cvOpenBits(); const tiles = [...document.querySelectorAll('.bitGroup')].map(g => g.querySelectorAll('.bitTile').length); cvEl('bitsDlg').close(); closeCarve();
     return { n: cvBits.length, owned: cvOwned().length, autoOpened, pick, job, fits, deep, far, tiles, fast: cvBits.filter(x => x.feed > 1500 || x.rpm > 1000).length };`);
-  assert.strictEqual(v.n, 13); assert.strictEqual(v.owned, 13); assert.strictEqual(v.autoOpened, false); assert.deepStrictEqual(v.tiles, [2, 1, 10]);
+  assert.strictEqual(v.n, 13); assert.strictEqual(v.owned, 13); assert.strictEqual(v.autoOpened, false); assert.deepStrictEqual(v.tiles, [2, 1, 0, 10]);
   assert.deepStrictEqual(v.pick, { pocket: "flat-2f", outside: "flat-2f", inside: "flat-2f", line: "v-30", vcarve: "v-30" });
   assert.match(v.job, /M3 S1000/); assert.match(v.job, /F400/); assert.ok(!/F[5-9]\d\d|F\d{4}/.test(v.job), "no feed over 400"); assert.deepStrictEqual(readGcode(v.job).problems, []);
   assert.ok(v.fits, "the starting board fits the machine"); assert.strictEqual(v.fast, 0);
@@ -410,33 +417,39 @@ test("corn bits fold away in the picker, and stay open when one is in use", asyn
   const v = await app.run(`
     loadProject(TEMPLATES[0].make()); document.querySelectorAll('dialog[open]').forEach(d => d.close());
     cvBits = JSON.parse(JSON.stringify(CV_BITS_START)); P.carve = null; await openCarve();
-    const it = cvAddRect(); it.op = cvOpFor(P.carve, 'pocket'); cvSel = it.id; carveRender();
+    const it = cvAddRect(); it.op = cvOpFor(P.carve, 'pocket'); cvSel = it.id; cvPickOpenFor = it.id; carveRender();
     const closed = !document.querySelector('.pickMore').open, usual = document.querySelectorAll('#cvSide [role=radiogroup] > .pickBit').length, depthBox = !!document.querySelector('[data-cf="op.depth"]');
     const radio = document.querySelector('.pickMore input[value="corn-1"]'); radio.click();
-    const chosen = it.op && P.carve.items[0].op.bit, open = document.querySelector('.pickMore').open;
+    const chosen = it.op && P.carve.items[0].op.bit; cvPickOpenFor = it.id; carveRender(); const open = document.querySelector('.pickMore').open;
     closeCarve(); return { closed, usual, depthBox, chosen, open };`);
   assert.deepStrictEqual(v, { closed: true, usual: 2, depthBox: true, chosen: "corn-1", open: true });
   assert.deepStrictEqual(app.errors, []);
 });
 
-test("Carve is part of the main window: menus and status stay, it's a mode, and design commands go back to the design", async () => {
+test("a carving is its own kind of project: only its own menus, design commands do nothing, and it reopens as a carving", async () => {
   const v = await app.run(`
-    loadProject(TEMPLATES[2].make()); document.querySelectorAll('dialog[open]').forEach(d => d.close());
-    cvBits = JSON.parse(JSON.stringify(CV_BITS_START)); document.getElementById('modeCarve').click(); await new Promise(r => setTimeout(r, 100));
+    document.querySelectorAll('dialog[open]').forEach(d => d.close()); cvBits = JSON.parse(JSON.stringify(CV_BITS_START));
+    loadProject(newCarving()); await new Promise(r => setTimeout(r, 100)); document.querySelectorAll('dialog[open]').forEach(d => d.close());
     const seen = id => { const e = document.getElementById(id), r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.closest('#' + id) !== null; };
-    const on = { menus: seen('menus'), toolbar: seen('bSave'), foot: seen('foot'), stage: seen('cvStage'), panel: seen('cvPanel'), design3d: seen('view3d'), layout: getComputedStyle(document.getElementById('lay')).display, mode: document.getElementById('modeCarve').getAttribute('aria-selected') };
+    const shows = a => { const b = document.querySelector('#menus .mlist [data-do="' + a + '"]'); return !!b && !b.hidden; };
+    const on = { menus: seen('menus'), toolbar: seen('bSave'), foot: seen('foot'), stage: seen('cvStage'), panel: seen('cvPanel'), design3d: seen('view3d'), modes: seen('modes') };
+    const menus = { undo: shows('undo'), save: shows('save'), render: shows('render'), plans: shows('plans'), copy: shows('copy'), palette: commandList().some(c => c.id === 'render') };
     const it = cvAddRect(); const footText = document.getElementById('fCarve').textContent;
     runDo('undo'); const undone = P.carve.items.length; runDo('redo'); const redone = P.carve.items.length;
     cvSel = P.carve.items[0].id; carveRender(); runDo('dup'); const dup = P.carve.items.length; runDo('del'); const del = P.carve.items.length;
-    const panels = P.items.length; const toSave = P.carveMode;
-    runDo('big:3d'); const back = !cvOpen() && P.carveMode === false; if (typeof setBig === 'function') setBig('3d');
-    document.getElementById('modeCarve').click(); await new Promise(r => setTimeout(r, 50));
-    const bytes = await atelierBytes(); closeCarve(); await openBytes(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)); await new Promise(r => setTimeout(r, 50));
-    const reopened = cvOpen(); loadProject(TEMPLATES[0].make()); await new Promise(r => setTimeout(r, 50)); const newOneDesign = !cvOpen();
-    return { on, footText, undone, redone, dup, del, panels, kept: P.items.length, toSave, back, reopened, newOneDesign };`);
-  assert.deepStrictEqual(v.on, { menus: true, toolbar: true, foot: true, stage: true, panel: true, design3d: false, layout: "none", mode: "true" });
+    runDo('big:3d'); runDo('render'); const stays = cvOpen();
+    const bytes = await atelierBytes(); loadProject(newDesign(TEMPLATES[0].make)); const designNow = !cvOpen() && shows('render') && !shows('carvecopy');
+    await openBytes(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)); await new Promise(r => setTimeout(r, 50));
+    const reopened = cvOpen() && P.kind === 'carve';
+    const old = newDesign(TEMPLATES[2].make); old.carve = JSON.parse(JSON.stringify(P.carve)); loadProject(old); const offered = shows('carvecopy');
+    runDo('carvecopy'); await new Promise(r => setTimeout(r, 50)); const copied = cvOpen() && P.carve.items.length === 1 && / carving$/.test(P.name);
+    return { on, menus, footText, undone, redone, dup, del, stays, designNow, reopened, offered, copied };`);
+  assert.deepStrictEqual(v.on, { menus: true, toolbar: true, foot: true, stage: true, panel: true, design3d: false, modes: false });
+  assert.deepStrictEqual(v.menus, { undo: true, save: true, render: false, plans: false, copy: false, palette: false }, "only a carving's own commands");
   assert.match(v.footText, /board/); assert.strictEqual(v.undone, 0); assert.strictEqual(v.redone, 1); assert.strictEqual(v.dup, 2); assert.strictEqual(v.del, 1);
-  assert.strictEqual(v.toSave, true); assert.ok(v.back, "a design command goes back to Design"); assert.ok(v.reopened, "a carving reopens in Carve"); assert.ok(v.newOneDesign, "a new project starts in Design");
+  assert.ok(v.stays, "a design's command does nothing in a carving"); assert.ok(v.designNow, "a design has its own menus again");
+  assert.ok(v.reopened, "a carving reopens as a carving");
+  assert.ok(v.offered && v.copied, "an older design holding a carving can open it as a carving of its own");
   assert.deepStrictEqual(app.errors, []);
 });
 
@@ -501,14 +514,14 @@ test("the carved surface matches what each bit really cuts", async () => {
 test("the 3D view shows the board, follows changes, and closes with Carve", async () => {
   const v = await app.run(`${SETUP3D}
     add({ type: 'rect', w: 80, h: 50 }, { depth: 3 }); await openCarve(); document.querySelectorAll('dialog[open]').forEach(d => d.close());
-    document.getElementById('cv3dBtn').click(); await new Promise(r => setTimeout(r, 300));
+    cvLayoutSet('board'); document.getElementById('cv3dBtn').click(); await new Promise(r => setTimeout(r, 300));
     const shot = () => { const c = document.querySelector('#cv3d canvas'), small = document.createElement('canvas'); small.width = 60; small.height = 40; const g = small.getContext('2d'); g.drawImage(c, 0, 0, 60, 40); return Array.from(g.getImageData(0, 0, 60, 40).data); };
     const before = shot(), colours = new Set(); for (let i = 0; i < before.length; i += 4) colours.add(before[i] + ',' + before[i + 1] + ',' + before[i + 2]);
     const programs = CV3D.renderer.info.programs.map(p => p.diagnostics ? p.diagnostics.runnable : true); const pressed = document.getElementById('cv3dBtn').getAttribute('aria-pressed'), shown = !document.getElementById('cv3d').hidden;
     const key = CV3D.key; P.carve.items[0].op.depth = 5; cvEdit(() => {}); await new Promise(r => setTimeout(r, 300)); const rebaked = CV3D.key !== key;
     const it = P.carve.items[0]; cvEdit(() => { it.w = 120; }); await new Promise(r => setTimeout(r, 300)); const after = shot(); let differs = 0; for (let i = 0; i < after.length; i++) if (after[i] !== before[i]) differs++;
     closeCarve(); const closed = !CV3D.on && document.getElementById('cv3d').hidden;
-    await openCarve(); document.querySelectorAll('dialog[open]').forEach(d => d.close()); const offAgain = !CV3D.on; closeCarve();
+    await openCarve(); document.querySelectorAll('dialog[open]').forEach(d => d.close()); const offAgain = CV3D.on === (cvLayout !== 'board'); cvLayoutSet('split'); closeCarve();   // it comes back as it was left
     return { colours: colours.size, pressed, shown, rebaked, differs, closed, offAgain, programs };`);
   assert.ok(v.programs.length && v.programs.every(Boolean), "the 3D view's shader built"); assert.ok(v.colours > 5, "it drew something: " + v.colours); assert.strictEqual(v.pressed, "true"); assert.ok(v.shown); assert.ok(v.rebaked); assert.ok(v.differs > 50, "the picture changed: " + v.differs); assert.ok(v.closed); assert.ok(v.offAgain);
   assert.deepStrictEqual(app.errors, []);
@@ -577,7 +590,7 @@ test("a curved through-cut looks smooth in the 3D picture, not just in the numbe
     loadProject(newProject('Round')); document.querySelectorAll('dialog[open]').forEach(d => d.close()); cvBits = JSON.parse(JSON.stringify(CV_BITS_START));
     P.carve = CV_DEFAULT(); P.carve.board = { wood: 'bass', l: 100, w: 100, t: 3 }; const cv = P.carve;
     cv.items.push({ id: cv.nextId++, type: 'circle', w: 60, h: 60, x: 50, y: 50, rot: 0, op: { kind: 'outside', bit: 'flat-2f', through: true, depth: 3, tabs: 0 } });
-    await openCarve(); document.querySelectorAll('dialog[open]').forEach(d => d.close()); cv3dShow(true); await new Promise(r => setTimeout(r, 300));
+    await openCarve(); document.querySelectorAll('dialog[open]').forEach(d => d.close()); cvViewOpts.waste = false; cvLayoutSet('3d'); await new Promise(r => setTimeout(r, 300));
     CV3D.camera.position.set(50, 50.01, 200); CV3D.controls.target.set(50, 50, 0); CV3D.controls.update(); cv3dDraw();
     const c = document.querySelector('#cv3d canvas'), g = document.createElement('canvas'); g.width = c.width; g.height = c.height; const x = g.getContext('2d'); x.drawImage(c, 0, 0); const d = x.getImageData(0, 0, g.width, g.height).data;
     const bg = [d[0], d[1], d[2]], isBg = (i, j) => { const o = (Math.round(j) * g.width + Math.round(i)) * 4; return Math.abs(d[o] - bg[0]) + Math.abs(d[o + 1] - bg[1]) + Math.abs(d[o + 2] - bg[2]) < 12; };
@@ -585,7 +598,7 @@ test("a curved through-cut looks smooth in the 3D picture, not just in the numbe
     const cx = g.width / 2, cy = g.height / 2, inner = [], outer = [];
     for (let k = 0; k < 720; k++) { const a = k / 720 * Math.PI * 2, u = Math.cos(a), w = Math.sin(a); let r = 2; while (r < g.height * .49 && !isBg(cx + u * r, cy + w * r)) r += .5; inner.push(r); while (r < g.height * .49 && isBg(cx + u * r, cy + w * r)) r += .5; outer.push(r); }
     const rough = l => { let most = 0; for (let k = 0; k < l.length; k++) { const near = [-3, -2, -1, 1, 2, 3].map(n => l[(k + n + l.length) % l.length]); most = Math.max(most, Math.abs(l[k] - near.reduce((p, q) => p + q) / near.length)); } return most; };
-    const out = { inner: rough(inner), outer: rough(outer), found: inner[0] > 5 && outer[0] > inner[0], size: g.height }; cv3dShow(false); closeCarve(); return out;`);
+    const out = { inner: rough(inner), outer: rough(outer), found: inner[0] > 5 && outer[0] > inner[0], size: g.height }; cvViewOpts.waste = true; cvLayoutSet('split'); cv3dShow(false); closeCarve(); return out;`);
   assert.ok(v.found, "the slot is there");
   assert.ok(v.inner < 3 && v.outer < 3, "teeth along the edge, in pixels: inner " + v.inner + ", outer " + v.outer + ", in a picture " + v.size + " high");
   assert.deepStrictEqual(app.errors, []);
@@ -635,7 +648,7 @@ test("a finishing pass leaves a skin, then takes it off in one pass at full dept
   const p = readGcode(v.job[0]), pr = 3.175 / 2, wall = p.cuts.filter(c => c.to.z === c.from.z && c.to.x <= 85);
   assert.ok(Math.abs(Math.min(...wall.map(c => c.to.x)) - (40 + pr)) < .02, "pocket wall reached");
   assert.deepStrictEqual([...new Set(wall.filter(c => Math.abs(c.to.x - (40 + pr)) < .02 && Math.abs(c.from.x - (40 + pr)) < .02).map(c => c.to.z))], [-3], "only at full depth");
-  assert.deepStrictEqual(v.kinds, [["line", 0], ["pocket", 0], ["vcarve", 0], ["drill", 0], ["outside", .2], ["inside", .2]], "cut-outs get one by default");
+  assert.deepStrictEqual(v.kinds, [["relief", 0], ["line", 0], ["pocket", 0], ["vcarve", 0], ["drill", 0], ["outside", .2], ["inside", .2]], "cut-outs get one by default");
 });
 
 test("the zero point can be any corner, edge middle or the middle, and the G-code, checks and board follow it", async () => {
@@ -729,4 +742,146 @@ test("clamp zones: nothing cuts into one, the safe height must clear them, and a
   assert.deepStrictEqual(v.okChecks, [], "a 2 wide clamp between them is clear of both");
   assert.ok(v.into.some(t => /runs into a clamp zone/.test(t)), "a wider one is cut into"); assert.ok(v.low.some(t => /Safe height must be above your clamps/.test(t)));
   assert.ok(v.drawn); assert.strictEqual(v.name, "Clamp zone"); assert.ok(!v.plan.includes("clamp"), "never cut");
+});
+
+// ---------- back and forth, a second bit, smart values, 3D reliefs ----------
+test("a back and forth pocket runs straight lines across, stays inside its walls and out of its hole, and goes round the edge", async () => {
+  const v = await app.run(`${SETUP} cv.ramp = 0;
+    const sq = (c, s) => [[c[0] - s, c[1] - s], [c[0] + s, c[1] - s], [c[0] + s, c[1] + s], [c[0] - s, c[1] + s]];
+    const it = add({ type: 'path', paths: [{ pts: sq([0, 0], 25), closed: true }, { pts: sq([0, 0], 8), closed: true }] }, { kind: 'pocket', depth: 2, fill: 'x' });
+    const x = cvJob(cv, cvBitOf, 'T')[0].text; it.op.fill = 'y'; const y = cvJob(cv, cvBitOf, 'T')[0].text; delete it.op.fill; const rings = cvJob(cv, cvBitOf, 'T')[0].text;
+    cvSel = it.id; await openCarve(); P.carve = cv; cvSel = it.id; carveRender(); const box = !!document.querySelector('select[data-cf="op.fill"]'); closeCarve();
+    return { x, y, rings, box };`);
+  const R = 3.175 / 2;
+  for (const [name, along] of [["x", "x"], ["y", "y"]]) {
+    const g = readGcode(v[name]); assert.deepStrictEqual(g.problems, []);
+    const deep = g.cuts.filter(c => c.to.z === -2 && c.from.z === -2);
+    assert.ok(deep.length, "it gets to depth");
+    deep.forEach(c => [c.from, c.to].forEach(q => {
+      assert.ok(Math.abs(q.x - 150) <= 25 - R + .01 && Math.abs(q.y - 100) <= 25 - R + .01, `inside the outer wall: ${q.x}, ${q.y}`);
+      assert.ok(Math.hypot(Math.max(0, Math.abs(q.x - 150) - 8), Math.max(0, Math.abs(q.y - 100) - 8)) >= R - .02, `out of the hole: ${q.x}, ${q.y}`);
+    }));
+    const across = deep.filter(c => (along === "x" ? Math.abs(c.to.y - c.from.y) < 1e-6 && Math.abs(c.to.x - c.from.x) > 5 : Math.abs(c.to.x - c.from.x) < 1e-6 && Math.abs(c.to.y - c.from.y) > 5));
+    assert.ok(across.length >= 10, `long straight lines along ${along}: ${across.length}`);
+    const atWall = deep.some(c => Math.abs(Math.abs(c.to.x - 150) - (25 - R)) < .01 && Math.abs(Math.abs(c.to.y - 100) - (25 - R)) < .01);
+    assert.ok(atWall, "a pass round the edge reaches the corners of the wall");
+    const spacing = [...new Set(deep.filter(c => Math.abs(c.to.y - c.from.y) < 1e-6).map(c => +(along === "x" ? c.to.y : c.to.x).toFixed(3)))];
+    assert.ok(spacing.length > 0);
+  }
+  assert.notStrictEqual(v.x, v.rings, "rings are still the usual way"); assert.ok(v.box, "the choice is in the panel");
+});
+
+test("a pocket's narrower second bit cuts only the corners the first couldn't reach, in its own file after the first", async () => {
+  const v = await app.run(`${SETUP} cv.ramp = 0;
+    const it = add({ type: 'rect', w: 60, h: 40 }, { kind: 'pocket', bit: 'flat-1-4', depth: 2, detail: 'flat-1-16' });
+    const job = cvJob(cv, cvBitOf, 'T'), checks = cvChecks(cv, cvBitOf, true).map(c => c.text);
+    it.op.detail = 'auto'; const auto = cvClearBit(it, cvBitOf).id;
+    it.op.detail = 'flat-1-4'; const same = cvClearBit(it, cvBitOf); it.op.detail = 'v-30'; const vbit = cvClearBit(it, cvBitOf);
+    const bad = cvChecks(cv, cvBitOf, true).filter(c => c.bad).map(c => c.text);
+    it.op.detail = 'flat-1-16'; cvSel = it.id; await openCarve(); P.carve = cv; cvSel = it.id; carveRender(); const box = !!document.querySelector('select[data-cf="op.detail"]'); closeCarve();
+    return { names: job.map(f => f.name), main: job[0].text, small: job[1] && job[1].text, checks, auto, same, vbit, bad, box };`);
+  assert.strictEqual(v.names.length, 2); assert.ok(/1-4 in/.test(v.names[0]) && /1-16 in/.test(v.names[1]), "the 1/4 inch bit first, then the 1/16: " + v.names);
+  const a = readGcode(v.main), b = readGcode(v.small); assert.deepStrictEqual(a.problems, []); assert.deepStrictEqual(b.problems, []);
+  const corner = g => Math.min(...g.cuts.filter(c => c.to.z === -2).map(c => Math.hypot(c.to.x - 120, c.to.y - 80)));
+  const r = 1.5875 / 2;
+  assert.ok(corner(b) < r * Math.SQRT2 + .05, "the small bit gets right into the corner: " + corner(b));
+  assert.ok(corner(a) > corner(b) + 1, "closer than the big one could");
+  b.cuts.filter(c => c.to.z < 0).forEach(c => {
+    const q = c.to, nearCorner = Math.min(Math.hypot(q.x - 120, q.y - 80), Math.hypot(q.x - 180, q.y - 80), Math.hypot(q.x - 120, q.y - 120), Math.hypot(q.x - 180, q.y - 120));
+    assert.ok(nearCorner < 6.35, `the small bit only works near the corners: ${q.x}, ${q.y}`);
+    assert.ok(q.x >= 120 + r - .01 && q.x <= 180 - r + .01 && q.y >= 80 + r - .01 && q.y <= 120 - r + .01, "and stays inside the shape");
+  });
+  assert.ok(!v.checks.some(t => /left uncut/.test(t)), "nothing is said to be left uncut: " + v.checks.join(" | "));
+  assert.ok(["flat-1-8", "flat-1-16"].includes(v.auto), "auto picks a narrower flat bit: " + v.auto);
+  assert.strictEqual(v.same, null, "the same bit isn't a second bit"); assert.strictEqual(v.vbit, null, "nor is a V-bit");
+  assert.ok(v.bad.some(t => /corners bit must be a flat bit/.test(t)), "and that's said: " + v.bad);
+  assert.ok(v.box, "the choice is in the panel");
+});
+
+test("smart values: sizes follow a parameter, change when it does, and stop when changed by hand", async () => {
+  const v = await app.run(`${SETUP}
+    P.unit = 'mm'; P.params = [{ name: 'Wide', e: '80mm', u: 'mm' }]; const it = add({ type: 'rect', w: 10, h: 10 }, { kind: 'pocket', depth: 3 });
+    it.fx = { w: { e: 'Wide/2', u: 'mm' }, depth: { e: 'Wide/40', u: 'mm' }, x: { e: 'Wide+10', u: 'mm' } }; persist();
+    const first = [it.w, it.op.depth, it.x];
+    P.params[0].e = '100mm'; persist(); const second = [it.w, it.op.depth, it.x];
+    it.w = 33; persist(); const hand = [it.w, !!(it.fx && it.fx.w), !!(it.fx && it.fx.depth)];
+    P.params[0].e = '120mm'; persist(); const third = [it.w, it.op.depth];
+    it.fx.depth = { e: 'Nope*2', u: 'mm' }; persist(); const issue = [...cvFxIssues.values()];
+    delete it.fx.depth;
+    cvSel = it.id; await openCarve(); P.carve = cv; cvSel = it.id; carveRender();
+    const x = document.querySelector('[data-cf="i.x"]'), shown = x.value, fxtext = x.dataset.fxtext;
+    const d = document.querySelector('[data-cf="op.depth"]'); d.value = '=Wide/10'; cvFieldChange(d); const typed = [it.op.depth, it.fx.depth && it.fx.depth.e];
+    cvPickOnly(null); carveRender(); const listed = !!document.querySelector('[data-cf="pn.0"]');
+    closeCarve();
+    return { first, second, hand, third, issue, shown, fxtext, typed, listed };`);
+  assert.deepStrictEqual(v.first, [40, 2, 90]); assert.deepStrictEqual(v.second, [50, 2.5, 110]);
+  assert.deepStrictEqual(v.hand, [33, false, true], "the width changed by hand stops following, the depth doesn't");
+  assert.deepStrictEqual(v.third, [33, 3]);
+  assert.ok(v.issue.some(t => /Nope/.test(t)), "a broken formula is said: " + v.issue);
+  assert.strictEqual(v.shown, "130"); assert.strictEqual(v.fxtext, "=Wide+10");
+  assert.deepStrictEqual(v.typed, [12, "Wide/10"], "typing a formula in Carve keeps it");
+  assert.ok(v.listed, "the board's panel lists the smart values");
+});
+
+// a square pyramid, 40 wide and 10 high, as a binary STL
+const PYRAMID = `
+  const tris = [], b = [[-20, -20, 0], [20, -20, 0], [20, 20, 0], [-20, 20, 0]], top = [0, 0, 10];
+  for (let i = 0; i < 4; i++) tris.push([b[i], b[(i + 1) % 4], top]); tris.push([b[0], b[2], b[1]], [b[0], b[3], b[2]]);
+  const bytes = new Uint8Array(84 + tris.length * 50), dv = new DataView(bytes.buffer); dv.setUint32(80, tris.length, true);
+  tris.forEach((t, n) => t.forEach((q, k) => q.forEach((c, j) => dv.setFloat32(84 + n * 50 + 12 + (k * 3 + j) * 4, c, true))));
+  const key = 'stl:test-pyramid'; TEXTURES[key] = { bytes, avg: '#000000' };`;
+test("a 3D relief from an STL steps down, finishes, never cuts into the model, and nothing outside its footprint", async () => {
+  const v = await app.run(`${SETUP} cv.ramp = 0; ${PYRAMID}
+    const it = add({ type: 'relief', art: key, up: 'z', w: 40 }, { kind: 'relief', bit: 'flat-1-8', depth: 5 });
+    const one = cvJob(cv, cvBitOf, 'T'), checks = cvChecks(cv, cvBitOf, true).filter(c => c.bad).map(c => c.text);
+    it.op.detail = 'v-30'; const two = cvJob(cv, cvBitOf, 'T');
+    const ascii = new TextEncoder().encode('solid t\\nfacet normal 0 0 1\\nouter loop\\nvertex 0 0 0\\nvertex 1 0 0\\nvertex 0 1 1\\nendloop\\nendfacet\\nendsolid t\\n'), tri = cvStlTris(ascii);
+    let refused = ''; try { cvStlTris(new TextEncoder().encode('hello')); } catch (e) { refused = e.message; }
+    cvSel = it.id; await openCarve(); P.carve = cv; cvSel = it.id; carveRender(); const drawn = !!document.querySelector('.cvitem image'), up = !!document.querySelector('select[data-cf="i.up"]'), jobs = [...document.querySelectorAll('[data-cf="op.kind"]')].map(e => e.value);
+    closeCarve();
+    return { one: one.map(f => f.text), oneNames: one.map(f => f.name), two: two.map(f => f.name), twoText: two.map(f => f.text), checks, tri: tri.length, refused, drawn, up, jobs, size: cvLocal(it).h };`);
+  assert.strictEqual(v.size, 40); assert.deepStrictEqual(v.checks, []);
+  assert.strictEqual(v.one.length, 1, "one bit roughs and finishes");
+  const surface = (x, y) => { const u = Math.abs(x - 150), w = Math.abs(y - 100); if (u > 20 || w > 20) return 0; return -(1 - (1 - Math.max(u, w) / 20)) * 5; };
+  const g = readGcode(v.one[0]); assert.deepStrictEqual(g.problems, []);
+  const low = Math.min(...g.cuts.map(c => c.to.z)); assert.ok(low < -4.2 && low >= -5.001, "it gets down as near the base as the bit can, its edge clear of the board round it: " + low);
+  const R = 3.175 / 2; let worst = 0;
+  g.cuts.forEach(c => { const q = c.to; if (q.z >= 0) return;
+    assert.ok(Math.abs(q.x - 150) <= 20 + 1e-6 && Math.abs(q.y - 100) <= 20 + 1e-6, `nothing is cut outside the footprint: ${q.x}, ${q.y}`);
+    let top = -Infinity; for (let a = 0; a < 16; a++) for (const r of [0, R / 2, R]) top = Math.max(top, surface(q.x + r * Math.cos(a / 16 * Math.PI * 2), q.y + r * Math.sin(a / 16 * Math.PI * 2)));
+    worst = Math.min(worst, q.z - top); });
+  assert.ok(worst > -.06, "the flat bit never goes into the model under any part of it: " + worst);
+  assert.ok(g.cuts.filter(c => c.to.z < 0).length > 200, "it follows the surface");
+  assert.strictEqual(v.two.length, 2, "with a finishing bit, two files: " + v.two); assert.ok(/1-8 in/.test(v.two[0]) && /V-bit/.test(v.two[1]), "roughing first: " + v.two);
+  v.twoText.forEach(t => assert.deepStrictEqual(readGcode(t).problems, []));
+  const rough = readGcode(v.twoText[0]), lowR = Math.min(...rough.cuts.map(c => c.to.z));
+  assert.ok(lowR > low + .25, "the roughing bit leaves some for the finish: " + lowR + " vs " + low);
+  const fin = readGcode(v.twoText[1]), lowV = Math.min(...fin.cuts.map(c => c.to.z)); assert.ok(lowV < low - .3, "the V-bit gets lower, into the edges: " + lowV);
+  assert.strictEqual(v.tri, 9, "an ASCII STL reads too"); assert.ok(/STL/.test(v.refused));
+  assert.ok(v.drawn, "it shows on the board as a picture"); assert.ok(v.up, "which way is up can be changed");
+  assert.deepStrictEqual(v.jobs.sort(), ["off", "relief"], "a relief can only be carved as one, or not cut");
+});
+
+test("a ball nose: drawn round, cuts a round-bottomed groove, and carves a relief without cutting into it", async () => {
+  const v = await app.run(`${SETUP} cv.ramp = 0; ${PYRAMID}
+    cvBits.push({ id: 'ball-1-8', type: 'ball', name: '1/8" ball nose', d: 3.175, angle: 0, tip: 0, feed: 600, plunge: 150, rpm: 1000, step: 1, over: 15, have: true });
+    const art = cvBitArt(cvBitOf('ball-1-8'));
+    const groove = add({ type: 'rect', w: 100, h: 1, x: 150, y: 50 }, { kind: 'line', bit: 'ball-1-8', depth: 1 });
+    const map = cvCarveMap(cv, cvBitOf, .1), at = (x, y) => map.H[Math.round(x / map.cell) + Math.round(y / map.cell) * map.nx];
+    const profile = [0, .5, 1, 1.4].map(o => at(150, 49.5 - o));
+    cv.items = [];
+    const it = add({ type: 'relief', art: key, up: 'z', w: 40 }, { kind: 'relief', bit: 'ball-1-8', depth: 5 });
+    const job = cvJob(cv, cvBitOf, 'T').map(f => f.text), best = cvBestBit('relief');
+    cvOpenBits('ball-1-8'); const form = !!document.querySelector('#bitForm option[value="ball"][selected]'), rack = [...document.querySelectorAll('.bitGroup.ball .bitTile')].length; cvEl('bitsDlg').close();
+    return { art, profile, job, best, form, rack };`);
+  assert.ok(/A[\d.]+ [\d.]+ 0 0 0/.test(v.art), "its end is drawn as an arc");
+  const R = 3.175 / 2, want = o => -1 + R - Math.sqrt(R * R - o * o);
+  v.profile.forEach((z, i) => assert.ok(Math.abs(z - want([0, .5, 1, 1.4][i])) < .12, `the groove is round: ${z} vs ${want([0, .5, 1, 1.4][i])}`));
+  assert.strictEqual(v.best, "ball-1-8", "a relief starts with the ball nose"); assert.ok(v.form && v.rack >= 1, "it's in the bits");
+  const surface = (x, y) => { const u = Math.abs(x - 150), w = Math.abs(y - 100); if (u > 20 || w > 20) return 0; return -(Math.max(u, w) / 20) * 5; };
+  const g = readGcode(v.job[0]); assert.deepStrictEqual(g.problems, []); let worst = 0;
+  g.cuts.forEach(c => { const q = c.to; if (q.z >= 0) return;
+    for (let a = 0; a < 16; a++) for (const r of [0, R / 3, R * 2 / 3, R]) { const s = surface(q.x + r * Math.cos(a / 8 * Math.PI), q.y + r * Math.sin(a / 8 * Math.PI)); worst = Math.min(worst, q.z + R - Math.sqrt(R * R - r * r) - s); } });
+  assert.ok(worst > -.06, "no part of the ball goes into the model: " + worst);
+  assert.ok(Math.min(...g.cuts.map(c => c.to.z)) < -4.2);
 });

@@ -2,8 +2,12 @@
 // A path tracer running on the graphics card: rays bounce round the scene and the picture sharpens as samples add up.
 // It takes its geometry from what the 3D view draws, so anything that shows there is in the picture.
 const REND_SIZES = { view: 'Same as the 3D view', hd: '1280 × 720', fhd: '1920 × 1080', qhd: '2560 × 1440', uhd: '3840 × 2160' };
-const REND_QUALITY = { draft: ['Draft', 100], good: ['Good', 500], best: ['Best', 2000] };
-const rendOpts = { size: 'fhd', quality: 'good', light: 'day', room: true, sunTurn: 215, sunHeight: 50, exposure: 1 };
+const REND_QUALITY = { draft: ['Quick', 100], good: ['Good', 500], best: ['Best', 2000] };
+// The look: Studio stands the furniture on a photographer's backdrop under a big soft light, Daylight on open ground in the sun,
+// In the room inside the walls and floor of the design. The light comes from beside the camera, turned and raised by these.
+const rendOpts = { size: 'fhd', quality: 'good', light: 'studio', room: false, sunTurn: -50, sunHeight: 40, exposure: 1, fit: true };
+const rendLook = () => (rendOpts.room ? 'room' : rendOpts.light === 'studio' ? 'studio' : 'day');
+const rendHasRoom = () => P.items.some(i => isRoomPart(i) && i.type !== 'floor') || P.items.some(i => isRoomPart(i) && i.poly);
 
 // ---------- gathering the scene ----------
 function rendGather(withRoom) {
@@ -29,7 +33,7 @@ function rendFromGroup(withRoom) {
   const v = V3(), n = V3(), nm = new THREE.Matrix3();
   group.traverseVisible(o => {
     if (skip(o) || (!withRoom && room(o))) return;
-    const g = o.geometry, pa = g.attributes.position; if (!pa) return;
+    const it = o.userData && o.userData.id ? byId(o.userData.id) : null, g = it && it.kind === 'panel' && o.geometry.type === 'BoxGeometry' ? rendRounded(o.geometry, it) : o.geometry, pa = g.attributes.position; if (!pa) return;
     let na = g.attributes.normal; if (!na) { g.computeVertexNormals(); na = g.attributes.normal; }
     const ua = g.attributes.uv, norm = a => (a.normalized ? (a.array instanceof Int16Array ? 1 / 32767 : a.array instanceof Int8Array ? 1 / 127 : a.array instanceof Uint8Array ? 1 / 255 : 1) : 1), ps = norm(pa), ns = norm(na);
     nm.getNormalMatrix(o.matrixWorld);
@@ -53,12 +57,57 @@ function rendFromGroup(withRoom) {
   });
   return { pos: Float32Array.from(pos), nor: Float32Array.from(nor), uvs: Float32Array.from(uvs), mid: Int32Array.from(mid), mats, images };
 }
+// A box with its edges rounded off by r: flat faces, a strip along each edge whose normal turns from one face to the next, and a
+// little three-cornered patch at each corner. Built in the box's own coordinates, with the same texture mapping as the 3D view.
+const rendRoundCache = new WeakMap();
+function rendRounded(box, it) {
+  if (rendRoundCache.has(box)) return rendRoundCache.get(box);
+  const { width: W, height: H, depth: D } = box.parameters, h = [W / 2, H / 2, D / 2], r = Math.min(.8, Math.min(W, H, D) / 4), pos = [], nor = [];
+  const put = (p, nv) => { pos.push(...p); nor.push(...nv); }, tri = (a, b, c) => { put(...a); put(...b); put(...c); }, quad = (a, b, c, d) => { tri(a, b, c); tri(a, c, d); };
+  const pt = (k, s, j, a, m, b) => { const p = [0, 0, 0]; p[k] = s * h[k]; p[j] = a; p[m] = b; return p; }, nrm = (k, s) => { const v = [0, 0, 0]; v[k] = s; return v; };
+  for (let k = 0; k < 3; k++) for (const s of [-1, 1]) {   // the six faces, each inset by r
+    const j = (k + 1) % 3, m = (k + 2) % 3, nv = nrm(k, s), a = h[j] - r, b = h[m] - r;
+    quad([pt(k, s, j, -a, m, -b), nv], [pt(k, s, j, a, m, -b), nv], [pt(k, s, j, a, m, b), nv], [pt(k, s, j, -a, m, b), nv]);
+  }
+  for (let k = 0; k < 3; k++) for (let j = k + 1; j < 3; j++) for (const s of [-1, 1]) for (const t of [-1, 1]) {   // the twelve edges
+    const m = 3 - k - j, at = (pk, pj, pm) => { const p = [0, 0, 0]; p[k] = pk; p[j] = pj; p[m] = pm; return p; }, nk = nrm(k, s), nj = nrm(j, t), e = h[m] - r;
+    quad([at(s * h[k], t * (h[j] - r), -e), nk], [at(s * h[k], t * (h[j] - r), e), nk], [at(s * (h[k] - r), t * h[j], e), nj], [at(s * (h[k] - r), t * h[j], -e), nj]);
+  }
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {   // the eight corners
+    tri([[sx * h[0], sy * (h[1] - r), sz * (h[2] - r)], [sx, 0, 0]], [[sx * (h[0] - r), sy * h[1], sz * (h[2] - r)], [0, sy, 0]], [[sx * (h[0] - r), sy * (h[1] - r), sz * h[2]], [0, 0, sz]]);
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(new Array(pos.length / 3 * 2).fill(0), 2));
+  if (realOn()) realUv(g, it);
+  rendRoundCache.set(box, g); return g;
+}
+// A photographer's backdrop: a floor that curves up into a wall behind the furniture, as seen from the camera, wide enough to fill the
+// picture. Light grey, so it lights up softly and the furniture stands out.
+function rendAddBackdrop(sc, cam) {
+  if (!sc.pos.length) return sc;
+  let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < sc.pos.length; i++) { const a = i % 3; if (sc.pos[i] < lo[a]) lo[a] = sc.pos[i]; if (sc.pos[i] > hi[a]) hi[a] = sc.pos[i]; }
+  const size = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2], 300), y0 = lo[1] - .5, cx = (lo[0] + hi[0]) / 2, cz = (lo[2] + hi[2]) / 2;
+  let f = [cam.fwd[0], 0, cam.fwd[2]]; const fl = Math.hypot(f[0], f[2]) || 1; f = [f[0] / fl, 0, f[2] / fl]; const side = [f[2], 0, -f[0]];
+  const depth = Math.max(hi[0] - lo[0], hi[2] - lo[2]) / 2, back = depth + Math.max(250, size * .35), R = Math.max(200, size * .45), wide = size * 30, far = size * 30, tall = size * 20;
+  const at = (along, up, across) => [cx + f[0] * along + side[0] * across, y0 + up, cz + f[2] * along + side[2] * across];
+  const P_ = [], N_ = [], quad = (a, b, na, nb) => { [[a[0], na], [b[0], nb], [b[1], nb], [a[0], na], [b[1], nb], [a[1], na]].forEach(([p, n]) => { P_.push(...p); N_.push(...n); }); };
+  const rowAt = (along, up) => [at(along, up, -wide), at(along, up, wide)];
+  // the profile, from far in front to high behind: floor, then a quarter circle, then the wall
+  const prof = [[-far, 0, [0, 1, 0]], [back - R, 0, [0, 1, 0]]];
+  for (let i = 1; i <= 12; i++) { const a = i / 12 * Math.PI / 2; prof.push([back - R + Math.sin(a) * R, R - Math.cos(a) * R, [-Math.sin(a) * f[0], Math.cos(a), -Math.sin(a) * f[2]]]); }
+  prof.push([back, tall, [-f[0], 0, -f[2]]]);
+  for (let i = 1; i < prof.length; i++) quad(rowAt(prof[i - 1][0], prof[i - 1][1]), rowAt(prof[i][0], prof[i][1]), prof[i - 1][2], prof[i][2]);
+  const m = sc.mats.length; sc.mats.push({ c: [.74, .72, .69], rough: .9, layer: -1, opacity: 1, cut: 0, uvm: null });
+  const join = (a, b) => { const o = new a.constructor(a.length + b.length); o.set(a); o.set(b, a.length); return o; };
+  sc.pos = join(sc.pos, P_); sc.nor = join(sc.nor, N_); sc.uvs = join(sc.uvs, new Array(P_.length / 3 * 2).fill(0)); sc.mid = join(sc.mid, new Array(P_.length / 9).fill(m));
+  return sc;
+}
 // a plain floor for pictures without the room
 function rendAddFloor(sc, shade) {
   if (!sc.pos.length) return sc;
   let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
   for (let i = 0; i < sc.pos.length; i++) { const a = i % 3; if (sc.pos[i] < lo[a]) lo[a] = sc.pos[i]; if (sc.pos[i] > hi[a]) hi[a] = sc.pos[i]; }
-  const span = Math.max(hi[0] - lo[0], hi[2] - lo[2], 1000) * 20, cx = (lo[0] + hi[0]) / 2, cz = (lo[2] + hi[2]) / 2, y = lo[1] - .5, x0 = cx - span, x1 = cx + span, z0 = cz - span, z1 = cz + span;
+  const span = Math.max(hi[0] - lo[0], hi[2] - lo[2], 1000) * 400, cx = (lo[0] + hi[0]) / 2, cz = (lo[2] + hi[2]) / 2, y = lo[1] - .5, x0 = cx - span, x1 = cx + span, z0 = cz - span, z1 = cz + span;
   const m = sc.mats.length; sc.mats.push({ c: shade, rough: .8, layer: -1, opacity: 1, cut: 0, uvm: null });
   const quad = [x0, y, z0, x0, y, z1, x1, y, z1, x0, y, z0, x1, y, z1, x1, y, z0], join = (a, b) => { const o = new a.constructor(a.length + b.length); o.set(a); o.set(b, a.length); return o; };
   sc.pos = join(sc.pos, quad); sc.nor = join(sc.nor, Array.from({ length: 18 }, (_, i) => (i % 3 === 1 ? 1 : 0))); sc.uvs = join(sc.uvs, new Array(12).fill(0)); sc.mid = join(sc.mid, [m, m]);
@@ -283,11 +332,12 @@ const rendImageSize = key => {
   if (key === 'view') { const r = host.getBoundingClientRect(); return [Math.max(64, Math.round(r.width)), Math.max(64, Math.round(r.height))]; }
   return { hd: [1280, 720], fhd: [1920, 1080], qhd: [2560, 1440], uhd: [3840, 2160] }[key] || [1280, 720];
 };
-function rendLight(o) {
-  const h = o.sunHeight * Math.PI / 180, a = o.sunTurn * Math.PI / 180, sun = [Math.cos(h) * Math.sin(a), Math.sin(h), Math.cos(h) * Math.cos(a)];
+function rendLight(o, cam) {
+  const toCam = cam && o.rel ? Math.atan2(-cam.fwd[0], -cam.fwd[2]) : 0;   // the direction back towards the camera, along the ground
+  const h = o.sunHeight * Math.PI / 180, a = o.sunTurn * Math.PI / 180 + toCam, sun = [Math.cos(h) * Math.sin(a), Math.sin(h), Math.cos(h) * Math.cos(a)];
   return o.light === 'studio'
-    ? { sun, sunColor: [1.15, 1.13, 1.1], radius: .2, sky: [.78, .78, .8], horizon: [.6, .6, .6], ground: [.4, .4, .4], studio: 1 }
-    : { sun, sunColor: [2.5, 2.3, 2.05], radius: .012, sky: [.34, .44, .62], horizon: [.72, .74, .76], ground: [.3, .29, .27], studio: 0 };
+    ? { sun, sunColor: [2.6, 2.52, 2.4], radius: .3, sky: [.4, .4, .41], horizon: [.36, .36, .36], ground: [.26, .26, .25], studio: 1 }   // a big soft box, and a room's worth of light bouncing back
+    : { sun, sunColor: [2.5, 2.3, 2.05], radius: .012, sky: [.26, .42, .7], horizon: [.86, .89, .93], ground: [.86, .89, .93], studio: 0 };   // a hazy horizon that the ground fades into, blue overhead
 }
 async function rendStart(canvas, opts, cam, onProgress, job = { stop: false }) {
   Object.assign(job, { sample: 0, spp: opts.spp, done: false, canvas });
@@ -298,7 +348,7 @@ async function rendStart(canvas, opts, cam, onProgress, job = { stop: false }) {
   onProgress('Gathering the scene…'); await rendYield();
   let sc = rendGather(opts.room);
   if (!sc.mid.length) throw new Error('there is nothing to draw');
-  rendAddFloor(sc, opts.room ? [.62, .61, .59] : [.82, .82, .81]);   // something for the shadows to fall on, out to the horizon
+  if (opts.backdrop) rendAddBackdrop(sc, cam); else rendAddFloor(sc, opts.room ? [.62, .61, .59] : [.78, .77, .74]);   // something for the shadows to fall on
   await rendWaitImages(sc.images);
   onProgress(`Sorting ${sc.mid.length.toLocaleString('en-US')} triangles…`); await rendYield();
   const tree = await rendBvhKind(sc), { T, N, M } = rendPack(sc, tree);
@@ -314,7 +364,7 @@ async function rendStart(canvas, opts, cam, onProgress, job = { stop: false }) {
   // two buffers, each adding to the other, because a float target can't always be blended onto
   const target = unit => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, W, H); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST); const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); return { t, f }; };
   const A = target(0), B = target(1);
-  gl.useProgram(prog); const u = n => gl.getUniformLocation(prog, n), L = rendLight(opts);
+  gl.useProgram(prog); const u = n => gl.getUniformLocation(prog, n), L = rendLight(opts, cam);
   gl.uniform1i(u('uPrev'), 0); gl.uniform1i(u('uTri'), 2); gl.uniform1i(u('uNode'), 3); gl.uniform1i(u('uMat'), 4); gl.uniform1i(u('uTex'), 5); gl.uniform1i(u('uHasTex'), hasTex ? 1 : 0);
   if (!hasTex) { gl.activeTexture(gl.TEXTURE5); const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D_ARRAY, t); gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA8, 1, 1, 1); }
   gl.uniform2i(u('uSize'), W, H); gl.uniform3fv(u('uCam'), cam.pos); gl.uniform3fv(u('uRight'), cam.right); gl.uniform3fv(u('uUp'), cam.up); gl.uniform3fv(u('uFwd'), cam.fwd); gl.uniform1f(u('uTan'), Math.tan(cam.fov * Math.PI / 360)); gl.uniform1f(u('uAspect'), W / H);
@@ -365,9 +415,17 @@ async function rendUploadLayers(gl, images, size) {
   for (let i = 0; i < images.length; i++) { const img = images[i]; x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, size, size); x.setTransform(1, 0, 0, -1, 0, size); try { x.drawImage(img, 0, 0, size, size); } catch (e) { x.fillStyle = '#999'; x.fillRect(0, 0, size, size); } gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, i, size, size, 1, gl.RGBA, gl.UNSIGNED_BYTE, x.getImageData(0, 0, size, size).data); await rendRest(2); }
   gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.REPEAT);
 }
-function rendCamera() {
+function rendCamera(fit, aspect) {
   camera.updateMatrixWorld(); const e = camera.matrixWorld.elements, right = [e[0], e[1], e[2]], up = [e[4], e[5], e[6]], fwd = [-e[8], -e[9], -e[10]];
-  return { pos: camera.position.toArray(), right, up, fwd, fov: camera.fov };
+  const cam = { pos: camera.position.toArray(), right, up, fwd, fov: camera.fov }, list = P.items.filter(i => !isRoomPart(i) && !isHidden(i));
+  if (!fit || !list.length) return cam;
+  // stands back just far enough for every corner of the furniture to be in the picture, with a margin
+  const u = unionBounds(list), c = [0, 1, 2].map(k => (u.min[k] + u.max[k]) / 2), tv = Math.tan(cam.fov * Math.PI / 360), th = tv * aspect; let need = 0;
+  for (const x of [u.min[0], u.max[0]]) for (const y of [u.min[1], u.max[1]]) for (const z of [u.min[2], u.max[2]]) {
+    const d = [x - c[0], y - c[1], z - c[2]], along = d[0] * fwd[0] + d[1] * fwd[1] + d[2] * fwd[2], sx = Math.abs(d[0] * right[0] + d[1] * right[1] + d[2] * right[2]), sy = Math.abs(d[0] * up[0] + d[1] * up[1] + d[2] * up[2]);
+    need = Math.max(need, sx / (th * .8) - along, sy / (tv * .8) - along);
+  }
+  cam.pos = c.map((v, k) => v - fwd[k] * need); return cam;
 }
 
 // ---------- the window ----------
@@ -378,27 +436,35 @@ function rendDrop() { if (!rendJob) return; rendJob.stop = true; rendJob.dropped
 async function rendRun() {
   rendDrop();
   const old = rq('rendCanvas'), fresh = document.createElement('canvas'); fresh.id = 'rendCanvas'; old.replaceWith(fresh);   // a new canvas, so nothing of the last picture lingers
-  const o = rendOpts, opts = { ...o, size: rendImageSize(o.size), spp: REND_QUALITY[o.quality][1] }, say = t => { rq('rendState').textContent = t; };
+  const o = rendOpts, opts = { ...o, size: rendImageSize(o.size), spp: REND_QUALITY[o.quality][1], rel: true, backdrop: rendLook() === 'studio' }, say = t => { rq('rendState').textContent = t; };
   rq('rendSave').disabled = true;
   const token = rendJob = { stop: false };
   try {
-    const job = await rendStart(fresh, opts, rendCamera(), t => { if (rendJob === token) say(t); }, token);
+    const job = await rendStart(fresh, opts, rendCamera(o.fit && !o.room, opts.size[0] / opts.size[1]), t => { if (rendJob === token) say(t); }, token);
     if (rendJob === token) { rq('rendSave').disabled = false; say(job.done ? `Done: ${job.spp} samples in ${Math.round(job.seconds)} s` : 'Stopped'); }
     return job;
   } catch (e) { if (rendJob === token) say(`Couldn't make the picture: ${e.message}.`); reportError(`render: ${e.stack || e.message}`); return null; }
 }
 function openRender() {
   if (!P.items.some(i => !isRoomPart(i)) && !P.items.length) { toast('There is nothing to draw yet.', true); return; }
-  rq('rendSize').value = rendOpts.size; rq('rendQuality').value = rendOpts.quality; rq('rendLight').value = rendOpts.light; rq('rendRoom').checked = rendOpts.room; rq('rendTurn').value = rendOpts.sunTurn; rq('rendHeight').value = rendOpts.sunHeight; rq('rendExposure').value = rendOpts.exposure;
-  rq('rend').classList.add('open'); rendRun();
+  if (rendOpts.room && !rendHasRoom()) rendOpts.room = false;
+  rendShowOpts(); rq('rendAdjust').hidden = true; rq('rend').classList.add('open'); rendRun();
 }
 function closeRender() { rendDrop(); rendJob = null; rq('rend').classList.remove('open'); const old = rq('rendCanvas'), fresh = document.createElement('canvas'); fresh.id = 'rendCanvas'; old.replaceWith(fresh); dirty = true; }
 rq('rendBack').onclick = closeRender;
 rq('rendSize').innerHTML = Object.entries(REND_SIZES).map(([k, n]) => `<option value="${k}">${n}</option>`).join('');
 rq('rendQuality').innerHTML = Object.entries(REND_QUALITY).map(([k, v]) => `<option value="${k}">${v[0]}</option>`).join('');
-[['rendSize', 'size'], ['rendQuality', 'quality'], ['rendLight', 'light']].forEach(([id, k]) => { rq(id).onchange = e => { rendOpts[k] = e.target.value; rendRun(); }; });
-rq('rendRoom').onchange = e => { rendOpts.room = e.target.checked; rendRun(); };
+function rendShowOpts() {
+  rq('rendSize').value = rendOpts.size; rq('rendQuality').value = rendOpts.quality; rq('rendTurn').value = rendOpts.sunTurn; rq('rendHeight').value = rendOpts.sunHeight; rq('rendExposure').value = rendOpts.exposure; rq('rendFit').checked = rendOpts.fit;
+  const look = rendLook(), room = rendHasRoom(); rq('rendLook').querySelectorAll('[data-look]').forEach(b => { b.setAttribute('aria-pressed', b.dataset.look === look); if (b.dataset.look === 'room') b.hidden = !room; });
+  rq('rendFit').disabled = look === 'room';
+}
+rq('rendLook').addEventListener('click', e => { const b = e.target.closest('[data-look]'); if (!b) return; const l = b.dataset.look; rendOpts.light = l === 'studio' ? 'studio' : 'day'; rendOpts.room = l === 'room'; rendShowOpts(); rendRun(); });
+[['rendSize', 'size'], ['rendQuality', 'quality']].forEach(([id, k]) => { rq(id).onchange = e => { rendOpts[k] = e.target.value; rendRun(); }; });
 [['rendTurn', 'sunTurn'], ['rendHeight', 'sunHeight']].forEach(([id, k]) => { rq(id).onchange = e => { rendOpts[k] = +e.target.value; rendRun(); }; });
+rq('rendFit').onchange = e => { rendOpts.fit = e.target.checked; rendRun(); };
+rq('rendAdjustBtn').onclick = e => { const a = rq('rendAdjust'); a.hidden = !a.hidden; e.currentTarget.setAttribute('aria-expanded', !a.hidden); };
+rq('rendReset').onclick = () => { Object.assign(rendOpts, { sunTurn: -50, sunHeight: 40, exposure: 1, fit: true }); rendShowOpts(); if (rendJob && rendJob.display) { rendJob.exposure = 1; } rendRun(); };
 rq('rendExposure').oninput = e => { rendOpts.exposure = +e.target.value; if (rendJob && rendJob.display) { rendJob.exposure = rendOpts.exposure; rendJob.display(); } };
 rq('rendStop').onclick = rendStopJob;
-rq('rendSave').onclick = () => { rq('rendCanvas').toBlob(b => { if (b) downloadBlob(`${P.name} render.png`, b, 'image/png'); }, 'image/png'); };
+rq('rendSave').onclick = () => { rq('rendCanvas').toBlob(b => { if (b) { downloadBlob(`${P.name} picture.png`, b, 'image/png'); toast('Picture saved.'); } }, 'image/png'); };

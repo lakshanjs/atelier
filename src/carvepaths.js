@@ -235,7 +235,7 @@ function cvArt(key) {
   let art = null; try { art = cvParseSvg(text); } catch (e) { art = null; }
   cvArtCache.set(key, art); return art;
 }
-const cvShapeKey = it => JSON.stringify([it.type, it.w, it.h, it.art, it.text, it.font, it.size, it.spacing, it.leading, it.align, !!cvFontOf(it.font), !!(it.art && TEXTURES[it.art]), it.sides, it.points, it.inner, it.corner, it.smooth, it.arc, it.threshold, it.invert, it.detail, it.len, it.off, it.type === 'trace' && typeof cvImgCache !== 'undefined' && cvImgCache.has(it.art), it.type === 'path' ? it.paths : 0]);
+const cvShapeKey = it => JSON.stringify([it.type, it.w, it.h, it.art, it.text, it.font, it.size, it.spacing, it.leading, it.align, !!cvFontOf(it.font), !!(it.art && TEXTURES[it.art]), it.sides, it.points, it.inner, it.corner, it.smooth, it.arc, it.threshold, it.invert, it.detail, it.len, it.off, it.type === 'trace' && typeof cvImgCache !== 'undefined' && cvImgCache.has(it.art), it.type === 'path' ? it.paths : 0, it.up, it.warp, it.warpAmt]);
 function cvEllipse(w, h) { const pts = [], n = 180; for (let i = 0; i < n; i++) { const t = i / n * Math.PI * 2; pts.push([Math.cos(t) * w / 2, Math.sin(t) * h / 2]); } return pts; }
 // a regular polygon or a star, point up, stretched to fill w by h
 function cvPolygon(w, h, n, inner) {
@@ -258,6 +258,29 @@ function cvBend(pts, R, closed) {
   const out = [], n = pts.length, warp = q => { const t = q[0] / R, r = R + q[1]; return [r * Math.sin(t), r * Math.cos(t) - R]; };
   for (let i = 0; i < n; i++) { const a = pts[i]; if (!closed && i === n - 1) { out.push(warp(a)); break; } const b = pts[(i + 1) % n], m = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / .5)); for (let k = 0; k < m; k++) out.push(warp([a[0] + (b[0] - a[0]) * k / m, a[1] + (b[1] - a[1]) * k / m])); }
   return out;
+}
+// Warps text inside an envelope, its letters staying upright. Bulge makes the middle taller (or, less than 0, pinched); Arch lifts
+// the middle like a bridge; Wave runs it up and down once; Rise makes it grow from left to right. The amount is a part of its height.
+function cvDensify(pts, closed, step) {
+  const out = [], n = pts.length;
+  for (let i = 0; i < n; i++) { const a = pts[i]; if (!closed && i === n - 1) { out.push(a); break; } const b = pts[(i + 1) % n], m = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / step)); for (let k = 0; k < m; k++) out.push([a[0] + (b[0] - a[0]) * k / m, a[1] + (b[1] - a[1]) * k / m]); }
+  return out;
+}
+const CV_WARPS = [['', 'None'], ['bulge', 'Bulge'], ['arch', 'Arch'], ['wave', 'Wave'], ['rise', 'Rise']];
+function cvWarpFn(it) {   // given every outline, a function that warps each one
+  const a = Math.max(-.9, Math.min(2, (it.warpAmt ?? 30) / 100)), style = it.warp; if (!style || !a) return null;
+  return all => {
+    const b = cvBox(all), half = Math.max(1e-6, (b.x1 - b.x0) / 2), mid = (b.x0 + b.x1) / 2, H = b.y1 - b.y0, cy = (b.y0 + b.y1) / 2;
+    const f = q => {
+      const u = Math.max(-1, Math.min(1, (q[0] - mid) / half)), y = q[1] - cy;
+      if (style === 'bulge') return [q[0], cy + y * (1 + a * (1 - u * u))];
+      if (style === 'arch') return [q[0], q[1] + a * H * (1 - u * u)];
+      if (style === 'wave') return [q[0], q[1] + a * H * .5 * Math.sin(Math.PI * u)];
+      if (style === 'rise') return [q[0], cy + y * Math.max(.05, 1 + a * u)];
+      return q;
+    };
+    return (pts, closed) => cvDensify(pts, closed, Math.max(.05, H / 60)).map(f);
+  };
 }
 // A drawn line whose points have handles: c[i] is [in x, in y, out x, out y] from point i, or null for a sharp corner.
 // Each stretch between two points is a cubic curve through its handles, or straight if neither has one.
@@ -282,10 +305,11 @@ function cvLocal(it) {
     if (it.corner > 0 && regions.length) { const r = cvOffset(cvOffset(regions, -it.corner), it.corner); if (r.length) { regions = r; lines = lines.filter(l => !l.closed).concat(r.map(p => ({ pts: p, closed: true }))); } }   // rounding a shape's corners
   }
   else if (it.type === 'trace') { regions = cvTraceRegions(it); lines = regions.map(p => ({ pts: p, closed: true })); }
+  else if (it.type === 'relief') { const m = cvReliefMap(it.art, it.up); if (m) { const [w, h] = cvReliefSize(it, m), p = [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]]; regions = [p]; lines = [{ pts: p, closed: true }]; } }
   else if (it.type === 'clamp') { const p = [[-it.w / 2, -it.h / 2], [it.w / 2, -it.h / 2], [it.w / 2, it.h / 2], [-it.w / 2, it.h / 2]]; regions = [p]; lines = [{ pts: p, closed: true }]; }
   else if (it.type === 'dim') { const L = it.len / 2, o = it.off || 0; lines = [{ pts: [[-L, 0], [-L, o], [L, o], [L, 0]], closed: false }]; }
   else if (it.type === 'circle') { const p = cvEllipse(it.w, it.h); regions = [p]; lines = [{ pts: p, closed: true }]; }
-  else if (it.type === 'text') { const font = cvFontOf(it.font), R = Math.abs(it.arc) >= 1 ? it.arc : 0; if (font && font.line) { lines = cvLineText(font, it); if (R) lines = lines.map(l => ({ closed: l.closed, pts: cvBend(l.pts, R, l.closed) })); } else if (font) { let polys = cvTextPolys(font, it); if (R) polys = polys.map(p => cvBend(p, R, true)); regions = cvUnion(polys); lines = regions.map(p => ({ pts: p, closed: true })); } }
+  else if (it.type === 'text') { const font = cvFontOf(it.font), R = Math.abs(it.arc) >= 1 ? it.arc : 0, wp = cvWarpFn(it); if (font && font.line) { lines = cvLineText(font, it); if (wp) { const f = wp(lines.map(l => l.pts)); lines = lines.map(l => ({ closed: l.closed, pts: f(l.pts, l.closed) })); } if (R) lines = lines.map(l => ({ closed: l.closed, pts: cvBend(l.pts, R, l.closed) })); } else if (font) { let polys = cvTextPolys(font, it); if (wp) { const f = wp(polys); polys = polys.map(p => f(p, true)); } if (R) polys = polys.map(p => cvBend(p, R, true)); regions = cvUnion(polys); lines = regions.map(p => ({ pts: p, closed: true })); } }
   else if (it.type === 'svg') { const a = cvArt(it.art); if (a) { const k = it.w / a.w; regions = a.regions.map(p => p.map(q => [q[0] * k, q[1] * k])); lines = a.lines.map(l => ({ closed: l.closed, pts: l.pts.map(q => [q[0] * k, q[1] * k]) })); } }
   // Measured art and text are centred exactly on their middle. A path keeps its own points where they are, so editing one
   // doesn't move the rest: ox, oy say where its middle is.
@@ -341,7 +365,33 @@ function cvRamp(chain, top, angle) {
   return out;
 }
 
-function cvPocketPaths(regions, depth, bit, notes, finish, climb) {
+// ---------- back and forth ----------
+// Lines straight across the area, evenly spaced no more than `over` apart. Each zigzag carries on to the next line wherever the
+// two overlap and the way across stays inside, so the bit stays down. along 'y' runs the lines front to back instead.
+function cvRasterLines(area, over, along) {
+  const sw = along === 'y' ? q => [q[1], q[0]] : q => q, polys = area.map(p => p.map(sw)), b = cvBox(polys), n = Math.max(1, Math.ceil((b.y1 - b.y0) / over - 1e-9)), rows = [];
+  for (let k = 0; k < n; k++) {
+    const y = b.y0 + (k + .5) * (b.y1 - b.y0) / n, xs = [];
+    polys.forEach(p => p.forEach((a, i) => { const c = p[(i + 1) % p.length]; if ((a[1] <= y) !== (c[1] <= y)) xs.push(a[0] + (y - a[1]) * (c[0] - a[0]) / (c[1] - a[1])); }));
+    xs.sort((p, q) => p - q); const ivs = []; for (let i = 0; i + 1 < xs.length; i += 2) if (xs[i + 1] - xs[i] > 1e-4) ivs.push({ x0: xs[i], x1: xs[i + 1], used: false });
+    rows.push({ y, ivs });
+  }
+  const safe = (a, b) => [.25, .5, .75].every(t => cvInside(polys, [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t])), out = [];
+  for (;;) {
+    let r = rows.findIndex(row => row.ivs.some(v => !v.used)); if (r < 0) break;
+    let iv = rows[r].ivs.find(v => !v.used), dir = 1; const chain = [];
+    while (iv) {
+      iv.used = true; const y = rows[r].y, end = dir > 0 ? [iv.x1, y] : [iv.x0, y]; chain.push(dir > 0 ? [iv.x0, y] : [iv.x1, y], end);
+      const next = rows[r + 1]; let to = null;
+      if (next) to = next.ivs.find(v => !v.used && v.x0 < iv.x1 && v.x1 > iv.x0 && safe(end, [dir > 0 ? v.x1 : v.x0, next.y])) || null;
+      if (!to) break; r++; dir = -dir; iv = to;
+    }
+    out.push(chain.map(sw));
+  }
+  return out;
+}
+
+function cvPocketPaths(regions, depth, bit, notes, finish, climb, fill) {
   const turn = r => (climb ? r.slice() : r.slice().reverse());   // this way round is a conventional cut, with the spindle turning clockwise
   const R = bit.d / 2, over = Math.max(.05, bit.d * Math.min(50, Math.max(5, bit.over)) / 100), chains = []; let missed = false, nothing = true;
   cvIslands(regions).forEach(island => {
@@ -349,6 +399,16 @@ function cvPocketPaths(regions, depth, bit, notes, finish, climb) {
     if (wall.length) nothing = false; else { missed = true; return; }
     const opened = cvOffset(wall, R), left = cvMinus(island, opened); if (left.length && cvOffset(left, -R * .25).length) missed = true;
     let cur = finish > 0 ? cvOffset(island, -R - finish) : wall;
+    if (fill === 'x' || fill === 'y') {   // lines across at each depth, then once round the edge to take off the scallops they leave
+      const area = cur, lines = area.length ? cvRasterLines(area, over, fill) : []; let before = 0, end = null;
+      cvPasses(depth, bit.step).forEach(d => {
+        lines.forEach(l => { const c = l.map(q => [q[0], q[1], -d]); c.top = -before; chains.push(c); end = l[l.length - 1]; });
+        area.forEach(r0 => { const c = cvClosed(cvRotateTo(turn(r0), end), -d); c.top = -before; chains.push(c); });
+        before = d;
+      });
+      if (finish > 0) wall.forEach(r => chains.push(cvClosed(turn(r), -depth)));
+      return;
+    }
     while (cur.length && gens.length < 3000) { gens.push(cur); cur = cvOffset(cur, -over); }
     let before = 0;
     cvPasses(depth, bit.step).forEach(d => {
@@ -523,6 +583,23 @@ function cvVclearPaths(regions, maxDepth, vbit, flat, notes) {
   if (!chains.length) notes.push({ info: true, text: `has no level bottom wide enough for ${flat.name}, so the V-bit does it all` });
   return chains;
 }
+// what the first bit leaves, without the hairlines that rounding leaves along every wall
+const cvRest = (island, opened) => cvOffset(cvOffset(cvMinus(island, opened), -.01), .01);
+// A pocket's narrower second bit: only what the first couldn't reach, its corners and narrow parts. That's grown by the small bit's
+// width, still inside the shape, so the two overlap and no thin wall is left standing between them.
+function cvDetailPaths(regions, depth, main, small, notes, climb) {
+  const R = main.d / 2, r = small.d / 2, chains = []; let missed = false;
+  cvIslands(regions).forEach(island => {
+    const opened = cvOffset(cvOffset(island, -R), R), rest = cvRest(island, opened); if (!rest.length) return;
+    const zone = cvClip(ClipperLib.ClipType.ctIntersection, cvOffset(rest, small.d), island); if (!zone.length) return;
+    chains.push(...cvPocketPaths(zone, depth, small, [], 0, climb));
+    const left = cvMinus(island, cvUnion(opened.concat(cvOffset(cvOffset(zone, -r), r))));   // what neither bit gets to
+    if (left.length && cvOffset(left, -r * .25).length) missed = true;
+  });
+  if (!chains.length) notes.push({ info: true, text: `has no corners the ${small.name} can reach that the ${main.name} missed` });
+  else if (missed) notes.push({ text: `has details too small even for the ${small.name}, and they will be left uncut` });
+  return chains;
+}
 const cvRingLen = ring => { const pts = ring.concat([ring[0]]), L = []; let len = 0; for (let i = 1; i < pts.length; i++) { len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); L.push(len); } return { pts, L, len }; };
 function cvAlong(ring, q) {   // the nearest point on a ring: how far along it, and how far away
   const { pts, L } = cvRingLen(ring); let best = { d: 1e18, m: 0 };
@@ -577,15 +654,152 @@ function cvContourPaths(rings, levels, bit, spots, tabW, tabZ, reach) {
   return chains;
 }
 
+// ---------- 3D reliefs ----------
+// An STL model seen from above becomes a height map: for a grid of points, how high its top surface is. Its highest point is
+// the board's top and its lowest is the relief's depth below it. Parts of the grid with no model count as the lowest, so the
+// model stands in a pocket the size of its footprint, and nothing outside that is cut.
+// The bit follows the surface lowered by its own shape: at each point, as low as it can go before any part of its end touches
+// the model, so it never cuts into it. A flat bit leaves small steps on slopes; a ball nose or a V-bit follows them more closely.
+function cvStlTris(bytes) {   // every corner of every triangle, as x, y, z
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (bytes.length >= 84) {
+    const n = dv.getUint32(80, true);
+    if (n > 0 && 84 + n * 50 === bytes.length) { const out = new Float32Array(n * 9); for (let i = 0; i < n; i++) for (let k = 0; k < 9; k++) out[i * 9 + k] = dv.getFloat32(84 + i * 50 + 12 + k * 4, true); return out; }
+  }
+  const text = new TextDecoder().decode(bytes); if (!/^\s*solid/i.test(text) || !/facet/i.test(text)) throw new Error("that isn't a readable STL file");
+  const v = []; for (const m of text.matchAll(/vertex\s+([-+\d.eE]+)\s+([-+\d.eE]+)\s+([-+\d.eE]+)/g)) v.push(+m[1], +m[2], +m[3]);
+  if (!v.length || v.length % 9 || v.some(q => !isFinite(q))) throw new Error("that isn't a readable STL file");
+  return Float32Array.from(v);
+}
+const CV_RELIEF_CELLS = 500;   // grid points along the model's longer side
+// up: which of the file's axes points up out of the board. Turned so it isn't mirrored.
+function cvHeightMap(tri, up) {
+  const n = tri.length / 9; if (!n) throw new Error('it has no triangles'); if (n > 4e6) throw new Error('it has too many triangles. Simplify it first');
+  const q = new Float32Array(tri.length); let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+  for (let i = 0; i < tri.length; i += 3) {
+    const x = tri[i], y = tri[i + 1], z = tri[i + 2], u = up === 'y' ? [x, -z, y] : up === 'x' ? [y, z, x] : [x, y, z];
+    q[i] = u[0]; q[i + 1] = u[1]; q[i + 2] = u[2];
+    if (u[0] < x0) x0 = u[0]; if (u[0] > x1) x1 = u[0]; if (u[1] < y0) y0 = u[1]; if (u[1] > y1) y1 = u[1]; if (u[2] < z0) z0 = u[2]; if (u[2] > z1) z1 = u[2];
+  }
+  const W = x1 - x0, L = y1 - y0, D = z1 - z0; if (!(W > 0 && L > 0)) throw new Error('it has no top to carve. Try another way up');
+  const step = Math.max(W, L) / CV_RELIEF_CELLS, nx = Math.max(2, Math.round(W / step) + 1), ny = Math.max(2, Math.round(L / step) + 1), sx = (nx - 1) / W, sy = (ny - 1) / L, Z = new Float32Array(nx * ny).fill(-Infinity);
+  for (let t = 0; t < q.length; t += 9) {
+    const ax = (q[t] - x0) * sx, ay = (q[t + 1] - y0) * sy, az = q[t + 2], bx = (q[t + 3] - x0) * sx, by = (q[t + 4] - y0) * sy, bz = q[t + 5], cx = (q[t + 6] - x0) * sx, cy = (q[t + 7] - y0) * sy, cz = q[t + 8];
+    const den = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy); if (Math.abs(den) < 1e-12) continue;   // seen edge on: its neighbours give the height
+    const i0 = Math.max(0, Math.ceil(Math.min(ax, bx, cx) - 1e-9)), i1 = Math.min(nx - 1, Math.floor(Math.max(ax, bx, cx) + 1e-9)), j0 = Math.max(0, Math.ceil(Math.min(ay, by, cy) - 1e-9)), j1 = Math.min(ny - 1, Math.floor(Math.max(ay, by, cy) + 1e-9));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const l1 = ((by - cy) * (i - cx) + (cx - bx) * (j - cy)) / den, l2 = ((cy - ay) * (i - cx) + (ax - cx) * (j - cy)) / den, l3 = 1 - l1 - l2;
+      if (l1 < -1e-6 || l2 < -1e-6 || l3 < -1e-6) continue;
+      const z = l1 * az + l2 * bz + l3 * cz, k = i + j * nx; if (z > Z[k]) Z[k] = z;
+    }
+  }
+  const H = new Float32Array(nx * ny); for (let k = 0; k < H.length; k++) H[k] = Z[k] === -Infinity ? 0 : D > 0 ? (Z[k] - z0) / D : 1;   // 1 is the top, 0 the lowest
+  return { nx, ny, w: W, h: L, H, tris: n };
+}
+const cvReliefCache = new Map();
+function cvReliefMap(art, up) {
+  const key = art + '|' + (up || 'z'); if (cvReliefCache.has(key)) return cvReliefCache.get(key);
+  const t = typeof TEXTURES !== 'undefined' && TEXTURES[art]; if (!t) return null;
+  let map = null; try { map = cvHeightMap(cvStlTris(t.bytes), up); } catch (e) { map = null; }
+  if (cvReliefCache.size > 8) cvReliefCache.delete(cvReliefCache.keys().next().value);
+  cvReliefCache.set(key, map); return map;
+}
+const cvReliefSize = (it, map) => [it.w, it.w * map.h / map.w];
+// The surface as the bit's tip can follow it, on a grid over the item, centred on it. Outside the model is the board's top.
+function cvReliefGrid(it, map, depth, bit) {
+  const [w, h] = cvReliefSize(it, map), R = bit.d / 2, v = bit.type === 'v', ball = bit.type === 'ball', tan = v ? Math.tan(Math.max(5, bit.angle) / 2 * Math.PI / 180) : 0, tip = v ? (bit.tip || 0) / 2 : 0;
+  const cell = Math.max(w / (map.nx - 1), R / 8, Math.sqrt(w * h / 4e5), .05), nx = Math.ceil(w / cell) + 1, ny = Math.ceil(h / cell) + 1, cx = w / (nx - 1), cy = h / (ny - 1);
+  const S = new Float32Array(nx * ny), mx = (map.nx - 1) / w, my = (map.ny - 1) / h;
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const gx = Math.min(map.nx - 1.000001, i * cx * mx), gy = Math.min(map.ny - 1.000001, j * cy * my), a = Math.floor(gx), b = Math.floor(gy), fx = gx - a, fy = gy - b, k = a + b * map.nx, H = map.H;
+    S[i + j * nx] = -(1 - ((H[k] * (1 - fx) + H[k + 1] * fx) * (1 - fy) + (H[k + map.nx] * (1 - fx) + H[k + map.nx + 1] * fx) * fy)) * depth;
+  }
+  // Each grid point is worked out for the bit grown by a cell's width, so wherever it stands between them, all four are safe,
+  // and so is any blend of them.
+  const m = Math.hypot(cx, cy), offs = [], ri = Math.ceil((R + m) / cx), rj = Math.ceil((R + m) / cy);
+  for (let dj = -rj; dj <= rj; dj++) for (let di = -ri; di <= ri; di++) { const d = Math.hypot(di * cx, dj * cy); if (d <= R + m + 1e-9) offs.push(di, dj, v ? Math.max(0, d - m - tip) / tan : ball ? R - Math.sqrt(Math.max(0, R * R - Math.max(0, d - m) ** 2)) : 0); }   // how far above its lowest point the bit's end is, this far out
+  const C = new Float32Array(nx * ny);
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    let best = -Infinity;
+    for (let o = 0; o < offs.length; o += 3) { const ii = i + offs[o], jj = j + offs[o + 1], s = ii < 0 || jj < 0 || ii >= nx || jj >= ny ? 0 : S[ii + jj * nx], z = s - offs[o + 2]; if (z > best) best = z; }
+    C[i + j * nx] = Math.min(0, best);
+  }
+  const at = (x, y) => { const gx = Math.max(0, Math.min(nx - 1.000001, (x + w / 2) / cx)), gy = Math.max(0, Math.min(ny - 1.000001, (y + h / 2) / cy)), a = Math.floor(gx), b = Math.floor(gy), fx = gx - a, fy = gy - b, k = a + b * nx; return (C[k] * (1 - fx) + C[k + 1] * fx) * (1 - fy) + (C[k + nx] * (1 - fx) + C[k + nx + 1] * fx) * fy; };
+  return { at, w, h, cx, cy };
+}
+function cvThin(c, tol) {   // drops points the line already passes within tol of, checking every point it skips
+  if (c.length < 3) return c; const out = [c[0]]; let from = 0;
+  for (let k = 1; k < c.length - 1; k++) {
+    const a = c[from], n = c[k + 1], dx = n[0] - a[0], dy = n[1] - a[1], dz = n[2] - a[2], L2 = dx * dx + dy * dy + dz * dz; let ok = L2 > 1e-12 && k + 1 - from < 64;
+    for (let m = from + 1; ok && m <= k; m++) { const b = c[m], t = Math.max(0, Math.min(1, ((b[0] - a[0]) * dx + (b[1] - a[1]) * dy + (b[2] - a[2]) * dz) / L2)); if (Math.hypot(a[0] + dx * t - b[0], a[1] + dy * t - b[1], a[2] + dz * t - b[2]) > tol) ok = false; }
+    if (!ok) { out.push(c[k]); from = k; }
+  }
+  out.push(c[c.length - 1]); return out;
+}
+// part: 'rough' steps down to the surface, leaving a little for the finishing bit; 'finish' runs once over the surface at a
+// fine step across; 'both' does one then the other with the same bit.
+const CV_RELIEF_LEAVE = .3, CV_RELIEF_FINISH = 15;
+function cvReliefPaths(it, depth, bit, notes, part, op, place) {
+  const map = cvReliefMap(it.art, it.up); if (!map) { notes.push({ bad: true, text: "couldn't be read as a 3D model" }); return []; }
+  const g = cvReliefGrid(it, map, depth, bit), chains = [], { w, h } = g;
+  const zigzag = step => {   // rows from front to back, every one joined to the next along the edge
+    const n = Math.max(1, Math.ceil(h / step - 1e-9)), pts = [], xs = Math.max(1, Math.ceil(w / g.cx)), ys = Math.max(1, Math.ceil(h / n / g.cy));
+    for (let k = 0; k <= n; k++) {
+      const y = -h / 2 + h * k / n, fwd = k % 2 === 0;
+      if (k) for (let s = 1; s < ys; s++) pts.push([fwd ? -w / 2 : w / 2, y - h / n * (1 - s / ys)]);
+      for (let s = 0; s <= xs; s++) pts.push([(fwd ? -1 : 1) * (w / 2 - w * s / xs), y]);
+    }
+    return pts;
+  };
+  const cut = (pts, z, need, top) => {   // the stretches that need cutting, with a point either side; short gaps between stay down
+    const f = pts.map(q => [q[0], q[1], z(q[0], q[1])]), m = f.map(need), gap = (a, b) => Math.hypot(f[b][0] - f[a][0], f[b][1] - f[a][1]);
+    for (let k = 0; k < f.length;) { if (m[k]) { k++; continue; } let j = k, len = 0; while (j < f.length && !m[j]) { if (j > k) len += gap(j - 1, j); j++; } if (k > 0 && j < f.length && len + gap(k - 1, k) + gap(j - 1, j) < CV_HOP) for (let q = k; q < j; q++) m[q] = true; k = j; }
+    let run = null; const done = r => { if (r.length < 2) return; const c = cvThin(r, .003).map(q => { const p = place(q); return [p[0], p[1], q[2]]; }); c.top = top(c); chains.push(c); };
+    for (let k = 0; k < f.length; k++) { if (m[k]) { if (!run) run = k ? [f[k - 1]] : []; run.push(f[k]); } else if (run) { run.push(f[k]); done(run); run = null; } }
+    if (run) done(run);
+  };
+  if (part !== 'finish') {
+    const leave = part === 'rough' ? CV_RELIEF_LEAVE : .2, rows = zigzag(Math.max(.05, bit.d * Math.min(50, Math.max(5, bit.over)) / 100)); let before = 0;
+    cvPasses(depth, bit.step).forEach(L => { const b = before; cut(rows, (x, y) => Math.max(-L, Math.min(0, g.at(x, y) + leave)), q => q[2] < -b - 1e-4, () => -b); before = L; });
+  }
+  if (part !== 'rough') cut(zigzag(Math.max(.05, bit.d * Math.min(50, Math.max(3, op.over || CV_RELIEF_FINISH)) / 100)), g.at, q => q[2] < -1e-3, c => c[0][2]);
+  if (!chains.length) notes.push({ bad: true, text: 'has nothing deep enough to carve. Give it more depth' });
+  return chains;
+}
+
 // ---------- bits ----------
 // A wood's speeds are a percentage of each bit's own. Boards from before this had no wood, so they count as 100%.
 const cvPct = (board, k) => board[k] ?? (typeof CV_WOODS !== 'undefined' && board.wood && CV_WOODS[board.wood] ? cvRatesFor(board.wood)[k] : 100);
 function cvRated(cv, bit) { const feed = cvPct(cv.board, 'feedPct') / 100, step = cvPct(cv.board, 'stepPct') / 100; return feed === 1 && step === 1 ? bit : { ...bit, feed: bit.feed * feed, plunge: bit.plunge * feed, step: Math.max(.05, bit.step * step) }; }
-const CV_KINDS = [['line', 'Engrave along the lines'], ['pocket', 'Pocket: clear the area'], ['vcarve', 'V-carve'], ['drill', 'Drill holes'], ['outside', 'Cut out, around outside'], ['inside', 'Cut out, inside shape'], ['off', "Don't cut this"]];
-const cvBitFits = (kind, bit) => !!bit && (kind === 'line' || kind === 'drill' || (kind === 'vcarve' ? bit.type === 'v' : bit.type === 'flat'));   // any bit drills: a V-bit makes the spot dimples a corn bit needs
-// A V-carve can have a second, flat bit to clear its level bottom. It cuts in its own file, before the V-bit.
+const CV_KINDS = [['line', 'Engrave along the lines'], ['pocket', 'Pocket: clear the area'], ['vcarve', 'V-carve'], ['drill', 'Drill holes'], ['outside', 'Cut out, around outside'], ['inside', 'Cut out, inside shape'], ['relief', 'Carve a 3D relief'], ['off', "Don't cut this"]];
+const cvBitFits = (kind, bit) => !!bit && (kind === 'line' || kind === 'drill' || kind === 'relief' || (kind === 'vcarve' ? bit.type === 'v' : bit.type === 'flat'));   // any bit drills: a V-bit makes the spot dimples a corn bit needs
+// A job can have a second bit, in its own file. A V-carve's is a flat bit that clears its level bottom, before the V-bit.
+// A pocket's is a narrower flat bit that comes after, into the corners and details the first couldn't reach. A relief's
+// finishes the surface after the first has roughed it out.
 // 'auto' picks the widest flat bit you have that fits most of the level bottom: wide strokes get a big bit, thin lettering a corn bit.
-const cvClearBit = (it, bitOf) => { const op = it.op; if (!op || op.kind !== 'vcarve' || !op.clear) return null; const b = op.clear === 'auto' ? cvAutoClear(it, bitOf) : bitOf(op.clear); return b && b.type === 'flat' ? b : null; };
+const cvClearBit = (it, bitOf) => {
+  const op = it.op; if (!op) return null;
+  if (op.kind === 'vcarve') { if (!op.clear) return null; const b = op.clear === 'auto' ? cvAutoClear(it, bitOf) : bitOf(op.clear); return b && b.type === 'flat' ? b : null; }
+  if ((op.kind === 'pocket' || op.kind === 'relief') && op.detail) {
+    const main = bitOf(op.bit), b = op.detail === 'auto' && op.kind === 'pocket' ? cvAutoDetail(it, bitOf) : bitOf(op.detail); if (!b || !main || b.id === main.id) return null;
+    return op.kind === 'relief' ? (cvBitFits('relief', b) ? b : null) : (b.type === 'flat' && b.d < main.d - 1e-6 ? b : null);
+  }
+  return null;
+};
+const cvSecondWhat = it => ({ vcarve: 'Clear the V-carve bottom', pocket: 'Clean out the corners', relief: 'Finish the relief' }[it.op && it.op.kind] || 'Second bit');
+// the widest narrower flat bit that gets into most of what the pocket's bit leaves, or else the narrowest. A sharp corner can
+// never be reached right into, so most is enough.
+function cvAutoDetail(it, bitOf) {
+  const main = bitOf(it.op.bit); if (!main || main.type !== 'flat' || typeof cvOwned !== 'function') return null;
+  const flats = cvOwned().filter(b => b.type === 'flat' && b.d > 0 && b.d < main.d - 1e-6).sort((a, b) => b.d - a.d), key = JSON.stringify(['detail', cvShapeKey(it), main.d, flats.map(b => b.id + b.d)]);
+  if (cvAutoCache.has(key)) { const id = cvAutoCache.get(key); return id ? bitOf(id) : null; }
+  const area = p => Math.abs(p.reduce((s, q) => s + cvArea(q), 0)), regions = cvLocal(it).regions, R = main.d / 2;
+  const islands = cvIslands(regions), rest = islands.map(island => cvRest(island, cvOffset(cvOffset(island, -R), R))), whole = rest.reduce((s, r) => s + area(r), 0);
+  let pick = null;   // how much of what's left the narrower bit reaches, working in the whole shape
+  if (whole > .05) { for (const b of flats) { const got = islands.reduce((s, island, i) => s + area(cvClip(ClipperLib.ClipType.ctIntersection, rest[i], cvOffset(cvOffset(island, -b.d / 2), b.d / 2))), 0) / whole; if (got >= .75) { pick = b; break; } } if (!pick) pick = flats[flats.length - 1] || null; }
+  if (cvAutoCache.size > 200) cvAutoCache.clear();
+  cvAutoCache.set(key, pick ? pick.id : null); return pick;
+}
 const cvAutoCache = new Map();
 function cvAutoClear(it, bitOf) {
   const vbit = bitOf(it.op.bit); if (!vbit || vbit.type !== 'v' || !(it.op.depth > 0) || typeof cvOwned !== 'function') return null;
@@ -613,19 +827,24 @@ const cvAirOf = cv => (cv.airZ > 0 ? cv.airZ : CV_AIR);
 
 // returns { chains, notes } for this bit's share of the item. Answers are kept, a few per item, until something about it changes.
 function cvItemPaths(cv, it, bit, bitOf = typeof cvBitOf === 'function' ? cvBitOf : () => null) {
-  const clearing = cvIsClearing(it, bit, bitOf), vbit = it.op && it.op.kind === 'vcarve' ? bitOf(it.op.bit) : null, clear = vbit ? cvClearBit(it, bitOf) : null;
+  const clearing = cvIsClearing(it, bit, bitOf), main = it.op && it.op.bit ? bitOf(it.op.bit) : null, vbit = it.op && it.op.kind === 'vcarve' ? main : null, second = cvClearBit(it, bitOf), clear = vbit ? second : null;
   bit = bit && cvRated(cv, bit);
-  const op = it.op, key = JSON.stringify([cvShapeKey(it), it.x, it.y, it.rot, it.mx, it.my, op, bit, cv.board.t, cv.tabW, cv.tabH, cvRampOf(cv), clearing, vbit && [vbit.angle, vbit.tip], clear && clear.d]);
+  const op = it.op, key = JSON.stringify([cvShapeKey(it), it.x, it.y, it.rot, it.mx, it.my, op, bit, cv.board.t, cv.tabW, cv.tabH, cvRampOf(cv), clearing, main && [main.d, main.type, main.angle, main.tip], second && [second.id, second.d, second.type, second.angle, second.tip]]);
   if (!it._c) Object.defineProperty(it, '_c', { value: new Map(), writable: true, enumerable: false });
   if (it._c.has(key)) return it._c.get(key);
   const notes = [], local = cvLocal(it), place = cvPlaceFn(it), regions = local.regions.map(p => p.map(place)), lines = local.lines.map(l => ({ closed: l.closed, pts: l.pts.map(place) })), depth = cvOpDepth(cv, op);
   let chains = [];
   if (!regions.length && !lines.length) notes.push({ bad: true, text: it.type === 'text' ? "has no letters to cut. Check its text and font" : 'has nothing to cut' });
   else if (bit && depth > 0) {
-    if (!regions.length && ['pocket', 'vcarve', 'outside', 'inside', 'drill'].includes(op.kind)) notes.push({ bad: true, text: 'has no closed shape for this job' });
+    if (op.kind === 'relief') chains = cvReliefPaths(it, depth, bit, notes, clearing ? 'finish' : second ? 'rough' : 'both', op, place);
+    else if (!regions.length && ['pocket', 'vcarve', 'outside', 'inside', 'drill'].includes(op.kind)) notes.push({ bad: true, text: 'has no closed shape for this job' });
+    else if (clearing && op.kind === 'pocket') chains = main ? cvDetailPaths(regions, depth, main, bit, notes, !!op.climb) : [];
     else if (clearing) chains = vbit ? cvVclearPaths(regions, depth, vbit, bit, notes) : [];
     else if (op.kind === 'line') chains = cvLinePaths(lines, depth, bit.step);
-    else if (op.kind === 'pocket') chains = cvPocketPaths(regions, depth, bit, notes, cvFinishOf(op), !!op.climb);
+    else if (op.kind === 'pocket') {
+      chains = cvPocketPaths(regions, depth, bit, notes, cvFinishOf(op), !!op.climb, op.fill);
+      if (second) notes.forEach((n, i) => { if (/left uncut/.test(n.text)) notes[i] = { info: true, text: `has corners too tight for the ${bit.name}, so the ${second.name} cuts them after` }; });
+    }
     else if (op.kind === 'vcarve') chains = cvVcarvePaths(regions, depth, bit, notes, clear);
     else if (op.kind === 'drill') chains = cvDrillPaths(regions, depth, bit, op.peck !== false, notes);
     else {
@@ -649,14 +868,14 @@ function cvItemPaths(cv, it, bit, bitOf = typeof cvBitOf === 'function' ? cvBitO
 }
 
 // ---------- the job ----------
-const CV_ENGRAVE_KINDS = ['line', 'drill', 'pocket', 'vcarve'], CV_CUT_ORDER = { line: 0, drill: .5, pocket: 1, vcarve: 2, inside: 3, outside: 4 };
+const CV_ENGRAVE_KINDS = ['line', 'drill', 'pocket', 'relief', 'vcarve'], CV_CUT_ORDER = { line: 0, drill: .5, pocket: 1, relief: 1.5, vcarve: 2, inside: 3, outside: 4 };
 // Files in cutting order. Everything that's engraved comes before anything is cut free, and bit changes are kept to a minimum.
 // A V-carve with a clearing bit is in two files: the flat bit's, which comes first where it can, then the V-bit's.
 function cvPlan(cv, bitOf) {
-  const jobs = []; cv.items.forEach(it => { if (!it.op || it.op.kind === 'off' || !bitOf(it.op.bit)) return; const c = cvClearBit(it, bitOf); if (c) jobs.push({ it, bit: c.id, clear: true }); jobs.push({ it, bit: it.op.bit }); });
+  const jobs = []; cv.items.forEach(it => { if (!it.op || it.op.kind === 'off' || !bitOf(it.op.bit)) return; const c = cvClearBit(it, bitOf), v = it.op.kind === 'vcarve'; if (c && v) jobs.push({ it, bit: c.id, clear: true }); jobs.push({ it, bit: it.op.bit }); if (c && !v) jobs.push({ it, bit: c.id, after: true }); });
   const first = jobs.filter(j => CV_ENGRAVE_KINDS.includes(j.it.op.kind)), second = jobs.filter(j => !CV_ENGRAVE_KINDS.includes(j.it.op.kind));
-  const bitsIn = l => [...new Set(l.map(j => j.bit))], a = bitsIn(first), b = bitsIn(second), clears = id => first.some(j => j.bit === id && j.clear);
-  a.sort((x, y) => clears(y) - clears(x));
+  const bitsIn = l => [...new Set(l.map(j => j.bit))], a = bitsIn(first), b = bitsIn(second), clears = id => first.some(j => j.bit === id && j.clear), late = id => first.every(j => j.bit !== id || j.after);
+  a.sort((x, y) => clears(y) - clears(x) || late(x) - late(y));   // a bit only used after another comes after it
   const shared = a.find(x => b.includes(x));
   if (shared) { a.splice(a.indexOf(shared), 1); a.push(shared); b.splice(b.indexOf(shared), 1); b.unshift(shared); }
   const files = a.map(id => ({ bit: id, items: first.filter(j => j.bit === id).map(j => j.it) }));
@@ -772,7 +991,7 @@ function cvGcode(cv, file, bit, n, of, title, opts = {}) {
     let chains = cvItemPaths(cv, it, raw).chains;
     if (tile && cv.tile) { chains = chains.flatMap(c => cvClipChain(c, tile)); if (raw.type !== 'v') chains = chains.map(c => cvRamp(c, 0, cvRampOf(cv))); }   // a cut that starts at a tile's edge slopes in from the top
     if (!chains.length) return;
-    say(`${cvIsClearing(it, raw, cvBitOf) ? 'Clear the V-carve bottom' : CV_KINDS.find(k => k[0] === it.op.kind)[1]}: ${it.type === 'text' ? String(it.text).split('\n')[0] : it.type}`);
+    say(`${cvIsClearing(it, raw, cvBitOf) ? cvSecondWhat(it) : CV_KINDS.find(k => k[0] === it.op.kind)[1]}: ${it.type === 'text' ? String(it.text).split('\n')[0] : it.type}`);
     chains.forEach(run);
   });
   out.push(`G0 Z${Z(safe)}`, 'M5', 'G0 X0 Y0', 'M30', '');
@@ -836,7 +1055,13 @@ function cvChecks(cv, bitOf, have) {
     cvShapeProblems(cv, it).forEach(t => out.push({ id: it.id, text: `${who} ${t}.` }));
     const { chains, notes } = cvItemPaths(cv, it, bit, bitOf);
     if (clamps.length) { const zones = cvClampRegions(cv, bit.type === 'v' ? 0 : bit.d / 2); if (chains.some(c => c.some(q => q[2] < 0 && zones.some(z => cvInside(z, q))))) out.push({ bad: true, id: it.id, text: `${who} runs into a clamp zone. Move it, or the clamp.` }); }
-    if (op.kind === 'vcarve' && op.clear) { const c = cvClearBit(it, bitOf); if (!c && op.clear === 'auto') { /* nothing fits, so the V-bit does it all */ } else if (!c) out.push({ bad: true, id: it.id, text: `${who}: its clearing bit must be a flat bit you have.` }); else cvItemPaths(cv, it, c, bitOf).notes.forEach(n => out.push({ info: true, id: it.id, text: `${who} ${n.text}.` })); }
+    const want2 = op.kind === 'vcarve' ? op.clear : op.kind === 'pocket' || op.kind === 'relief' ? op.detail : null;
+    if (want2) {
+      const c = cvClearBit(it, bitOf), need = { vcarve: 'its clearing bit must be a flat bit you have', pocket: `its corners bit must be a flat bit you have, narrower than the ${bit.name}`, relief: 'its finishing bit must be another bit you have' }[op.kind];
+      if (!c && want2 === 'auto') { /* nothing fits, so the first bit does it all */ } else if (!c) out.push({ bad: true, id: it.id, text: `${who}: ${need}.` });
+      else if (!(c.d > 0 && c.feed > 0 && c.plunge > 0 && c.step > 0 && c.rpm > 0)) out.push({ bad: true, id: it.id, text: `${c.name} has a size or speed missing. Check it in Bits.` });
+      else cvItemPaths(cv, it, c, bitOf).notes.forEach(n => out.push({ bad: !!n.bad, info: !n.bad, id: it.id, text: `${who} ${n.text}.` }));
+    }
     notes.forEach(n => out.push({ bad: !!n.bad, info: !!n.info, id: it.id, text: `${who} ${n.text}.` }));
     if (bit.reach > 0 && depth > bit.reach) out.push({ id: it.id, text: `${who} is deeper than ${bit.name} can cut.` });
     if (cv.maxRate > 0 && (bit.feed > cv.maxRate || bit.plunge > cv.maxRate)) out.push({ id: it.id, text: `${bit.name} is set faster than your machine's top speed.` });
@@ -883,12 +1108,12 @@ function cvCarveGrid(cv, wantCell) { const { l, w, t } = cv.board, cell = wantCe
 // Cuts one move into the surface: the bit's shape swept from a to b, keeping the lowest point at each spot.
 function cvStamp(map, a, b, bit) {
   const { H, nx, ny, cell } = map, low = Math.min(a[2], b[2]); if (low >= 0) return;
-  const v = bit.type === 'v', tan = v ? Math.tan(Math.max(5, bit.angle) / 2 * Math.PI / 180) : 0, tip = v ? (bit.tip || 0) / 2 : 0, R = bit.d / 2, soft = cell * .5, edge = cell * .75;   // soft: a groove thinner than the grid still shows. edge: the bit's rim fades across the grid, so a curved wall stays a smooth curve
+  const v = bit.type === 'v', ball = bit.type === 'ball', tan = v ? Math.tan(Math.max(5, bit.angle) / 2 * Math.PI / 180) : 0, tip = v ? (bit.tip || 0) / 2 : 0, R = bit.d / 2, soft = cell * .5, edge = cell * .75;   // soft: a groove thinner than the grid still shows. edge: the bit's rim fades across the grid, so a curved wall stays a smooth curve
   const reach = (v ? Math.min(R, tip + -low * tan) + soft : R) + edge, x0 = Math.max(0, Math.floor((Math.min(a[0], b[0]) - reach) / cell)), x1 = Math.min(nx - 1, Math.ceil((Math.max(a[0], b[0]) + reach) / cell)), y0 = Math.max(0, Math.floor((Math.min(a[1], b[1]) - reach) / cell)), y1 = Math.min(ny - 1, Math.ceil((Math.max(a[1], b[1]) + reach) / cell));
   const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], len = dx * dx + dy * dy;
   for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++) {
     const px = i * cell, py = j * cell, s = len ? Math.max(0, Math.min(1, ((px - a[0]) * dx + (py - a[1]) * dy) / len)) : 0, ex = px - a[0] - dx * s, ey = py - a[1] - dy * s, dist = Math.sqrt(ex * ex + ey * ey); if (dist > reach) continue;
-    const z = a[2] + dz * s, cover = Math.min(1, (R + edge - dist) / (2 * edge)), here = (v ? z + Math.max(0, dist - tip - soft) / tan : z) * cover, k = i + j * nx;
+    const z = a[2] + dz * s, cover = Math.min(1, (R + edge - dist) / (2 * edge)), here = (v ? z + Math.max(0, dist - tip - soft) / tan : ball ? z + R - Math.sqrt(Math.max(0, R * R - Math.max(0, dist - soft) ** 2)) : z) * cover, k = i + j * nx;
     if (here < H[k]) H[k] = here;
   }
 }

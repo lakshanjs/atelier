@@ -9,6 +9,8 @@ const CV_BITS_START = [
   { id: 'v-30', type: 'v', name: '30° V-bit', d: 3.175, angle: 30, tip: .1, reach: 0, feed: 300, plunge: 100, rpm: 1000, step: .3, over: 30, have: true },
   ...[.8, 1, 1.2, 1.4].map(d => cvCorn(d, 150, 50, .2)), ...[1.6, 1.8, 2, 2.2, 2.5].map(d => cvCorn(d, 200, 50, .3)), cvCorn(3.175, 300, 100, .5),
 ];
+// what's shown, kept per user (carveview.js reads and keeps it)
+const cvViewOpts = { wire: false, uncut: true, material: true, waste: true };
 let cvBits = JSON.parse(JSON.stringify(CV_BITS_START)), cvSel = null, cvShowPaths = false, cvView = null, cvOpenBit = null, cvCornOpen = false;
 // Thicknesses are the ones the design side already knows, so both sides agree.
 const CV_WOODS = {
@@ -36,6 +38,44 @@ const cvParse = s => { const t = String(s).trim(); return /^-?[\d.\s\/-]+$/.test
 const cvItem = () => (P.carve ? P.carve.items.find(i => i.id === cvSel) : null) || null;
 const cvEl = id => document.getElementById(id);
 
+// ---------- smart values ----------
+// A size, position or depth can follow a formula of the project's parameters, the same ones the design uses, like =Width/2.
+// Change a parameter and everything following it changes too. A value changed by hand, or dragged, stops following its formula.
+const CV_FX = { 'i.x': 'x', 'i.y': 'y', 'i.w': 'w', 'i.h': 'h', 'i.size': 'size', 'op.depth': 'depth', 'i.scaleW': 'w' };
+// a copy is moved, so it doesn't keep following where the original's formulas put it
+const cvClone = it => { const c = JSON.parse(JSON.stringify(it)); if (c.fx) { ['x', 'y'].forEach(k => { delete c.fx[k]; if (c.fxv) delete c.fxv[k]; }); if (!Object.keys(c.fx).length) { delete c.fx; delete c.fxv; } } return c; };
+const cvFxGet = (it, k) => (k === 'depth' ? it.op && it.op.depth : it[k]);
+const cvFxSet = (it, k, v) => { if (k === 'depth') it.op.depth = v; else it[k] = v; };
+const cvFxOk = (it, key) => !!CV_FX[key] && (key !== 'i.scaleW' || it.type === 'svg' || it.type === 'relief');
+let cvFxIssues = new Map();
+function cvFxSolve() {   // returns the items whose formulas stopped because they were changed by hand
+  cvFxIssues = new Map(); const dropped = []; if (typeof P === 'undefined' || !P || !P.carve) return dropped;
+  P.carve.items.forEach(it => {
+    if (!it.fx) return; it.fxv = it.fxv || {};
+    Object.keys(it.fx).forEach(k => {
+      const was = it.fxv[k];
+      if (was != null && Math.abs(cvFxGet(it, k) - was) > .001) { delete it.fx[k]; delete it.fxv[k]; dropped.push(it); return; }
+      try {
+        let v = fxLenOf(fxEval(it.fx[k].e, it.fx[k].u, fxLook(null)), it.fx[k].u);
+        if (k !== 'x' && k !== 'y' && !(v > 0)) { cvFxIssues.set(it.id + '.' + k, `It would be ${cvLen(v)}, so it's kept at ${cvLen(.1)}.`); v = .1; }
+        cvFxSet(it, k, v); it.fxv[k] = v;
+      } catch (e) { cvFxIssues.set(it.id + '.' + k, `=${it.fx[k].e}: ${e.message}.`); }
+    });
+    if (!Object.keys(it.fx).length) { delete it.fx; delete it.fxv; }
+  });
+  return dropped;
+}
+// a box that can hold a formula shows its value, and the formula while it's being typed in
+const cvFxF = (it, key, label, val) => { const f = cvFxOk(it, key) && it.fx && it.fx[CV_FX[key]]; return cvF(key, label, val, f ? `class="hasfx" data-fxtext="=${esc(f.e)}" title="=${esc(f.e)}"` : ''); };
+function cvParamsHtml() {
+  const list = P.params || [], rows = list.map((p, i) => {
+    let shown = '?'; try { const r = fxParamValue(p, null); shown = r.d ? cvNum(r.v) : String(r2(r.v)); } catch (e) {}
+    const isF = !/^-?[\d.]+mm$/.test(p.e), bad = fxIssues.get(`p:0.${p.name}`);
+    return `<div class="prm"><input type="text" data-cf="pn.${i}" value="${esc(p.name)}" aria-label="Name"><input type="text" data-cf="pv.${i}" ${isF ? `class="hasfx" data-fxtext="=${esc(p.e)}" title="=${esc(p.e)}"` : ''} value="${esc(shown)}" aria-label="${esc(p.name)} value"><button class="ic" data-cact="pdel" data-i="${i}" title="Delete ${esc(p.name)}" aria-label="Delete ${esc(p.name)}">${ic('x')}</button></div>${bad ? `<p class="fxbad">${esc(bad)}</p>` : ''}`;
+  }).join('');
+  return cvSec('smart', 'Smart values', (rows || '<p class="note">Name a size here, then type it into any size, position or depth, like =Width/2. The design uses the same ones.</p>') + '<div class="rowb"><button class="btn line" data-cact="padd">' + ic('plus') + 'Add</button></div>');
+}
+
 async function cvBitsStart() {
   let saved = null; try { saved = await kvGet('bits'); } catch (e) {}
   if (Array.isArray(saved) && saved.length) cvBits = saved;
@@ -50,14 +90,15 @@ function cvBestBit(kind) {
   const fit = cvOwned().filter(b => cvBitFits(kind, b));
   if (kind === 'line') return (fit.find(b => b.type === 'v') || cvEveryday(fit)[0] || {}).id || null;
   if (kind === 'vcarve') return (fit[0] || {}).id || null;
+  if (kind === 'relief') return (cvEveryday(fit.filter(b => b.type === 'ball'))[0] || cvEveryday(fit.filter(b => b.type === 'flat'))[0] || fit[0] || {}).id || null;
   return (cvEveryday(fit)[0] || {}).id || null;
 }
 const CV_FINISH = .2;   // the skin a cut-out leaves for its last clean pass
 // A V-carve starts with its level bottom cleared by whichever flat bit fits it best, for a smooth one.
-const cvOpFor = (cv, kind) => ({ kind, bit: cvBestBit(kind), depth: kind === 'line' ? .3 : 1, through: kind === 'outside' || kind === 'inside', peck: true, tabs: 4, finish: kind === 'outside' || kind === 'inside' ? CV_FINISH : 0, clear: kind === 'vcarve' ? 'auto' : null });
+const cvOpFor = (cv, kind) => ({ kind, bit: cvBestBit(kind), depth: kind === 'line' ? .3 : kind === 'relief' ? Math.min(6, cv.board.t / 2) : 1, through: kind === 'outside' || kind === 'inside', peck: true, tabs: 4, finish: kind === 'outside' || kind === 'inside' ? CV_FINISH : 0, clear: kind === 'vcarve' ? 'auto' : null });
 const CV_JOBS_STORE = 'atelier-carve-jobs';
 let cvJobsChosen = {}; try { cvJobsChosen = JSON.parse(localStorage.getItem(CV_JOBS_STORE)) || {}; } catch (e) {}
-const cvStartKind = type => cvJobsChosen[type] || (type === 'svg' ? 'pocket' : 'line');   // the job last chosen for this kind of thing
+const cvStartKind = type => (type === 'relief' ? 'relief' : cvJobsChosen[type] || (type === 'svg' ? 'pocket' : 'line'));   // the job last chosen for this kind of thing
 function cvRememberJob(type, kind) { if (kind === 'off') return; cvJobsChosen[type] = kind; try { localStorage.setItem(CV_JOBS_STORE, JSON.stringify(cvJobsChosen)); } catch (e) {} }
 
 // ---------- adding things ----------
@@ -86,12 +127,27 @@ async function cvAddSvgText(text) {
 const cvPathD = polys => polys.map(p => `M${p.map(q => `${r2(q[0])} ${r2(q[1])}`).join('L')}Z`).join('');
 const cvOpenD = lines => lines.map(l => `M${l.pts.map(q => `${r2(q[0])} ${r2(q[1])}`).join('L')}${l.closed ? 'Z' : ''}`).join('');
 const cvMatrix = it => { const r = -(it.rot || 0); return `translate(${r2(it.x)} ${r2(P.carve.board.w - it.y)}) rotate(${r}) scale(${it.mx ? -1 : 1} ${it.my ? 1 : -1})`; };
-const CV_INK = { drill: 'none', line: 'none', pocket: '#5a3d22', vcarve: '#5a3d22', outside: 'none', inside: 'none', off: 'none' };
+const CV_INK = { relief: 'none', drill: 'none', line: 'none', pocket: '#5a3d22', vcarve: '#5a3d22', outside: 'none', inside: 'none', off: 'none' };
+// a relief shows as its height map, lighter where it's higher, lit from the back left
+const cvReliefPics = new Map();
+function cvReliefPic(it) {
+  const map = cvReliefMap(it.art, it.up), key = it.art + '|' + (it.up || 'z'); if (!map) return '';
+  if (cvReliefPics.has(key)) return cvReliefPics.get(key);
+  const k = Math.min(1, 300 / Math.max(map.nx, map.ny)), W = Math.max(2, Math.round(map.nx * k)), H = Math.max(2, Math.round(map.ny * k)), c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d'), img = x.createImageData(W, H), at = (i, j) => map.H[Math.min(map.nx - 1, Math.round(i / k)) + Math.min(map.ny - 1, Math.round(j / k)) * map.nx];
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+    const h = at(i, j), lit = Math.max(.55, Math.min(1.25, 1 + ((at(Math.max(0, i - 1), j) - at(Math.min(W - 1, i + 1), j)) + (at(i, Math.min(H - 1, j + 1)) - at(i, Math.max(0, j - 1)))) * 6)), v = (60 + 175 * h) * lit, o = (i + j * W) * 4;
+    img.data[o] = Math.min(255, v * 1.04); img.data[o + 1] = Math.min(255, v * .9); img.data[o + 2] = Math.min(255, v * .72); img.data[o + 3] = 255;
+  }
+  x.putImageData(img, 0, 0); const url = c.toDataURL('image/png'); cvReliefPics.set(key, url); return url;
+}
 function cvItemSvg(it) {
   if (cvNeverCut(it)) return cvSpecialSvg(it);
+  if (it.type === 'relief') { const s = cvLocal(it), w = Math.max(s.w, 4), h = Math.max(s.h, 4), pic = cvReliefPic(it), ink = cvWood(P.carve.board).ink; return `<g class="cvitem" data-it="${it.id}" transform="${cvMatrix(it)}"><rect x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" fill="${ink}" fill-opacity=".25"/>${pic && !cvViewOpts.wire ? `<image href="${pic}" x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" preserveAspectRatio="none" opacity="${it.op && it.op.kind === 'off' ? .45 : .92}"/>` : ''}<rect x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" fill="none" stroke="${ink}" stroke-width=".5"/></g>`; }
   const s = cvLocal(it), kind = it.op ? it.op.kind : 'off', w = Math.max(s.w, 4), h = Math.max(s.h, 4), hit = `<rect x="${(s.ox || 0) - w / 2}" y="${(s.oy || 0) - h / 2}" width="${w}" height="${h}" fill="transparent"/>`;
   const line = kind === 'line' || kind === 'off' || !s.regions.length, d = line && (it.type === 'svg' || !s.regions.length) ? cvOpenD(s.lines) : cvPathD(s.regions);
-  return `<g class="cvitem" data-it="${it.id}" transform="${cvMatrix(it)}">${hit}<path d="${d}" fill="${CV_INK[kind] === 'none' ? 'none' : cvWood(P.carve.board).ink}" fill-rule="nonzero" stroke="${kind === 'off' ? '#8a7a64' : cvWood(P.carve.board).ink}" stroke-width="${kind === 'pocket' || kind === 'vcarve' ? 0 : .5}" ${kind === 'outside' || kind === 'inside' ? 'stroke-dasharray="2 1.5"' : ''} vector-effect="none"/></g>`;
+  const wire = cvViewOpts.wire;
+  return `<g class="cvitem" data-it="${it.id}" transform="${cvMatrix(it)}">${hit}<path d="${d}" fill="${wire || CV_INK[kind] === 'none' ? 'none' : cvWood(P.carve.board).ink}" fill-rule="nonzero" stroke="${kind === 'off' ? '#8a7a64' : cvWood(P.carve.board).ink}" stroke-width="${!wire && (kind === 'pocket' || kind === 'vcarve') ? 0 : .5}" ${kind === 'outside' || kind === 'inside' ? 'stroke-dasharray="2 1.5"' : ''} vector-effect="none"/></g>`;
 }
 function cvHandles(it, px) {
   const s = cvLocal(it), w = Math.max(s.w, 4) / 2 + 3 * px, h = Math.max(s.h, 4) / 2 + 3 * px, H = 5 * px, up = h + 22 * px, stroke = 1.5 * px;
@@ -136,7 +192,7 @@ function cvStageRender() {
     + cvPickedSvg(px) + '<g id="cvPen" pointer-events="none"></g>';
   clearTimeout(cvPathsTimer); cvPathsTimer = setTimeout(cvCutsRender, cvDrag ? 300 : 30);   // bit paths can take a moment, so the board draws first
 }
-function cvCutsRender() { const g = cvEl('cvCuts'); if (!g || cvDrag || !cvOpen()) return; g.innerHTML = cvPathsSvg(cvNow()); cvChecksRender(); }
+function cvCutsRender() { const g = cvEl('cvCuts'); if (!g || cvDrag || !cvOpen()) return; g.innerHTML = cvPathsSvg(cvNow()) + cvUncutSvg(cvNow()); cvChecksRender(); }
 const cvOpen = () => cvEl('carve').classList.contains('open');
 
 // ---------- seeing it carved ----------
@@ -190,7 +246,7 @@ function cv3dSize() {
   CV3D.renderer.setSize(W, H); CV3D.camera.aspect = W / H; CV3D.camera.updateProjectionMatrix(); cv3dDraw();
 }
 function cv3dAim() {
-  const { l, w } = cvNow().board, span = Math.max(l, w * CV3D.camera.aspect) * 1.25;
+  const { l, w } = cvNow().board, aspect = CV3D.camera.aspect, span = Math.max(l, w * aspect, l * 1.5 / aspect) * 1.25;   // a narrow view, side by side, stands further back
   CV3D.controls.target.set(l / 2, w / 2, 0); CV3D.camera.position.set(l / 2, w / 2 - span * .62, span * .95); CV3D.camera.near = span / 200; CV3D.camera.far = span * 20; CV3D.camera.updateProjectionMatrix(); CV3D.controls.update(); cv3dDraw();
 }
 function cv3dSetup() {
@@ -209,7 +265,7 @@ function cv3dBake() {
   const S = cvCarveSteps(cv, cvBitOf), map = cvCarveGrid(cv); S.steps.forEach(s => cvStamp(map, s.a, s.b, s.bit));
   const fresh = cv3dMesh(map); cv3dDispose(); CV3D.mesh = fresh; CV3D.scene.add(fresh); CV3D.key = key;
   CV3D.play = { ...S, map, t: S.total, upto: S.steps.length };   // shown finished, ready to play from the start
-  cvPlayShow(); cv3dDraw();
+  cvPlayShow(); cv3dExtras(); cv3dDraw();
 }
 
 // ---------- playing the cut ----------
@@ -230,6 +286,7 @@ function cvPlayTool() {   // the bit, standing where it is now
   if (!CV3D.tool) {
     const b = s.bit, R = b.d / 2, mat = new THREE.MeshBasicMaterial({ color: 0x8d979b, transparent: true, opacity: .8, depthTest: false }), g = new THREE.Group(), shank = 25;
     if (b.type === 'v') { const tan = Math.tan(Math.max(5, b.angle) / 2 * Math.PI / 180), h = Math.max(.2, (R - (b.tip || 0) / 2) / tan), cone = new THREE.Mesh(new THREE.CylinderGeometry(R, Math.max(.01, (b.tip || 0) / 2), h, 24), mat); cone.rotation.x = Math.PI / 2; cone.position.z = h / 2; g.add(cone); const top = new THREE.Mesh(new THREE.CylinderGeometry(R, R, shank, 24), mat.clone()); top.rotation.x = Math.PI / 2; top.position.z = h + shank / 2; g.add(top); }
+    else if (b.type === 'ball') { const body = new THREE.Mesh(new THREE.CylinderGeometry(R, R, shank, 24), mat); body.rotation.x = Math.PI / 2; body.position.z = R + shank / 2; g.add(body); const end = new THREE.Mesh(new THREE.SphereGeometry(R, 24, 12, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), mat.clone()); end.rotation.x = -Math.PI / 2; end.position.z = R; g.add(end); }
     else { const body = new THREE.Mesh(new THREE.CylinderGeometry(R, R, shank, 24), mat); body.rotation.x = Math.PI / 2; body.position.z = shank / 2; g.add(body); }
     g.userData.bit = b; g.renderOrder = 5; CV3D.tool = g; CV3D.scene.add(g);
   }
@@ -240,7 +297,7 @@ function cvPlayShow() {
   cvEl('cvPlayAt').value = Math.round(P3.t / Math.max(P3.total, 1e-9) * 1000);
   const playing = !!cvPlayFrame, btn = cvEl('cvPlayBtn'); btn.innerHTML = ic(playing ? 'pause' : 'play'); btn.title = playing ? 'Pause (Space)' : 'Play the cut (Space)'; btn.setAttribute('aria-label', playing ? 'Pause' : 'Play the cut');
   const part = P3.parts.filter(p => p.t <= P3.t + 1e-9).pop() || P3.parts[0];
-  cvEl('cvPlayText').textContent = `${Math.round(P3.t)} of ${Math.max(1, Math.round(P3.total))} min` + (part ? `  ·  File ${part.file + 1}, ${part.bit.name}: ${part.clearing ? 'clearing the V-carve bottom' : CV_JOB_SHORT[part.it.op.kind].toLowerCase()} ${cvItemName(part.it)}` : '');
+  cvEl('cvPlayText').textContent = `${Math.round(P3.t)} of ${Math.max(1, Math.round(P3.total))} min` + (part ? `  ·  File ${part.file + 1}, ${part.bit.name}: ${(part.clearing ? cvSecondWhat(part.it) : CV_JOB_SHORT[part.it.op.kind]).toLowerCase()} ${cvItemName(part.it)}` : '');
   cvPlayTool();
 }
 function cvPlayTick(now) {
@@ -254,27 +311,54 @@ function cvPlayStart() { const P3 = CV3D.play; if (!P3 || !P3.steps.length || cv
 function cvPlayStop() { if (cvPlayFrame) cancelAnimationFrame(cvPlayFrame); cvPlayFrame = 0; if (CV3D.play) cvPlayShow(); }
 function cvPlayNextPart() { const P3 = CV3D.play; if (!P3) return; cvPlayStop(); const next = P3.parts.find(p => p.t > P3.t + 1e-6); cvPlaySeek(next ? next.t : P3.total); }
 const cvFontsLoadedKey = () => Object.fromEntries([...cvFonts.parsed.entries()].filter(e => e[1]).map(e => [e[0], 1]));
-function cv3dSchedule() { if (!CV3D.on) return; clearTimeout(CV3D.timer); CV3D.timer = setTimeout(cv3dBake, 120); }
+function cv3dSchedule() { if (!CV3D.on) return; clearTimeout(CV3D.timer); CV3D.timer = setTimeout(cv3dBake, cvLayout === 'split' ? 300 : 120); }   // side by side, it waits for a pause in the changes
 function cv3dShow(on) {
   if (!on) cvPlayStop();
+  if (typeof cvLayoutShow === 'function') cvLayoutShow(on ? (cvLayout === 'board' ? '3d' : cvLayout) : 'board');
   CV3D.on = on; cvEl('cv3d').hidden = !on; cvEl('cv3dBtn').classList.toggle('on', on); cvEl('cv3dBtn').setAttribute('aria-pressed', on); document.body.classList.toggle('carve3d', on);
-  if (on) { cvEl('cv3d').style.background = isDark() ? '#272e31' : '#e4e9e7'; cv3dSetup(); CV3D.scene.background = new THREE.Color(isDark() ? 0x272e31 : 0xe4e9e7); cv3dSize(); cv3dAim(); cv3dBake(); }
+  if (on) { cvEl('cv3d').style.background = isDark() ? '#272e31' : '#e4e9e7'; cv3dSetup(); CV3D.scene.background = new THREE.Color(isDark() ? 0x272e31 : 0xe4e9e7); cv3dSize(); cv3dAim(); cv3dBake(); cv3dExtras(); }
+  cvView = null; if (cvOpen()) cvStageRender();   // the board has a different space now
 }
 
 // ---------- the side panel ----------
 const cvF = (key, label, val, extra = '') => `<label class="field">${label}<input type="text" data-cf="${key}" value="${esc(val)}" ${extra}></label>`;
-const cvClosedSecs = new Set(['machine']);
+const cvClosedSecs = new Set(['machine', 'smart', 'tools']);   // folded until opened, for this session
+const cvMoreOpen = new Set();
+let cvPickOpenFor = null;   // the item whose full list of bits is showing
+const cvMoreHtml = (key, body) => '<details class="cvmore" data-cmore="' + key + '"' + (cvMoreOpen.has(key) ? ' open' : '') + '><summary>More settings</summary>' + body + '</details>';
+// ---------- the depth gauge ----------
+// A slice through the board, to scale from top to bottom: the bit standing in the groove it cuts, the depth marked in tape
+// yellow, and how much wood is left under it. The slider under it sets the depth; the box above takes an exact one.
+function cvGaugeSvg(cv, bit, depth) {
+  const W = 260, top = 24, H = 44, t = cv.board.t, k = H / t, d = Math.max(0, Math.min(depth, t)), y = top + d * k, F = n => Math.round(n * 100) / 100, cx = 46;
+  const wood = cvWood(cv.board), base = cvHex(wood.rgb), grainC = cvHex(wood.rgb.map(v => v * .72)), steel = '#c3c9cb', dark = '#3f484c';
+  const R = bit ? bit.d / 2 : 1.6, half = Math.max(6, Math.min(34, R * k)), v = bit && bit.type === 'v', ball = bit && bit.type === 'ball';
+  let groove, tool;
+  if (v) { const tan = Math.tan(Math.max(5, bit.angle) / 2 * Math.PI / 180), hw = Math.max(3, Math.min(34, d * k * tan)); groove = `M${F(cx - hw)} ${top}L${cx} ${F(y)}L${F(cx + hw)} ${top}Z`; const sh = Math.max(hw, 6); tool = `<path d="M${F(cx - sh)} 0V${F(y - sh / tan)}L${cx} ${F(y)}L${F(cx + sh)} ${F(y - sh / tan)}V0Z" fill="${steel}" stroke="${dark}" stroke-linejoin="round"/>`; }
+  else if (ball) { const c = y - half; groove = c >= top ? `M${F(cx - half)} ${top}V${F(c)}A${F(half)} ${F(half)} 0 0 0 ${F(cx + half)} ${F(c)}V${top}Z` : (() => { const hw = Math.sqrt(Math.max(0, half * half - (top - c) ** 2)); return `M${F(cx - hw)} ${top}A${F(half)} ${F(half)} 0 0 0 ${F(cx + hw)} ${top}Z`; })(); tool = `<path d="M${F(cx - half)} 0V${F(c)}A${F(half)} ${F(half)} 0 0 0 ${F(cx + half)} ${F(c)}V0Z" fill="${steel}" stroke="${dark}"/>`; }
+  else { groove = `M${F(cx - half)} ${top}V${F(y)}H${F(cx + half)}V${top}Z`; tool = `<rect x="${F(cx - half)}" y="0" width="${F(half * 2)}" height="${F(y)}" fill="${steel}" stroke="${dark}"/>`; }
+  const grain = [.3, .55, .8].map((f, i) => `<path d="M0 ${F(top + H * f)}C${W * .3} ${F(top + H * f - 2 + i)} ${W * .6} ${F(top + H * f + 2 - i)} ${W} ${F(top + H * f)}" fill="none" stroke="${grainC}" stroke-opacity=".45" stroke-width=".8"/>`).join('');
+  // the slot the bit has cut so far, seen along its way, with the depth marked along its floor
+  const tx = 150, slot = d > 1e-6 ? `<rect x="${cx}" y="${top}" width="${tx - cx}" height="${F(d * k)}" fill="var(--panel)"/>` : '', through = d >= t - 1e-6;
+  const label = through ? 'Right through' : cvLen(d) + ' deep', left = t - d, tw = label.length * 6 + 12, tagY = Math.max(top + 8, Math.min(top + H - 8, y));
+  return `<svg viewBox="0 0 ${W} ${top + H + 2}" role="img" aria-label="${esc(label)}, in a board ${esc(cvLen(t))} thick"><rect x="0" y="${top}" width="${W}" height="${H}" fill="${base}"/>${grain}<path d="${groove}" fill="var(--panel)"/>${slot}<rect x=".5" y="${top}" width="${W - 1}" height="${H}" fill="none" stroke="${wood.edge}"/>${tool}`
+    + (d > 1e-6 ? `<line x1="${F(cx + half)}" y1="${F(y - 1)}" x2="${tx}" y2="${F(y - 1)}" stroke="#ffc928" stroke-width="2"/>` : '')
+    + `<rect x="${tx + 4}" y="${F(tagY - 8)}" width="${tw}" height="16" rx="2" fill="#ffc928" stroke="#20262a" stroke-width=".7"/><text x="${tx + 4 + tw / 2}" y="${F(tagY + 3.5)}" text-anchor="middle" font-family="Barlow,sans-serif" font-size="11" font-weight="600" fill="#20262a">${esc(label)}</text>`
+    + (left > 1e-6 && (top + H) - (tagY + 8) > 11 ? `<text x="${W - 6}" y="${top + H - 4}" text-anchor="end" font-family="Barlow,sans-serif" font-size="10.5" fill="#20262a" fill-opacity=".75">${esc(cvLen(left))} left under it</text>` : '') + '</svg>';
+}
+const cvGaugeHtml = (cv, bit, depth) => { const t = cv.board.t, step = cvIsInch() ? 25.4 / 64 : .1; return '<div class="gauge"><div class="gsvg">' + cvGaugeSvg(cv, bit, depth) + '</div><input type="range" data-cf="op.depthR" min="' + step + '" max="' + t + '" step="' + step + '" value="' + Math.min(t, depth) + '" aria-label="Depth, from the top of the board to its bottom"></div>'; };
 const cvSec = (key, title, body) => '<details class="sec" data-csec="' + key + '"' + (cvClosedSecs.has(key) ? '' : ' open') + '><summary>' + title + '</summary>' + body + '</details>';
 // what each job does, shown on a letter
-const CV_JOB_SHORT = { line: 'Engrave', pocket: 'Pocket', vcarve: 'V-carve', drill: 'Drill', outside: 'Cut around', inside: 'Cut inside', off: "Don't cut" };
-const CV_JOB_WHAT = { drill: 'Drills straight down at the middle of each shape, the size of the bit. A V-bit makes spot dimples for a corn bit to follow.', line: 'Cuts a thin line along the outline, or once along each stroke of a single-line font. Quick, and good for lettering.', pocket: 'Clears the whole shape to one depth, with a flat bottom.', vcarve: 'Sharp, chiselled edges with a V-bit. Slow with a narrow bit.', outside: 'Cuts the piece free from the board, with tabs to hold it.', inside: 'Cuts a hole the shape of the outline.', off: 'Stays on the board as a guide, and is not cut.' };
+const CV_JOB_SHORT = { relief: '3D relief', line: 'Engrave', pocket: 'Pocket', vcarve: 'V-carve', drill: 'Drill', outside: 'Cut around', inside: 'Cut inside', off: "Don't cut" };
+const CV_JOB_WHAT = { relief: 'Carves the model as a relief: its top at the board\'s surface, its lowest point at the depth. The bit steps down in passes, then runs over the surface once more to smooth it.', drill: 'Drills straight down at the middle of each shape, the size of the bit. A V-bit makes spot dimples for a corn bit to follow.', line: 'Cuts a thin line along the outline, or once along each stroke of a single-line font. Quick, and good for lettering.', pocket: 'Clears the whole shape to one depth, with a flat bottom.', vcarve: 'Sharp, chiselled edges with a V-bit. Slow with a narrow bit.', outside: 'Cuts the piece free from the board, with tabs to hold it.', inside: 'Cuts a hole the shape of the outline.', off: 'Stays on the board as a guide, and is not cut.' };
 function cvJobArt(kind) {
   const A = 'M20 36 30 8h4l10 28h-6l-2.5-8h-7L26 36ZM30 23h4l-2-8Z', ink = '#3b2814';
   const art = { line: '<path d="' + A + '" fill="none" stroke="' + ink + '" stroke-width="1"/>', pocket: '<path d="' + A + '" fill="#5a3d22" fill-rule="evenodd"/>',
     vcarve: '<path d="' + A + '" fill="#5a3d22" fill-rule="evenodd"/><path d="M23 35 32 10 41 35M27.5 28h9" fill="none" stroke="#c9a875" stroke-width=".7"/>',
     outside: '<path d="' + A + '" fill="#cbb088" fill-rule="evenodd"/><path d="M15 39 27 5h10l12 34Z" fill="none" stroke="' + ink + '" stroke-width="1" stroke-dasharray="2.5 1.5"/>',
     drill: '<path d="' + A + '" fill="none" stroke="#9c8a6f" stroke-width=".8"/>' + [[24, 33], [32, 11], [40, 33], [32, 25]].map(p => '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="2.6" fill="#3b2814"/>').join(''),
-    inside: '<path d="' + A + '" fill="#f6efe2" fill-rule="evenodd" stroke="' + ink + '" stroke-width="1" stroke-dasharray="2.5 1.5"/>', off: '<path d="' + A + '" fill="none" stroke="#9c8a6f" stroke-width=".8"/>' }[kind];
+    inside: '<path d="' + A + '" fill="#f6efe2" fill-rule="evenodd" stroke="' + ink + '" stroke-width="1" stroke-dasharray="2.5 1.5"/>',
+    relief: '<path d="M12 36C18 30 21 14 32 12S46 28 52 36Z" fill="#5a3d22"/><path d="M20 30C24 24 27 17 32 16S41 23 44 30" fill="none" stroke="#c9a875" stroke-width=".8"/><path d="M26 33C29 28 30 24 32 23S37 27 38 33" fill="none" stroke="#c9a875" stroke-width=".6"/>', off: '<path d="' + A + '" fill="none" stroke="#9c8a6f" stroke-width=".8"/>' }[kind];
   return '<svg viewBox="0 0 64 44" aria-hidden="true"><rect width="64" height="44" fill="#dcc29a"/>' + art + '</svg>';
 }
 function cvPanelHtml() {
@@ -283,10 +367,10 @@ function cvPanelHtml() {
   if (cvPicked().length > 1) return cvMultiPanelHtml();
   if (!it) {
     const wood = cvWood(cv.board), preset = wood.thick.find(q => Math.abs(q[0] - cv.board.t) < .01), custom = cv.board.customT || !preset;
-    h += cvSec('board', 'Wood and size', '<label class="field">Board type<select data-cf="b.wood" class="wide">' + Object.entries(CV_WOODS).map(([k, w]) => '<option value="' + k + '" ' + (w === wood ? 'selected' : '') + '>' + esc(w.name) + '</option>').join('') + '</select></label><label class="field">Thickness<select data-cf="b.tsel" class="wide">' + wood.thick.map(q => '<option value="' + q[0] + '" ' + (!custom && q === preset ? 'selected' : '') + '>' + esc(q[1]) + '</option>').join('') + '<option value="other" ' + (custom ? 'selected' : '') + '>Other size</option></select></label>' + (custom ? cvF('b.t', 'Exact thickness', cvNum(cv.board.t)) : '') + cvF('b.l', 'Length, along X', cvNum(cv.board.l)) + cvF('b.w', 'Width, along Y', cvNum(cv.board.w)) + '<p class="cvSub">Speed for ' + esc(wood.name.toLowerCase()) + '</p><p class="note">' + esc(wood.why) + ' These change every bit\'s own numbers.</p><label class="field">Cutting speed, %<input type="text" data-cf="b.feedPct" value="' + cvPct(cv.board, 'feedPct') + '"></label><label class="field">Depth per pass, %<input type="text" data-cf="b.stepPct" value="' + cvPct(cv.board, 'stepPct') + '"></label>' + '<div class="rowb"><button class="btn line" data-cact="panel">Use the selected panel\'s size</button></div>');
+    h += cvSec('board', 'Wood and size', '<label class="field">Board type<select data-cf="b.wood" class="wide">' + Object.entries(CV_WOODS).map(([k, w]) => '<option value="' + k + '" ' + (w === wood ? 'selected' : '') + '>' + esc(w.name) + '</option>').join('') + '</select></label><label class="field">Thickness<select data-cf="b.tsel" class="wide">' + wood.thick.map(q => '<option value="' + q[0] + '" ' + (!custom && q === preset ? 'selected' : '') + '>' + esc(q[1]) + '</option>').join('') + '<option value="other" ' + (custom ? 'selected' : '') + '>Other size</option></select></label>' + (custom ? cvF('b.t', 'Exact thickness', cvNum(cv.board.t)) : '') + cvF('b.l', 'Length, along X', cvNum(cv.board.l)) + cvF('b.w', 'Width, along Y', cvNum(cv.board.w)) + cvMoreHtml('board', '<p class="cvSub">Speed for ' + esc(wood.name.toLowerCase()) + '</p><p class="note">' + esc(wood.why) + ' These change every bit\'s own numbers.</p><label class="field">Cutting speed, %<input type="text" data-cf="b.feedPct" value="' + cvPct(cv.board, 'feedPct') + '"></label><label class="field">Depth per pass, %<input type="text" data-cf="b.stepPct" value="' + cvPct(cv.board, 'stepPct') + '"></label>'));
     const mine = cvOwned(), mainBits = mine.filter(b => b.family !== 'corn'), moreBits = mine.length - mainBits.length;
     h += cvSec('bits', 'Your bits', (mine.length ? '<div class="bitStrip">' + mainBits.map(b => '<span title="' + esc(b.name) + '">' + cvBitArt(b) + '</span>').join('') + '</div>' + (moreBits ? '<p class="note">And ' + moreBits + ' corn end ' + (moreBits === 1 ? 'mill' : 'mills') + '.</p>' : '') : '<p class="note">None ticked yet. Tick the bits you own so they can be used.</p>') + '<div class="rowb"><button class="btn line" data-cact="bits">' + (mine.length ? 'Change your bits' : 'Choose your bits') + '</button></div>');
-    h += cvFromPanelHtml(cv);
+    h += cvParamsHtml();
     h += cvSec('items', 'On this board', (cv.items.length ? '<div class="cvlist">' + cv.items.map(i => '<button data-cpick="' + i.id + '">' + ic(cvTypeIcon(i.type)) + '<span>' + esc(cvItemName(i)) + '</span></button>').join('') + '</div>' : '<p class="note">Nothing yet. Add text, an SVG or a shape from the left.</p>') + (cv.items.length ? '<div class="rowb"><button class="btn line" data-cact="b-svg" title="Saves the shapes on the board as an SVG drawing, in mm">' + ic('download') + 'SVG</button><button class="btn line" data-cact="b-dxf" title="Saves the shapes on the board as a DXF drawing, in mm">' + ic('download') + 'DXF</button></div>' : ''));
     const zero = cvZeroOf(cv), zeroName = cvZeroName(cv);
     h += cvSec('setup', 'Zero point', '<div class="zeroGrid" role="radiogroup" aria-label="Where X0 Y0 is on the board">' + CV_ZEROS.map(([x, y, name]) => '<label class="zeroBtn' + (x === zero[0] && y === zero[1] ? ' on' : '') + '" title="Zero at the ' + cvZeroPlace(name) + '"><input type="radio" name="cvZero" data-cf="zero" value="' + x + ',' + y + '" aria-label="' + name + '" ' + (x === zero[0] && y === zero[1] ? 'checked' : '') + '><i></i></label>').join('') + '</div>'
@@ -296,44 +380,61 @@ function cvPanelHtml() {
     h += cvSec('machine', 'Machine', '<label class="check" title="For a board bigger than the machine can reach: it is cut in tiles one after another, sliding the board along between them"><input type="checkbox" data-cf="tile" ' + (cv.tile ? 'checked' : '') + '>Cut in tiles if the board is too big to reach</label><label class="check" title="Curves go out as true arcs (G2 and G3), which GRBL cuts smoothly, instead of many short lines"><input type="checkbox" data-cf="arcs" ' + (cv.arcs !== false ? 'checked' : '') + '>Write curves as arcs</label>' + cvF('clampH', 'Clamps stand this high', cvNum(cvClampH(cv))) + cvF('safeZ', 'Safe height above the board', cvNum(cv.safeZ)) + cvF('airZ', 'Air test height above the board', cvNum(cvAirOf(cv))) + '<label class="field">Slope into the cut, degrees<input type="text" data-cf="ramp" value="' + cvRampOf(cv) + '" title="Flat bits slope down into the wood instead of drilling straight in. 0 goes straight down."></label>' + cvF('tabW', 'Tab length', cvNum(cv.tabW)) + cvF('tabH', 'Tab height', cvNum(cv.tabH)) + cvF('workX', 'Machine travel, X', cvNum(cv.workX ?? 300)) + cvF('workY', 'Machine travel, Y', cvNum(cv.workY ?? 180)) + '<label class="field">Top speed, mm/min<input type="text" data-cf="maxRate" value="' + (cv.maxRate ?? 1500) + '"></label>');
     return h;
   }
-  if (it.type === 'text') h += cvSec('text', 'Text', '<textarea data-cf="i.text" rows="2" aria-label="Text">' + esc(it.text) + '</textarea><label class="field">Font<select data-cf="i.font" id="cvFont"><option>' + esc(it.font) + '</option></select></label><label class="field">Line up<select data-cf="i.align">' + [['left', 'Left'], ['center', 'Centre'], ['right', 'Right']].map(([v, l]) => '<option value="' + v + '" ' + ((it.align || 'center') === v ? 'selected' : '') + '>' + l + '</option>').join('') + '</select></label>' + cvF('i.arc', 'Bend round a circle, radius', cvNum(it.arc || 0), 'title="0 keeps it straight. A positive radius curves it over the top of a circle, a negative one under it."'));
+  if (it.type === 'text') h += cvSec('text', 'Text', '<textarea data-cf="i.text" rows="2" aria-label="Text">' + esc(it.text) + '</textarea><label class="field">Font<select data-cf="i.font" id="cvFont"><option>' + esc(it.font) + '</option></select></label><label class="field">Line up<select data-cf="i.align">' + [['left', 'Left'], ['center', 'Centre'], ['right', 'Right']].map(([v, l]) => '<option value="' + v + '" ' + ((it.align || 'center') === v ? 'selected' : '') + '>' + l + '</option>').join('') + '</select></label>' + cvMoreHtml('text', '<label class="field">Warp<select data-cf="i.warp" title="Warps the letters inside an envelope, keeping them upright">' + CV_WARPS.map(([v, l]) => '<option value="' + v + '" ' + ((it.warp || '') === v ? 'selected' : '') + '>' + l + '</option>').join('') + '</select></label>' + (it.warp ? '<label class="field">How much, %<input type="text" data-cf="i.warpAmt" value="' + (it.warpAmt ?? 30) + '" title="A part of the text\'s height. Less than 0 turns a bulge into a pinch, and the others the other way."></label>' : '') + cvF('i.arc', 'Bend round a circle, radius', cvNum(it.arc || 0), 'title="0 keeps it straight. A positive radius curves it over the top of a circle, a negative one under it."')));
   if (cvNeverCut(it)) return h + cvSpecialPanelHtml(it);
+  if (it.type === 'relief') h += cvSec('model', '3D model', '<label class="field">Up in the file is<select data-cf="i.up" class="wide" title="Which of the model\'s own directions points up out of the board">' + [['z', 'Z, the usual'], ['y', 'Y'], ['x', 'X']].map(([v, l]) => '<option value="' + v + '" ' + ((it.up || 'z') === v ? 'selected' : '') + '>' + l + '</option>').join('') + '</select></label>' + (cvReliefMap(it.art, it.up) ? '' : '<p class="note pickAsk">This model can\'t be read this way up. Try another.</p>'));
   const op = it.op, bit = cvBitOf(op.bit), list = cvOwned().filter(b => cvBitFits(op.kind, b)), showCurrent = bit && !list.includes(bit);
-  let cut = '<div class="jobGrid" role="radiogroup" aria-label="How to cut it">' + CV_KINDS.map(([v]) => '<label class="jobBtn' + (op.kind === v ? ' on' : '') + '" title="' + esc(CV_JOB_WHAT[v]) + '"><input type="radio" name="cvJob" data-cf="op.kind" value="' + v + '" ' + (op.kind === v ? 'checked' : '') + '>' + cvJobArt(v) + esc(CV_JOB_SHORT[v]) + '</label>').join('') + '</div><p class="note jobWhat">' + esc(CV_JOB_WHAT[op.kind]) + '</p>';
+  let cut = '<div class="jobGrid" role="radiogroup" aria-label="How to cut it">' + CV_KINDS.filter(([v]) => (it.type === 'relief' ? v === 'relief' || v === 'off' : v !== 'relief')).map(([v]) => '<label class="jobBtn' + (op.kind === v ? ' on' : '') + '" title="' + esc(CV_JOB_WHAT[v]) + '"><input type="radio" name="cvJob" data-cf="op.kind" value="' + v + '" ' + (op.kind === v ? 'checked' : '') + '>' + cvJobArt(v) + esc(CV_JOB_SHORT[v]) + '</label>').join('') + '</div><p class="note jobWhat">' + esc(CV_JOB_WHAT[op.kind]) + '</p>';
   if (op.kind !== 'off') {
+    let more = '';   // what a first carving can leave as it is
     if (op.kind === 'outside' || op.kind === 'inside' || op.kind === 'drill') {
       cut += '<label class="check"><input type="checkbox" data-cf="op.through" ' + (op.through ? 'checked' : '') + '>All the way through</label>';
-      if (!op.through) cut += cvF('op.depth', 'Depth', cvNum(op.depth));
-      if (op.kind === 'drill') cut += '<label class="check" title="Comes up clear of the board after each depth per pass, to let the chips out"><input type="checkbox" data-cf="op.peck" ' + (op.peck !== false ? 'checked' : '') + '>Peck, to clear chips</label>';
-      else cut += '<label class="field">Tabs on each piece<input type="text" data-cf="op.tabs" value="' + (op.tabs ?? 4) + '"></label>';
+      if (!op.through) cut += cvFxF(it, 'op.depth', 'Depth', cvNum(op.depth)) + cvGaugeHtml(cv, bit, op.depth);
+      if (op.kind === 'drill') more += '<label class="check" title="Comes up clear of the board after each depth per pass, to let the chips out"><input type="checkbox" data-cf="op.peck" ' + (op.peck !== false ? 'checked' : '') + '>Peck, to clear chips</label>';
+      else cut += '<label class="field">Tabs on each piece<input type="text" data-cf="op.tabs" value="' + (op.tabs ?? 4) + '" title="Small bridges left uncut, so the piece stays put until the end. Cut them with a knife after."></label>';
     } else {
-      cut += cvF('op.depth', op.kind === 'vcarve' ? 'Deepest cut' : 'Depth', cvNum(op.depth));
+      cut += cvFxF(it, 'op.depth', op.kind === 'vcarve' ? 'Deepest cut' : op.kind === 'relief' ? 'Depth of the relief' : 'Depth', cvNum(op.depth)) + cvGaugeHtml(cv, bit, op.depth);
+      if (op.kind === 'pocket') more += '<label class="field">Clear it<select data-cf="op.fill" class="wide" title="Rings follow the shape. Back and forth runs straight lines across it, then once round the edge, which is often quicker for big plain areas.">' + [['', 'Rings round the shape'], ['x', 'Lines along X'], ['y', 'Lines along Y']].map(([v, l]) => '<option value="' + v + '" ' + ((op.fill || '') === v ? 'selected' : '') + '>' + l + '</option>').join('') + '</select></label>';
+      if (op.kind === 'pocket' || op.kind === 'relief') {
+        const pocket = op.kind === 'pocket', mine = cvOwned().filter(b => (pocket ? b.type === 'flat' && bit && b.d < bit.d - 1e-6 : b !== bit)), cur = op.detail && op.detail !== 'auto' && cvBitOf(op.detail), list = cur && !mine.includes(cur) ? mine.concat([cur]) : mine, sec = cvClearBit(it, cvBitOf);
+        more += '<label class="field">' + (pocket ? 'Corners and detail' : 'Finishing bit') + '<select data-cf="op.detail" class="wide" title="' + (pocket ? 'A narrower flat bit goes after this one, into the corners and narrow parts it can\'t reach, in its own file.' : 'Another bit can smooth the surface after this one has roughed it out, in its own file. A smaller bit, or a V-bit, follows fine detail better.') + '"><option value="" ' + (!op.detail ? 'selected' : '') + '>' + (pocket ? 'Only this bit' : 'This bit does both') + '</option>' + (pocket ? '<option value="auto" ' + (op.detail === 'auto' ? 'selected' : '') + '>' + (op.detail === 'auto' && sec ? 'Best: ' + esc(sec.name) : 'Best narrower bit') + '</option>' : '') + list.map(b => '<option value="' + esc(b.id) + '" ' + (op.detail === b.id ? 'selected' : '') + '>' + esc(b.name) + '</option>').join('') + '</select></label>';
+        if (op.kind === 'relief') {
+          const fin = sec || bit; more += '<label class="field">Finishing step across, %<input type="text" data-cf="op.over" value="' + (op.over || CV_RELIEF_FINISH) + '" title="How far apart the finishing lines are, as a part of the finishing bit\'s width. Smaller is smoother and slower."></label>';
+          if (bit) cut += '<p class="note">The ' + esc(bit.name) + ' steps down ' + esc(cvLen(cvRated(cv, bit).step)) + ' at a time' + (sec ? ', leaving ' + esc(cvLen(CV_RELIEF_LEAVE)) + ' for the ' + esc(sec.name) + ' to finish' : ', then finishes the surface') + (fin ? ' with lines ' + esc(cvLen(fin.d * (op.over || CV_RELIEF_FINISH) / 100)) + ' apart.' : '.') + (fin && fin.type === 'flat' ? ' A flat bit leaves small steps on slopes.' : '') + '</p>';
+        }
+      }
       if (op.kind === 'vcarve') {
         const flats = cvOwned().filter(b => b.type === 'flat'), cur = op.clear && cvBitOf(op.clear), list = cur && !flats.includes(cur) ? flats.concat([cur]) : flats, clear = cvClearBit(it, cvBitOf);
-        cut += '<label class="field">Level bottom<select data-cf="op.clear" class="wide" title="Where a stroke is wider than the deepest cut allows, its bottom is level. A flat bit clears it smooth, in its own file before the V-bit."><option value="auto" ' + (op.clear === 'auto' ? 'selected' : '') + '>Best flat bit that fits' + (op.clear === 'auto' && clear ? ': ' + esc(clear.name) : '') + '</option><option value="" ' + (!op.clear ? 'selected' : '') + '>V-bit, with small ridges</option>' + list.map(b => '<option value="' + esc(b.id) + '" ' + (op.clear === b.id ? 'selected' : '') + '>' + esc(b.name) + '</option>').join('') + '</select></label>';
-        if (bit && bit.type === 'v') cut += '<p class="note">The V-bit runs along the middle of each stroke. Strokes wider than ' + esc(cvLen(2 * cvVshape(bit, op.depth).cap)) + ' get a level bottom at this depth' + (clear ? ', cleared by the ' + esc(clear.name) + ' first.' : ', with small ridges from the V shape.') + '</p>';
+        more += '<label class="field">Level bottom<select data-cf="op.clear" class="wide" title="Where a stroke is wider than the deepest cut allows, its bottom is level. A flat bit clears it smooth, in its own file before the V-bit."><option value="auto" ' + (op.clear === 'auto' ? 'selected' : '') + '>Best flat bit that fits' + (op.clear === 'auto' && clear ? ': ' + esc(clear.name) : '') + '</option><option value="" ' + (!op.clear ? 'selected' : '') + '>V-bit, with small ridges</option>' + list.map(b => '<option value="' + esc(b.id) + '" ' + (op.clear === b.id ? 'selected' : '') + '>' + esc(b.name) + '</option>').join('') + '</select></label>';
+        if (bit && bit.type === 'v') more += '<p class="note">The V-bit runs along the middle of each stroke. Strokes wider than ' + esc(cvLen(2 * cvVshape(bit, op.depth).cap)) + ' get a level bottom at this depth' + (clear ? ', cleared by the ' + esc(clear.name) + ' first.' : ', with small ridges from the V shape.') + '</p>';
       }
       if (op.kind === 'line' && bit && bit.type === 'v') cut += '<p class="note">The line will be ' + esc(cvLen(2 * (op.depth * Math.tan(bit.angle / 2 * Math.PI / 180) + (bit.tip || 0) / 2))) + ' wide.</p>';
     }
-    if (['pocket', 'outside', 'inside'].includes(op.kind)) cut += '<label class="check" title="Climb: the bit turns into the wood the way it travels. It often leaves cleaner edges in wood, but pulls harder on a light machine. Off cuts the usual, conventional way."><input type="checkbox" data-cf="op.climb" ' + (op.climb ? 'checked' : '') + '>Climb cut</label>';
-    if (['pocket', 'outside', 'inside'].includes(op.kind)) cut += cvF('op.finish', 'Finishing skin',cvNum(op.finish || 0), 'title="The other passes stay this far off the edge, and a last pass at full depth takes it off, for clean, true walls. 0 turns it off."');
-    const need = op.kind === 'vcarve' ? 'V-bit' : op.kind === 'line' ? 'bit' : 'flat bit', choices = list.concat(showCurrent ? [bit] : []);
-    cut += '<div class="pickHead"><b>Bit</b><button class="pickEdit" data-cact="bits">Your bits</button></div>';
+    if (['pocket', 'outside', 'inside'].includes(op.kind)) more += '<label class="check" title="Climb: the bit turns into the wood the way it travels. It often leaves cleaner edges in wood, but pulls harder on a light machine. Off cuts the usual, conventional way."><input type="checkbox" data-cf="op.climb" ' + (op.climb ? 'checked' : '') + '>Climb cut</label>' + cvF('op.finish', 'Finishing skin', cvNum(op.finish || 0), 'title="The other passes stay this far off the edge, and a last pass at full depth takes it off, for clean, true walls. 0 turns it off."');
+    const need = op.kind === 'vcarve' ? 'V-bit' : op.kind === 'line' || op.kind === 'relief' ? 'bit' : 'flat bit', choices = list.concat(showCurrent ? [bit] : []);
     const row = b => '<label class="pickBit' + (op.bit === b.id ? ' on' : '') + '"><input type="radio" name="cvBit" data-cf="op.bit" value="' + esc(b.id) + '" ' + (op.bit === b.id ? 'checked' : '') + '>' + cvBitArt(b) + '<span><b>' + esc(b.name) + '</b><small>' + esc(cvBitLine(b)) + '</small></span></label>';
-    const usual = choices.filter(b => b.family !== 'corn'), corn = choices.filter(b => b.family === 'corn'), cornOpen = cvCornOpen || (bit && bit.family === 'corn');
-    cut += choices.length ? '<div class="pickList" role="radiogroup" aria-label="Bit for this job">' + usual.map(row).join('') + (corn.length ? '<details class="pickMore"' + (cornOpen ? ' open' : '') + '><summary>Corn end mills (' + corn.length + ')</summary><div class="pickList">' + corn.map(row).join('') + '</div></details>' : '') + '</div>'
-      : '<div class="pickNone"><p>This job needs a ' + need + ', and none is ticked in your bits.</p><button class="btn line" data-cact="bits">Choose your bits</button></div>';
-    if (choices.length && !bit) cut += '<p class="note pickAsk">Choose a bit above.</p>';
+    if (bit && choices.includes(bit) && cvPickOpenFor !== it.id) {   // the bit chosen for it, and a way to change it
+      cut += '<div class="pickHead"><b>Bit</b><button class="pickEdit" data-cact="pickopen">Change</button></div><div class="pickList" role="radiogroup" aria-label="Bit for this job">' + row(bit) + '</div>';
+    } else {
+      cut += '<div class="pickHead"><b>Bit</b><button class="pickEdit" data-cact="bits">Your bits</button></div>';
+      const usual = choices.filter(b => b.family !== 'corn'), corn = choices.filter(b => b.family === 'corn'), cornOpen = cvCornOpen || (bit && bit.family === 'corn');
+      cut += choices.length ? '<div class="pickList" role="radiogroup" aria-label="Bit for this job">' + usual.map(row).join('') + (corn.length ? '<details class="pickMore"' + (cornOpen ? ' open' : '') + '><summary>Corn end mills (' + corn.length + ')</summary><div class="pickList">' + corn.map(row).join('') + '</div></details>' : '') + '</div>'
+        : '<div class="pickNone"><p>This job needs a ' + need + ', and none is ticked in your bits.</p><button class="btn line" data-cact="bits">Choose your bits</button></div>';
+      if (choices.length && !bit) cut += '<p class="note pickAsk">Choose a bit above.</p>';
+    }
     if (bit) { const on = cvRated(cv, bit); cut += '<p class="note">On ' + esc(cvWood(cv.board).name.toLowerCase()) + ': ' + Math.round(on.feed) + ' mm/min, ' + (Math.round(on.step * 100) / 100) + ' mm per pass.</p>'; }
+    if (more) cut += cvMoreHtml('cut', more);
   }
   h += cvSec('cut', 'How to cut it', cut);
-  const fieldSize = it.type === 'text' ? cvF('i.size', 'Letter height', cvNum(it.size)) + cvF('i.spacing', 'Letter spacing', cvNum(it.spacing || 0)) : it.type === 'svg' || it.type === 'path' || it.type === 'trace' ? cvF('i.scaleW', 'Width', cvNum(cvLocal(it).w)) + cvF('i.scaleH', 'Height', cvNum(cvLocal(it).h)) : cvF('i.w', 'Width', cvNum(it.w)) + cvF('i.h', 'Height', cvNum(it.h));
-  h += cvSec('place', 'Size and position', fieldSize + cvF('i.x', 'Middle from left', cvNum(it.x)) + cvF('i.y', 'Middle from front', cvNum(it.y)) + '<label class="field">Turn, degrees<input type="text" data-cf="i.rot" value="' + (it.rot || 0) + '"></label><div class="rowb cvicons"><button class="btn line" data-cact="midx" title="Centre across the board" aria-label="Centre across the board">' + ic('align-center-vertical') + '</button><button class="btn line" data-cact="midy" title="Centre along the board" aria-label="Centre along the board">' + ic('align-center-horizontal') + '</button><button class="btn line" data-cact="dup" title="Duplicate (Ctrl+D)" aria-label="Duplicate">' + ic('copy') + '</button><button class="btn line" data-cact="del" title="Delete (Del)" aria-label="Delete">' + ic('trash-2') + '</button></div>');
+  const fieldSize = it.type === 'text' ? cvFxF(it, 'i.size', 'Letter height', cvNum(it.size)) + cvF('i.spacing', 'Letter spacing', cvNum(it.spacing || 0)) : it.type === 'svg' || it.type === 'path' || it.type === 'trace' || it.type === 'relief' ? cvFxF(it, 'i.scaleW', 'Width', cvNum(cvLocal(it).w)) + cvF('i.scaleH', 'Height', cvNum(cvLocal(it).h)) : cvFxF(it, 'i.w', 'Width', cvNum(it.w)) + cvFxF(it, 'i.h', 'Height', cvNum(it.h));
+  h += cvSec('place', 'Size and position', fieldSize + cvFxF(it, 'i.x', 'Middle from left', cvNum(it.x)) + cvFxF(it, 'i.y', 'Middle from front', cvNum(it.y)) + '<label class="field">Turn, degrees<input type="text" data-cf="i.rot" value="' + (it.rot || 0) + '"></label><div class="rowb cvicons"><button class="btn line" data-cact="midx" title="Centre across the board" aria-label="Centre across the board">' + ic('align-center-vertical') + '</button><button class="btn line" data-cact="midy" title="Centre along the board" aria-label="Centre along the board">' + ic('align-center-horizontal') + '</button><button class="btn line" data-cact="dup" title="Duplicate (Ctrl+D)" aria-label="Duplicate">' + ic('copy') + '</button><button class="btn line" data-cact="del" title="Delete (Del)" aria-label="Delete">' + ic('trash-2') + '</button></div>');
+  const fxBad = [...cvFxIssues.entries()].filter(([q]) => q.startsWith(it.id + '.')).map(([, v]) => v);
+  if (fxBad.length) h = h.replace('<details class="sec" data-csec="place"', '<p class="fxbad">' + fxBad.map(esc).join('<br>') + '</p><details class="sec" data-csec="place"');
   h += cvShapeSecHtml(it);
   return h;
 }
 const cvZeroPlace = name => (name === 'middle' ? 'middle' : name.endsWith('middle') ? `middle of the ${name.split(' ')[0]} edge` : `${name} corner`);
-const cvItemName = i => (i.type === 'text' ? String(i.text).split('\n')[0] || 'Text' : i.type === 'svg' ? 'Artwork' : { rect: 'Rectangle', circle: 'Ellipse', polygon: 'Polygon', star: 'Star', trace: 'Traced picture', clamp: 'Clamp zone', dim: 'Dimension', path: i.paths && i.paths.every(l => l.closed) ? 'Shape' : 'Line' }[i.type] || 'Shape');
+const cvItemName = i => (i.type === 'text' ? String(i.text).split('\n')[0] || 'Text' : i.type === 'svg' ? 'Artwork' : i.type === 'relief' ? '3D model' : { rect: 'Rectangle', circle: 'Ellipse', polygon: 'Polygon', star: 'Star', trace: 'Traced picture', clamp: 'Clamp zone', dim: 'Dimension', path: i.paths && i.paths.every(l => l.closed) ? 'Shape' : 'Line' }[i.type] || 'Shape');
 function cvPanelRender() {
   const box = cvEl('cvSide'), active = document.activeElement, focusKey = active && active.dataset ? active.dataset.cf : null, at = active && active.selectionStart;
   const openItem = cvItem(), many = cvPicked().length; cvEl('cvHead').innerHTML = cvTool ? '<span>' + esc(cvToolTitle()) + '</span><button class="ic" data-cdone="1" title="Stop drawing (Esc)" aria-label="Stop drawing">' + ic('x') + '</button>' : openItem ? '<span>' + esc(many > 1 ? many + ' items' : cvItemName(openItem)) + '</span><button class="ic" data-cdone="1" title="Back to the board (Esc)" aria-label="Back to the board">' + ic('x') + '</button>' : '<span>Board</span>';
@@ -355,16 +456,38 @@ function cvChecksRender() {
   cvEl('cvExport').disabled = cvEl('cvAir').disabled = !!bad.length;
   const airTip = `Save an air test: the same job ${cvLen(cvAirOf(cv))} above the board, cutting nothing`; cvEl('cvAir').title = airTip; cvEl('cvAir').setAttribute('aria-label', airTip);
 }
-function carveRender() { if (!cvOpen()) return; cv3dSchedule(); cvStageRender(); cvPanelRender(); cvEl('cvPaths').classList.toggle('on', cvShowPaths); }
+function cv3dTheme() {   // the 3D view's background follows light and dark
+  if (!CV3D.renderer) return; const dark = isDark(), want = dark ? 0x272e31 : 0xe4e9e7; if (CV3D.scene.background && CV3D.scene.background.getHex() === want) return;
+  CV3D.scene.background = new THREE.Color(want); cvEl('cv3d').style.background = dark ? '#272e31' : '#e4e9e7'; cv3dDraw();
+}
+function carveRender() { if (!cvOpen()) return; cv3dTheme(); cv3dSchedule(); cvStageRender(); cvPanelRender(); if (typeof cvRailMarks === 'function') cvRailMarks(); cvEl('cvPaths').classList.toggle('on', cvShowPaths); }
 
 // ---------- changing values ----------
 const CV_INPUT_NUM = { 'b.l': v => v > 0, 'b.w': v => v > 0, 'b.t': v => v > 0, safeZ: v => v > 0, tabW: v => v > 0, tabH: v => v >= 0, workX: v => v > 0, workY: v => v > 0, 'i.size': v => v > 0, 'i.spacing': () => true, 'i.w': v => v > 0, 'i.h': v => v > 0, 'i.x': () => true, 'i.y': () => true, 'i.scaleW': v => v > 0, 'i.arc': () => true, 'i.scaleH': v => v > 0, 'op.depth': v => v > 0, 'op.finish': v => v >= 0 && v <= 3, airZ: v => v > 0, clampH: v => v > 0, 'i.off': () => true };
 function cvFieldChange(el) {
   if (cvToolField(el)) return;
   const k = el.dataset.cf, cv = cvNow(), it = cvItem();
+  if (/^p[nv]\.\d+$/.test(k)) {   // a smart value's name or size
+    const p = (P.params || [])[+k.slice(3)]; if (!p) return;
+    if (k[1] === 'v') { const before = { e: p.e, u: p.u }; edit(() => { const err = fxSetParam(p, el.value, null); if (err) { p.e = before.e; p.u = before.u; toast(`Can't use that: ${err}.`, true); } }); return; }
+    const nm = el.value.trim();
+    if (!FX_NAME.test(nm)) { toast('A name starts with a letter and has only letters, numbers and _.', true); carveRender(); return; }
+    if (nm.toLowerCase() !== p.name.toLowerCase() && fxFindParam(nm, null)) { toast(`There is already one called ${nm}.`, true); carveRender(); return; }
+    edit(() => { fxRenameEverywhere(p.name, nm, null); p.name = nm; }); return;
+  }
+  if (it && cvFxOk(it, k)) {   // a formula is kept; a sum is worked out once
+    const t = String(el.value).trim(), fk = CV_FX[k];
+    if (t[0] === '=' || t[0] === '#' || /[+*()]/.test(t) || /[a-z_]{2,}/i.test(t.replace(/\b(mm|cm|in|inch|inches|ft|feet|foot|yd)\b/gi, ''))) {
+      const r = fxFromBox(t, null);
+      if (r.error) { toast(`Can't use that: ${r.error}.`, true); carveRender(); return; }
+      if (r.formula) { cvEdit(() => { it.fx = it.fx || {}; it.fx[fk] = r.formula; if (it.fxv) delete it.fxv[fk]; }); return; }
+      el.value = cvNum(r.value);
+    }
+  }
   if (CV_INPUT_NUM[k]) {
     const v = cvParse(el.value); if (!isFinite(v) || !CV_INPUT_NUM[k](v)) { toast("That size won't work."); carveRender(); return; }
     cvEdit(() => {
+      if (it && cvFxOk(it, k) && it.fx) { delete it.fx[CV_FX[k]]; if (it.fxv) delete it.fxv[CV_FX[k]]; }   // a plain number replaces its formula
       if (k.startsWith('b.')) { cv.board[k[2]] = v; cvView = null; } else if (['safeZ', 'airZ', 'tabW', 'tabH', 'workX', 'workY', 'clampH'].includes(k)) cv[k] = v;
       else if (k === 'i.scaleW') { if (it.type === 'path') cvScalePath(it, v / Math.max(cvLocal(it).w, 1e-6)); else if (it.type === 'trace') it.w = it.w * v / Math.max(cvLocal(it).w, 1e-6); else it.w = v; }
       else if (k === 'i.scaleH') { if (it.type === 'path') cvScalePath(it, v / Math.max(cvLocal(it).h, 1e-6)); else it.w = it.w * v / Math.max(cvLocal(it).h, 1e-6); }
@@ -383,22 +506,25 @@ function cvFieldChange(el) {
   if (k === 'i.rot') { const v = parseFloat(el.value); if (isFinite(v)) cvEdit(() => { it.rot = ((v % 360) + 360) % 360; }); else carveRender(); return; }
   if (k === 'i.text') { cvEdit(() => { it.text = el.value; }); return; }
   if (k === 'i.align') { cvEdit(() => { it.align = el.value; }); return; }
+  if (k === 'i.warp') { cvEdit(() => { if (el.value) it.warp = el.value; else delete it.warp; }); return; }
+  if (k === 'i.warpAmt') { const v = parseFloat(el.value); if (v >= -90 && v <= 200) cvEdit(() => { it.warpAmt = v; }); else { toast('Type a percentage from -90 to 200.', true); carveRender(); } return; }
   if (k === 'i.font') {   // a single-line font can only be engraved, so it switches to that
     const name = el.value; cvFontLoad(name).then(f => { if (!f) toast(`${name} can't be read. Try another font.`, true); cvEdit(() => { it.font = name; if (f && f.line && it.op && !['line', 'off'].includes(it.op.kind)) { const next = cvOpFor(cv, 'line'); next.depth = Math.min(it.op.depth || .3, .5); it.op = next; } }); }); return;
   }
   if (k === 'op.kind') { const kind = el.value; cvRememberJob(it.type, kind); cvEdit(() => { const old = it.op, next = cvOpFor(cv, kind); if (kind !== 'off' && cvBitFits(kind, cvBitOf(old.bit))) next.bit = old.bit; next.tabs = old.tabs ?? 4; it.op = next; }); return; }
-  if (k === 'op.bit') { cvEdit(() => { it.op.bit = el.value || null; }); return; }
+  if (k === 'op.bit') { cvPickOpenFor = null; cvEdit(() => { it.op.bit = el.value || null; }); return; }
+  if (k === 'op.depthR') { const v = +el.value; if (v > 0) cvEdit(() => { it.op.depth = v; if (it.fx) { delete it.fx.depth; if (it.fxv) delete it.fxv.depth; } }); return; }
   if (k === 'op.clear') { cvEdit(() => { it.op.clear = el.value || null; }); return; }
+  if (k === 'op.detail') { cvEdit(() => { it.op.detail = el.value || null; }); return; }
+  if (k === 'op.fill') { cvEdit(() => { if (el.value) it.op.fill = el.value; else delete it.op.fill; }); return; }
+  if (k === 'op.over') { const v = parseFloat(el.value); if (v >= 3 && v <= 50) cvEdit(() => { it.op.over = v; }); else { toast('Type a percentage from 3 to 50.', true); carveRender(); } return; }
+  if (k === 'i.up') { cvEdit(() => { it.up = el.value; }); return; }
   if (k === 'tile') { cvEdit(() => { cv.tile = el.checked; }); return; }
   if (k === 'arcs') { cvEdit(() => { cv.arcs = el.checked; }); return; }
   if (k === 'op.climb') { cvEdit(() => { it.op.climb = el.checked; }); return; }
   if (k === 'op.peck') { cvEdit(() => { it.op.peck = el.checked; }); return; }
   if (k === 'op.through') { cvEdit(() => { it.op.through = el.checked; if (!el.checked) it.op.depth = cv.board.t; }); return; }
   if (k === 'op.tabs') { const v = parseInt(el.value, 10); if (v >= 0 && v <= 40) cvEdit(() => { it.op.tabs = v; }); else carveRender(); }
-}
-function cvUsePanel() {
-  const one = selected().filter(i => i.kind === 'panel')[0]; if (!one) { toast('Go back and select a panel first.', true); return; }
-  cvEdit(() => { const b = cvNow().board; b.l = one.l; b.w = one.w; b.t = one.t; cvView = null; });
 }
 // ---------- what's picked ----------
 // One item is picked for the panel (cvSel). Shift-click, or dragging a box over the board, picks more (cvMore), and then
@@ -414,7 +540,7 @@ function cvPickOnly(id) { cvSel = id; cvMore.clear(); const it = id !== null && 
 function cvPickList(list) { const all = [...new Set(list.flatMap(i => (i.gid ? P.carve.items.filter(o => o.gid === i.gid) : [i])))]; cvSel = all.length ? all[0].id : null; cvMore = new Set(all.slice(1).map(i => i.id)); }
 function cvRemove() { const list = cvPicked(); if (!list.length) return; cvEdit(() => { P.carve.items = P.carve.items.filter(i => !list.includes(i)); }); cvPickOnly(null); carveRender(); }
 function cvCopy() {
-  const list = cvPicked(); if (!list.length) return; const cv = P.carve, gids = {}, made = list.map(it => { const c = JSON.parse(JSON.stringify(it)); c.id = cv.nextId++; c.x += 10; c.y -= 10; if (c.gid) c.gid = gids[c.gid] || (gids[c.gid] = (cv.nextGid = (cv.nextGid || 0) + 1)); return c; });
+  const list = cvPicked(); if (!list.length) return; const cv = P.carve, gids = {}, made = list.map(it => { const c = cvClone(it); c.id = cv.nextId++; c.x += 10; c.y -= 10; if (c.gid) c.gid = gids[c.gid] || (gids[c.gid] = (cv.nextGid = (cv.nextGid || 0) + 1)); return c; });
   cvEdit(() => { cv.items.push(...made); }); cvPickList(made); carveRender();
 }
 // where an item sits on the board, as a box
@@ -512,10 +638,13 @@ function cvBitArt(b, big) {
       dims += '<line x1="' + F(cx + r) + '" y1="16" x2="' + F(lx) + '" y2="16" stroke="#20262a" stroke-width=".8"/>' + cvBitTag(lx, 16, cvLen(b.d) + ' wide at most');
     }
   } else {
-    const end = 126, flutesFrom = Math.max(46, end - Math.max(50, r * 2.4));
-    notch = 'M0 ' + top + 'H' + F(cx - r) + 'V' + end + 'H' + F(cx + r) + 'V' + top + 'H' + W + 'V' + H + 'H0Z'; groove = 'M' + F(cx - r) + ' ' + top + 'V' + end + 'H' + F(cx + r) + 'V' + top + 'Z';
-    let lines = ''; const pitch = Math.max(7, Math.min(13, r)), rise = Math.min(r * 2 * .55, 12); for (let y = flutesFrom; y + rise <= end; y += pitch) { lines += '<path d="M' + F(cx - r) + ' ' + F(y + rise) + 'L' + F(cx + r) + ' ' + F(y) + '"/>'; if (b.family === 'corn') lines += '<path d="M' + F(cx - r) + ' ' + F(y) + 'L' + F(cx + r) + ' ' + F(y + rise) + '"/>'; }
-    tool = '<rect x="' + F(cx - shank) + '" y="0" width="' + F(shank * 2) + '" height="' + F(flutesFrom + 1) + '" fill="' + steel + '" stroke="' + dark + '" stroke-width="1"/><rect x="' + F(cx - r) + '" y="' + F(flutesFrom) + '" width="' + F(r * 2) + '" height="' + F(end - flutesFrom) + '" fill="#aab2b5" stroke="' + dark + '" stroke-width="1"/><g fill="none" stroke="' + dark + '" stroke-width="1.1" stroke-opacity=".75">' + lines + '</g>';
+    const end = 126, flutesFrom = Math.max(46, end - Math.max(50, r * 2.4)), ball = b.type === 'ball', c = end - r;   // c: the middle of a ball end
+    if (!ball) { notch = 'M0 ' + top + 'H' + F(cx - r) + 'V' + end + 'H' + F(cx + r) + 'V' + top + 'H' + W + 'V' + H + 'H0Z'; groove = 'M' + F(cx - r) + ' ' + top + 'V' + end + 'H' + F(cx + r) + 'V' + top + 'Z'; }
+    else if (c >= top) { const arc = 'A' + F(r) + ' ' + F(r) + ' 0 0 0 ' + F(cx + r) + ' ' + F(c); notch = 'M0 ' + top + 'H' + F(cx - r) + 'V' + F(c) + arc + 'V' + top + 'H' + W + 'V' + H + 'H0Z'; groove = 'M' + F(cx - r) + ' ' + top + 'V' + F(c) + arc + 'V' + top + 'Z'; }
+    else { const hw = Math.sqrt(Math.max(0, r * r - (top - c) ** 2)), arc = 'A' + F(r) + ' ' + F(r) + ' 0 0 0 ' + F(cx + hw) + ' ' + top; notch = 'M0 ' + top + 'H' + F(cx - hw) + arc + 'H' + W + 'V' + H + 'H0Z'; groove = 'M' + F(cx - hw) + ' ' + top + arc + 'Z'; }
+    const fluteEnd = ball ? Math.max(flutesFrom, c) : end;
+    let lines = ''; const pitch = Math.max(7, Math.min(13, r)), rise = Math.min(r * 2 * .55, 12); for (let y = flutesFrom; y + rise <= fluteEnd; y += pitch) { lines += '<path d="M' + F(cx - r) + ' ' + F(y + rise) + 'L' + F(cx + r) + ' ' + F(y) + '"/>'; if (b.family === 'corn') lines += '<path d="M' + F(cx - r) + ' ' + F(y) + 'L' + F(cx + r) + ' ' + F(y + rise) + '"/>'; }
+    tool = '<rect x="' + F(cx - shank) + '" y="0" width="' + F(shank * 2) + '" height="' + F(flutesFrom + 1) + '" fill="' + steel + '" stroke="' + dark + '" stroke-width="1"/>' + (ball ? '<path d="M' + F(cx - r) + ' ' + F(flutesFrom) + 'V' + F(fluteEnd) + 'A' + F(r) + ' ' + F(r) + ' 0 0 0 ' + F(cx + r) + ' ' + F(fluteEnd) + 'V' + F(flutesFrom) + 'Z" fill="#aab2b5" stroke="' + dark + '" stroke-width="1"/>' : '<rect x="' + F(cx - r) + '" y="' + F(flutesFrom) + '" width="' + F(r * 2) + '" height="' + F(end - flutesFrom) + '" fill="#aab2b5" stroke="' + dark + '" stroke-width="1"/>') + '<g fill="none" stroke="' + dark + '" stroke-width="1.1" stroke-opacity=".75">' + lines + '</g>';
     if (big) { const lx = cx + r + 14, ly = 80; dims = '<line x1="' + F(cx + r) + '" y1="' + ly + '" x2="' + F(lx) + '" y2="' + ly + '" stroke="#20262a" stroke-width=".8"/>' + cvBitTag(lx, ly, cvLen(b.d) + ' wide'); }
   }
   // wood, then its grain, then the groove painted over the grain, then the wood's outline
@@ -523,10 +652,12 @@ function cvBitArt(b, big) {
   return '<svg class="bitArt" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(b.name) + '">' + s + tool + dims + '</svg>';
 }
 function cvBitTag(x, y, text) { const w = String(text).length * 5.5 + 10; return '<rect x="' + x + '" y="' + (y - 8) + '" width="' + w + '" height="16" rx="2" fill="#ffc928" stroke="#20262a" stroke-width=".7"/><text x="' + (x + w / 2) + '" y="' + (y + 3.5) + '" text-anchor="middle" font-family="Barlow,sans-serif" font-size="10.5" font-weight="600" fill="#20262a">' + esc(text) + '</text>'; }
-const cvBitLine = b => (b.type === 'v' ? Math.round(b.angle) + '° point, up to ' + cvLen(b.d) + ' wide' : 'Cuts ' + cvLen(b.d) + ' wide');
+const cvBitLine = b => (b.type === 'v' ? Math.round(b.angle) + '° point, up to ' + cvLen(b.d) + ' wide' : b.type === 'ball' ? 'Round end, ' + cvLen(b.d) + ' wide' : 'Cuts ' + cvLen(b.d) + ' wide');
+// what a new bit starts from, for a kind none of the starting bits are
+const CV_BIT_BALL = { id: 'ball-3', type: 'ball', name: '3.175 mm ball nose', d: 3.175, angle: 0, tip: 0, reach: 12, feed: 400, plunge: 100, rpm: 1000, step: .5, over: 15, have: true };
 
 // ---------- your bits ----------
-const CV_BIT_GROUPS = [['flat', 'Flat bits', 'Clear areas and cut pieces out of wood.'], ['v', 'V-bits', 'Carve sharp letters and engrave fine lines.'], ['corn', 'Corn end mills', 'Thin and brittle. For tiny detail and PCB work, so go slowly.']];
+const CV_BIT_GROUPS = [['flat', 'Flat bits', 'Clear areas and cut pieces out of wood.'], ['v', 'V-bits', 'Carve sharp letters and engrave fine lines.'], ['ball', 'Ball-nose bits', 'A round end, for smooth 3D reliefs and rounded grooves.'], ['corn', 'Corn end mills', 'Thin and brittle. For tiny detail and PCB work, so go slowly.']];
 const cvBitFamily = b => b.family || b.type;
 const CV_BIT_FIELDS = [['d', 'Width', 'len'], ['angle', 'Point angle, degrees', 'n', 'v'], ['tip', 'Tip width', 'len', 'v'], ['reach', 'Cutting length, 0 if unknown', 'len', 'flat'], ['step', 'Depth per pass', 'len', '', 's'], ['feed', 'Cutting speed, mm/min', 'n', '', 's'], ['plunge', 'Plunge speed, mm/min', 'n', '', 's'], ['rpm', 'Spindle speed, S value', 'n', '', 's'], ['over', 'Step across, % of width', 'n', '', 's']];
 const cvBitOpenOne = () => cvBits.find(b => b.id === cvOpenBit) || cvOwned()[0] || cvBits[0] || null;
@@ -538,8 +669,8 @@ function cvBigRender() { const b = cvBitOpenOne(); cvEl('bitBig').innerHTML = b 
 function cvFormRender() {
   const b = cvBitOpenOne(), box = cvEl('bitForm'); if (!b) { box.innerHTML = '<p class="note">Add a bit to set its sizes.</p>'; return; }
   const field = ([k, label, kind]) => '<label>' + label + (kind === 'len' ? (cvIsInch() ? ', inches' : ', mm') : '') + '<input data-bit="' + esc(b.id) + '" data-key="' + k + '" data-type="' + kind + '" value="' + esc(kind === 'len' ? cvNum(b[k] || 0) : b[k] ?? 0) + '"></label>';
-  const fields = CV_BIT_FIELDS.filter(f => !f[3] || b.type === f[3]);
-  box.innerHTML = '<div class="bitTitle"><input class="bitName" data-bit="' + esc(b.id) + '" data-key="name" value="' + esc(b.name) + '" aria-label="Name of this bit"><select data-bit="' + esc(b.id) + '" data-key="type" aria-label="Kind of bit"><option value="flat" ' + (b.type === 'flat' ? 'selected' : '') + '>Flat bit</option><option value="v" ' + (b.type === 'v' ? 'selected' : '') + '>V-bit</option></select><button class="ic" data-bitcopy="' + esc(b.id) + '" title="Make a copy" aria-label="Copy ' + esc(b.name) + '">' + ic('copy') + '</button><button class="ic" data-bitdel="' + esc(b.id) + '" title="Delete this bit" aria-label="Delete ' + esc(b.name) + '">' + ic('trash-2') + '</button></div>'
+  const fields = CV_BIT_FIELDS.filter(f => !f[3] || b.type === f[3] || (f[3] === 'flat' && b.type === 'ball'));
+  box.innerHTML = '<div class="bitTitle"><input class="bitName" data-bit="' + esc(b.id) + '" data-key="name" value="' + esc(b.name) + '" aria-label="Name of this bit"><select data-bit="' + esc(b.id) + '" data-key="type" aria-label="Kind of bit"><option value="flat" ' + (b.type === 'flat' ? 'selected' : '') + '>Flat bit</option><option value="v" ' + (b.type === 'v' ? 'selected' : '') + '>V-bit</option><option value="ball" ' + (b.type === 'ball' ? 'selected' : '') + '>Ball nose</option></select><button class="ic" data-bitcopy="' + esc(b.id) + '" title="Make a copy" aria-label="Copy ' + esc(b.name) + '">' + ic('copy') + '</button><button class="ic" data-bitdel="' + esc(b.id) + '" title="Delete this bit" aria-label="Delete ' + esc(b.name) + '">' + ic('trash-2') + '</button></div>'
     + '<div class="hwform">' + fields.filter(f => !f[4]).map(field).join('') + '</div><h3>How fast it cuts</h3><p class="note">Cautious starting points from your machine notes, untested on this bit and wood. S1000 is full speed on your machine.</p><div class="hwform">' + fields.filter(f => f[4]).map(field).join('') + '</div>';
 }
 function cvBitsRender() { cvRackRender(); cvBigRender(); cvFormRender(); }
@@ -552,7 +683,7 @@ bitListEl.addEventListener('click', e => {
   if (pick) { cvOpenBit = pick.dataset.bitpick; cvBitsRender(); const again = cvEl('bitRack').querySelector('[data-bitpick="' + CSS.escape(cvOpenBit) + '"]'); if (again) again.focus(); return; }
   if (!add && !del && !copy) return;
   e.preventDefault();
-  if (add) { const type = add.dataset.bitadd, base = CV_BITS_START.find(x => cvBitFamily(x) === type) || CV_BITS_START[0], id = 'bit-' + Date.now().toString(36); cvBits.push({ ...JSON.parse(JSON.stringify(base)), id, name: type === 'v' ? 'New V-bit' : type === 'corn' ? 'New corn bit' : 'New flat bit', have: true }); cvOpenBit = id; }
+  if (add) { const type = add.dataset.bitadd, base = CV_BITS_START.find(x => cvBitFamily(x) === type) || (type === 'ball' ? CV_BIT_BALL : CV_BITS_START[0]), id = 'bit-' + Date.now().toString(36); cvBits.push({ ...JSON.parse(JSON.stringify(base)), id, name: type === 'v' ? 'New V-bit' : type === 'corn' ? 'New corn bit' : type === 'ball' ? 'New ball nose' : 'New flat bit', have: true }); cvOpenBit = id; }
   if (copy) { const b = cvBits.find(x => x.id === copy.dataset.bitcopy), id = 'bit-' + Date.now().toString(36); cvBits.push({ ...JSON.parse(JSON.stringify(b)), id, name: b.name + ' copy' }); cvOpenBit = id; }
   if (del) { cvBits = cvBits.filter(x => x.id !== del.dataset.bitdel); cvOpenBit = null; }
   cvBitsRender(); cvBitsChanged();
@@ -587,27 +718,35 @@ async function cvExport(air) {
 }
 
 // ---------- opening, keys ----------
-function cvModeShow(on) { document.body.classList.toggle('carving', on); cvEl('carve').classList.toggle('open', on); cvEl('modeDesign').setAttribute('aria-selected', !on); cvEl('modeCarve').setAttribute('aria-selected', on); cvEl('fCarve').textContent = ''; }
+// A carving shows only the menu commands that make sense for it.
+function cvMenusShow(on) {
+  document.querySelectorAll('#menus .menu').forEach(m => {
+    let any = false;
+    m.querySelectorAll('.mlist [data-do]').forEach(b => { const a = b.dataset.do, ok = a === 'carvecopy' ? !on && !!(P && P.carve && P.carve.items.length) : !on || CV_ANYWHERE.has(a) || a.startsWith('recent:'); b.hidden = !ok; if (ok) any = true; });
+    m.querySelectorAll('.mlist > hr').forEach(h => { h.hidden = on; }); m.hidden = !any;
+  });
+}
+function cvModeShow(on) { cvMenusShow(on); document.body.classList.toggle('carving', on); cvEl('carve').classList.toggle('open', on); cvEl('modeDesign').setAttribute('aria-selected', !on); cvEl('modeCarve').setAttribute('aria-selected', on); cvEl('fCarve').textContent = ''; }
 async function openCarve() {
-  const cv = cvNow(), one = selected().filter(i => i.kind === 'panel');
-  if (!cv.items.length && one.length === 1) { const b = cv.board; b.l = one[0].l; b.w = one[0].w; b.t = one[0].t; }
+  const cv = cvNow();
   cvModeShow(true); P.carveMode = true; autosave(); cvView = null; cvSel = null; cvNodeEdit = null; cvTool = null;
   carveRender();
   await Promise.all([...new Set(cv.items.filter(i => i.type === 'text').map(i => i.font))].map(cvFontLoad));
   await ensureModels(); carveRender();
+  if (cvLayout !== 'board' && cvOpen()) cv3dShow(true); else cvLayoutShow('board');
   if (!cvOwned().length) cvOpenBits();
 }
 function closeCarve() { if (CV3D.on) cv3dShow(false); cvModeShow(false); cvSel = null; cvNodeEdit = null; cvTool = null; if (P.carveMode) { P.carveMode = false; autosave(); } dirty = true; }
-// a project reopens in the mode it was left in
-function cvSyncMode() { if (P.carveMode && P.carve) { if (!cvOpen()) openCarve(); else { cvView = null; cvSel = null; carveRender(); } } else if (cvOpen()) closeCarve(); }
-// menu commands while carving: these act on the board, these work anywhere, and the rest are about the design, so they go back to it
-const CV_ANYWHERE = new Set(['undo', 'redo', 'save', 'saveas', 'new', 'open', 'importsh3d', 'libimport', 'libexport', 'palette', 'keys', 'help', 'history', 'hwcat', 'theme', 'tbsep', 'tbreset', 'carve']);
+// A project is a design or a carving, chosen when it's started. Older projects open the way they were left.
+const cvKind = p => p.kind || (p.carveMode && p.carve ? 'carve' : 'design');
+function cvSyncMode() { if (cvKind(P) === 'carve') { if (!cvOpen()) openCarve(); else { cvView = null; cvSel = null; carveRender(); } } else if (cvOpen()) closeCarve(); }
+// menu commands in a carving: these act on the board, these work anywhere, and the rest belong to designs, so they're left out
+const CV_ANYWHERE = new Set(['undo', 'redo', 'save', 'saveas', 'new', 'open', 'palette', 'keys', 'help', 'history', 'theme', 'tbsep', 'tbreset']);
 function cvRoute(a) {
   if (a === 'del') { cvRemove(); return true; }
   if (a === 'dup') { cvCopy(); return true; }
   if (a === 'fit') { if (CV3D.on) cv3dAim(); else { cvView = null; cvStageRender(); } return true; }
-  if (!CV_ANYWHERE.has(a) && !a.startsWith('recent:')) closeCarve();
-  return false;
+  return !CV_ANYWHERE.has(a) && !a.startsWith('recent:');   // a design's command does nothing here
 }
 window.addEventListener('keydown', e => {
   if (!cvOpen() || document.querySelector('dialog[open]')) return;
@@ -617,6 +756,8 @@ window.addEventListener('keydown', e => {
   if (mod && k === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); if (!cvItem()) cvSel = null; carveRender(); return; }
   if (mod && k === 'y') { e.preventDefault(); redo(); if (!cvItem()) cvSel = null; carveRender(); return; }
   if (mod && k === 'd') { e.preventDefault(); cvCopy(); return; }
+  if (mod && (k === 'c' || k === 'x')) { e.preventDefault(); cvCopyPicked(k === 'x'); return; }
+  if (mod && k === 'v') { e.preventDefault(); cvPaste(); return; }
   if (mod && k === 'g') { e.preventDefault(); const list = cvPicked(); if (e.shiftKey) cvUngroup(list); else if (list.length > 1) cvGroup(list); return; }
   if (mod && k === 'a') { e.preventDefault(); cvPickList(P.carve.items.slice()); carveRender(); return; }
   if (mod) return;
@@ -631,14 +772,23 @@ window.addEventListener('keydown', e => {
 }, true);
 
 const cvSide = cvEl('cvSide');
-cvSide.addEventListener('toggle', e => { const d = e.target; if (d.classList && d.classList.contains('pickMore')) cvCornOpen = d.open; else if (d.dataset && d.dataset.csec) { if (d.open) cvClosedSecs.delete(d.dataset.csec); else cvClosedSecs.add(d.dataset.csec); } }, true);
+cvSide.addEventListener('input', e => {   // the depth gauge follows the slider as it moves; the depth is kept when it's let go
+  const r = e.target; if (r.dataset.cf !== 'op.depthR') return; const it = cvItem(), g = r.closest('.gauge'); if (!it || !g) return;
+  g.querySelector('.gsvg').innerHTML = cvGaugeSvg(cvNow(), cvBitOf(it.op.bit), +r.value); const box = cvSide.querySelector('[data-cf="op.depth"]'); if (box) box.value = cvNum(+r.value);
+});
+cvSide.addEventListener('toggle', e => { const d = e.target; if (d.dataset && d.dataset.cmore) { if (d.open) cvMoreOpen.add(d.dataset.cmore); else cvMoreOpen.delete(d.dataset.cmore); return; } if (d.classList && d.classList.contains('pickMore')) cvCornOpen = d.open; else if (d.dataset && d.dataset.csec) { if (d.open) cvClosedSecs.delete(d.dataset.csec); else cvClosedSecs.add(d.dataset.csec); } }, true);
 cvEl('cvHead').addEventListener('click', e => { if (e.target.closest('[data-cdone]')) { if (cvTool) cvToolCancel(); else { cvPickOnly(null); carveRender(); } } });
 cvSide.addEventListener('change', e => { if (e.target.dataset.cf) cvFieldChange(e.target); });
+cvSide.addEventListener('focusin', e => { const t = e.target; if (t.dataset && t.dataset.fxtext && t.value !== t.dataset.fxtext) { t.dataset.plain = t.value; t.value = t.dataset.fxtext; } });
+cvSide.addEventListener('focusout', e => { const t = e.target; if (t.dataset && t.dataset.fxtext && t.value === t.dataset.fxtext && t.dataset.plain != null) t.value = t.dataset.plain; });
 cvSide.addEventListener('click', e => {
   const pick = e.target.closest('[data-cpick]'); if (pick) { cvSel = +pick.dataset.cpick; carveRender(); return; }
   const act = e.target.closest('[data-cact]'); if (!act) return; const it = cvItem(), b = P.carve.board, a = act.dataset.cact;
+  if (a === 'padd') { edit(() => fxAddParam(null)); return; }
+  if (a === 'pdel') { const i = +act.dataset.i; edit(() => { (P.params || []).splice(i, 1); }); return; }
   if (cvToolAction(a, act)) return;
-  if (a === 'bits') { cvOpenBits(it && it.op && it.op.bit ? it.op.bit : undefined); return; } if (a === 'panel') cvUsePanel(); if (a === 'del') cvRemove(); if (a === 'dup') cvCopy();
+  if (a === 'pickopen') { cvPickOpenFor = it ? it.id : null; cvPanelRender(); return; }
+  if (a === 'bits') { cvOpenBits(it && it.op && it.op.bit ? it.op.bit : undefined); return; } if (a === 'del') cvRemove(); if (a === 'dup') cvCopy();
   if (a === 'midx') cvEdit(() => { it.x = b.l / 2; }); if (a === 'midy') cvEdit(() => { it.y = b.w / 2; });
 });
 cvEl('cvChecks').addEventListener('click', e => { const pick = e.target.closest('[data-cpick]'); if (pick) { cvSel = +pick.dataset.cpick; carveRender(); } });
@@ -648,9 +798,9 @@ cvEl('bitsClose').onclick = () => cvEl('bitsDlg').close();
 cvEl('cvBits').onclick = () => cvOpenBits();
 cvEl('cvExport').onclick = () => cvExport(false);
 cvEl('cvAir').onclick = () => cvExport(true);
-cvEl('cvPaths').onclick = () => { cvShowPaths = !cvShowPaths; carveRender(); };
+cvEl('cvPaths').onclick = () => { cvShowPaths = !cvShowPaths; carveRender(); cv3dExtras(); };
 cvEl('cvFitBtn').onclick = () => { if (CV3D.on) cv3dAim(); else { cvView = null; cvStageRender(); } };
-cvEl('cv3dBtn').onclick = () => cv3dShow(!CV3D.on);
+cvEl('cv3dBtn').onclick = () => cvLayoutSet(CV3D.on ? 'board' : cvLayout === 'board' ? '3d' : cvLayout);
 cvEl('cvPlayBtn').onclick = () => (cvPlayFrame ? cvPlayStop() : cvPlayStart());
 cvEl('cvPlayBack').onclick = () => { cvPlayStop(); cvPlaySeek(0); };
 cvEl('cvPlayNext').onclick = cvPlayNextPart;

@@ -98,6 +98,10 @@ function grips(vn) {   // resize squares, only for one panel seen straight on
 function flatString(vn, t, W, H, opts = {}) {
   const s_ = new Set(opts.static ? [] : sel); let s = '';
   if (!opts.static) s += gridLines(vn, t, W, H);
+  if (VIEWS[vn].v === 1) {   // the floor, in the views that look at it edge on, with the ground under it shaded
+    const fy = toS(vn, t, [0, 0, 0])[1];
+    if (fy > -2 && fy < H + 2) s += `<rect x="0" y="${fy.toFixed(1)}" width="${W}" height="${Math.max(0, H - fy).toFixed(1)}" fill="var(--ink)" fill-opacity=".06"/><line x1="0" x2="${W}" y1="${fy.toFixed(1)}" y2="${fy.toFixed(1)}" stroke="var(--ink)" stroke-width="1.6" stroke-opacity=".7"/>${opts.static ? '' : `<text x="${W - 8}" y="${(fy + 13).toFixed(1)}" text-anchor="end" font-family="Barlow,sans-serif" font-size="11" fill="var(--soft)">Floor</text>`}`;
+  }
   s += roomLines(vn, t, W, H);
   (opts.static ? panelsOnly().filter(it => !opts.cut || secKeeps(it)).sort((a, c) => VIEWS[vn].ds * (a.pos[VIEWS[vn].d] - c.pos[VIEWS[vn].d])) : order(vn)).forEach(it => {
     if (opts.static && it.kind === 'object') return;
@@ -120,9 +124,12 @@ function flatString(vn, t, W, H, opts = {}) {
     guides.forEach(g => {
       const V = VIEWS[vn]; if (g.axis !== V.u && g.axis !== V.v) return;
       const p = [0, 0, 0]; p[g.axis] = g.at; const q = toS(vn, t, p);
-      s += g.axis === V.u ? `<line x1="${q[0]}" x2="${q[0]}" y1="0" y2="${H}" stroke="var(--dim)"/>` : `<line x1="0" x2="${W}" y1="${q[1]}" y2="${q[1]}" stroke="var(--dim)"/>`;
+      const ln = (a, b) => `<line ${a} stroke="var(--canvas)" stroke-width="4"/><line ${a} stroke="var(--dim)" stroke-width="1.5" stroke-dasharray="7 4"/>${b}`;   // a pale edge either side, so it shows over anything
+      s += g.axis === V.u ? ln(`x1="${q[0]}" x2="${q[0]}" y1="0" y2="${H}"`, '') : ln(`x1="0" x2="${W}" y1="${q[1]}" y2="${q[1]}"`, '');
     });
     const list = selected();
+    list.forEach(it => { s += `<polygon points="${polyStr(hull(corners(it).map(c => toS(vn, t, c))))}" fill="#ffc928" fill-opacity=".14" stroke="#e5a900" stroke-width="2" stroke-dasharray="${order(vn).indexOf(it) < order(vn).length - 1 ? '5 3' : '0'}" pointer-events="none"/>`; });   // on top, so it shows even where other parts hide it
+    if (typeof warnShown === 'function') s += warnShown().map(it => { const c = hull(corners(it).map(q => toS(vn, t, q))), x = c.reduce((a, q) => a + q[0], 0) / c.length, y = c.reduce((a, q) => a + q[1], 0) / c.length; return pill(x, y, String(it.id)); }).join('');
     if (list.length) {
       if (W > 420 && H > 300) s += gapMarks(vn, t, list);
       const V = VIEWS[vn], u = unionBounds(list), P_ = (au, av) => { const p = [0, 0, 0]; p[V.u] = au; p[V.v] = av; return toS(vn, t, p); };
@@ -223,8 +230,9 @@ Object.keys(VIEWS).forEach(vn => {
     }
     if (!fd.moved && Math.hypot(x - fd.x, y - fd.y) < 3) return;
     fd.moved = true;
-    const dv = [0, 0, 0]; dv[V.u] = w.u - fd.start.u; dv[V.v] = w.v - fd.start.v;
-    applyMove(fd, dv, [V.u, V.v], active, thr);
+    const dv = [0, 0, 0]; dv[V.u] = w.u - fd.start.u; dv[V.v] = w.v - fd.start.v; let axes = [V.u, V.v];
+    if (e.shiftKey) { const keep = Math.abs(dv[V.u]) >= Math.abs(dv[V.v]) ? V.u : V.v; axes.forEach(a => { if (a !== keep) dv[a] = 0; }); axes = [keep]; }
+    applyMove(fd, dv, axes, active, thr);
     const u = unionBounds(selected()); readout(`${bare(u.min[V.u])}, ${bare(u.min[V.v])}`);
     dirty = true;
   });
@@ -248,10 +256,20 @@ Object.keys(VIEWS).forEach(vn => {
   el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
   el.addEventListener('dblclick', e => { if (!hitFlat(vn, ...pos(e))) { fitView(vn); dirty = true; } });
   const pane = el.parentElement;
-  pane.insertAdjacentHTML('beforeend', `<div class="vbar"><button class="btn line" data-fit title="Fit everything in this view" aria-label="Fit everything in this view">${ic('scan')}</button><button class="btn line" data-big title="Full size" aria-label="Full size">${ic('maximize-2')}</button></div>`);
+  pane.insertAdjacentHTML('beforeend', `<div class="vbar"><button class="btn line" data-shot title="Save this view as a picture" aria-label="Save this view as a picture">${ic('camera')}</button><button class="btn line" data-fit title="Fit everything in this view" aria-label="Fit everything in this view">${ic('scan')}</button><button class="btn line" data-big title="Full size" aria-label="Full size">${ic('maximize-2')}</button></div>`);
   pane.querySelector('[data-fit]').onclick = () => { fitView(vn); dirty = true; };
   pane.querySelector('[data-big]').onclick = () => setBig(vn);
+  pane.querySelector('[data-shot]').onclick = () => flatPicture(vn);
 });
+// The view as it shows, at twice its size on screen. Its colours come from the theme, written in, since a picture has no theme.
+function flatPicture(vn) {
+  const el = document.getElementById(VIEWS[vn].el), r = el.getBoundingClientRect(), css = getComputedStyle(document.documentElement), bg = getComputedStyle(el.parentElement).backgroundColor;
+  const body = el.innerHTML.replace(/var\((--[\w-]+)\)/g, (m, v) => css.getPropertyValue(v).trim() || '#000');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${r.width}" height="${r.height}" viewBox="0 0 ${r.width} ${r.height}"><rect width="100%" height="100%" fill="${bg}"/>${body}</svg>`, img = new Image();
+  img.onload = () => { const k = 2, c = document.createElement('canvas'); c.width = Math.round(r.width * k); c.height = Math.round(r.height * k); const x = c.getContext('2d'); x.scale(k, k); x.drawImage(img, 0, 0); c.toBlob(b => { downloadBlob(`${P.name} - ${VIEWS[vn].title} view.png`, b, 'image/png'); toast(`${VIEWS[vn].title} view saved as a picture.`); }, 'image/png'); };
+  img.onerror = () => toast("Couldn't make a picture of that view.", true);
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
 // ---------- view layouts ----------
 // A layout is a tree of rows and columns with views at its ends. Dragging a divider changes the sizes in the tree.
 const VIEW_NAMES = { '3d': '3D', top: 'Top', front: 'Front', side: 'Side' };

@@ -21,7 +21,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
         <div id="recentList"></div>
         <button data-do="history">Version history…</button><button data-do="hwcat">Hardware catalogue…</button><hr>
         <button data-do="plans">Cut list and plans</button><button data-do="drawings">Workshop drawings</button><button data-do="print">Print or save PDF</button><hr>
-        <button data-do="carve">Carve on a board (text, SVG, G-code)</button><hr><button data-do="render">Photoreal picture…</button><button data-do="picture">Save picture of 3D view</button><button data-do="cnc">Export for CNC (DXF and G-code)</button><button data-do="dxf">Export cut parts (DXF)</button><button data-do="stl">Export 3D model (STL)</button>
+        <button data-do="carvecopy" hidden>Open its carving as a new project</button><hr><button data-do="render">Photoreal picture…</button><button data-do="picture">Save picture of 3D view</button><button data-do="cnc">Export for CNC (DXF and G-code)</button><button data-do="dxf">Export cut parts (DXF)</button><button data-do="stl">Export 3D model (STL)</button>
       </div></div>
       <div class="menu"><button class="mbtn">Edit</button><div class="mlist" hidden>
         <button data-do="undo">Undo<kbd>Ctrl+Z</kbd></button><button data-do="redo">Redo<kbd>Ctrl+Y</kbd></button><hr>
@@ -34,7 +34,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
       </div></div>
       <div class="menu"><button class="mbtn">Help</button><div class="mlist" hidden><button data-do="palette">Find a command…</button><button data-do="keys">Keyboard shortcuts…</button><button data-do="help">Keyboard and mouse<kbd>F1</kbd></button></div></div>
     </nav>
-    <div id="modes" role="tablist" aria-label="Workspace"><button role="tab" id="modeDesign" aria-selected="true">Design</button><button role="tab" id="modeCarve" aria-selected="false">Carve</button></div>
+    <div id="modes" role="tablist" aria-label="Workspace" hidden><button role="tab" id="modeDesign" aria-selected="true">Design</button><button role="tab" id="modeCarve" aria-selected="false">Carve</button></div>
     <div id="docTitle"><input id="pname" aria-label="Project name" title="Click to rename"><span id="saveState" aria-live="polite"></span></div>
     </div>
     <div id="toolbar">
@@ -75,7 +75,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
   <main id="work">
     <section class="pane" id="pane3d" data-v="3d">
       <div id="view3d"></div>
-      <div class="vbar"><button class="btn line" id="bView" title="Reset view" aria-label="Reset view"></button></div>
+      <div class="vbar"><button class="btn line" id="bShot3d" title="Save this view as a picture" aria-label="Save this view as a picture"></button><button class="btn line" id="bView" title="Reset view" aria-label="Reset view"></button></div>
       <div id="empty" hidden><p>Nothing here yet</p><div><button class="btn main" id="emptyGal">Add a board</button><button class="btn line" id="emptyNew">Start from a ready-made piece</button></div></div>
       <div id="secBar" hidden>
         <b>Section</b>
@@ -96,26 +96,25 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
   <div id="carve" aria-label="Carve on a board">
     <nav id="cvRail" aria-label="Add to the board">
       <button class="btn tool" id="cvAddText" title="Add text" aria-label="Add text"></button>
-      <button class="btn tool" id="cvAddSvg" title="Import an SVG or DXF drawing, or a picture to trace" aria-label="Import a drawing or picture"></button>
-      <button class="btn tool" id="cvAddRect" title="Add a rectangle" aria-label="Add a rectangle"></button>
-      <button class="btn tool" id="cvAddCircle" title="Add an ellipse" aria-label="Add an ellipse"></button>
-      <button class="btn tool" id="cvAddPolygon" title="Add a polygon" aria-label="Add a polygon"></button>
-      <button class="btn tool" id="cvAddStar" title="Add a star" aria-label="Add a star"></button>
-      <button class="btn tool" id="cvAddPen" title="Draw lines and curves: click for each point, click the first to close, double-click or Enter to finish (P)" aria-label="Draw lines and curves"></button>
-      <button class="btn tool" id="cvAddArc" title="Draw an arc: click its two ends, then a point it passes through" aria-label="Draw an arc"></button>
-      <button class="btn tool" id="cvExtend" title="Extend: click near the end of a drawn line to carry it on until it meets another" aria-label="Extend lines"></button>
-      <button class="btn tool" id="cvTrim" title="Trim: click a drawn line to cut it back to where it crosses another" aria-label="Trim lines"></button>
-      <button class="btn tool" id="cvDim" title="Measure: click two points to draw a dimension, which is never cut" aria-label="Measure"></button>
-      <button class="btn tool" id="cvAddClamp" title="Add a clamp zone: nothing is cut there, and the bit stays up crossing it" aria-label="Add a clamp zone"></button>
+      <button class="btn tool" id="cvAddSvg" title="Import an SVG or DXF drawing, an STL model to carve in 3D, or a picture to trace" aria-label="Import a drawing, model or picture"></button>
+      <button class="btn tool" id="cvGrpShapes" data-fly="shapes" aria-haspopup="menu" aria-expanded="false" title="Rectangles, circles, triangles and stars"></button>
+      <button class="btn tool" id="cvGrpDraw" data-fly="draw" aria-haspopup="menu" aria-expanded="false" title="Draw lines and curves, freehand or as arcs, or rub them out"></button>
+      <button class="btn tool" id="cvGrpTools" data-fly="tools" aria-haspopup="menu" aria-expanded="false" title="Extend and trim drawn lines, measure, and mark where the clamps go"></button>
       <hr>
-      <button class="btn tool" id="cv3dBtn" title="See it carved in 3D" aria-label="See it carved in 3D" aria-pressed="false"></button>
-      <button class="btn tool" id="cvPaths" title="Show or hide the bit's path" aria-label="Show or hide the bit's path"></button>
+      <button class="btn tool" id="cvViewBtn" title="What to show: wireframe, bit paths, uncut areas, the board and the wasteboard" aria-label="What to show"></button>
       <button class="btn tool" id="cvFitBtn" title="Fit the board (F)" aria-label="Fit the board"></button>
       <span class="grow"></span>
       <button class="btn tool" id="cvBits" title="Your bits" aria-label="Your bits"></button>
-      <input type="file" id="cvSvgIn" accept=".svg,image/svg+xml,.dxf,.png,.jpg,.jpeg,.bmp,.gif,.webp,image/png,image/jpeg,image/bmp,image/gif,image/webp" hidden>
+      <button hidden class="btn tool" id="cv3dBtn" title="See it carved in 3D" aria-label="See it carved in 3D" aria-pressed="false"></button>
+      <button hidden class="btn tool" id="cvPaths" title="Show or hide the bit's path" aria-label="Show or hide the bit's path"></button>
+      <input type="file" id="cvSvgIn" accept=".svg,image/svg+xml,.dxf,.stl,.png,.jpg,.jpeg,.bmp,.gif,.webp,image/png,image/jpeg,image/bmp,image/gif,image/webp" hidden>
     </nav>
-    <div id="cvStageWrap"><svg id="cvStage" role="img" aria-label="The board"></svg><div id="cv3d" hidden><p id="cv3dNote">Worked out from the bit paths. Drag to turn, right drag to slide, wheel to zoom.</p><div id="cvPlay" role="group" aria-label="Play the cut"><button class="ic" id="cvPlayBack" title="Back to the start" aria-label="Back to the start"></button><button class="ic" id="cvPlayBtn" title="Play the cut (Space)" aria-label="Play the cut"></button><button class="ic" id="cvPlayNext" title="To the end of this toolpath" aria-label="To the end of this toolpath"></button><input type="range" id="cvPlayAt" min="0" max="1000" value="1000" aria-label="How far through the cut"><select id="cvPlaySpeed" title="How fast it plays, times real speed" aria-label="Playing speed"><option value="10">10x</option><option value="30" selected>30x</option><option value="100">100x</option><option value="300">300x</option><option value="1000">1000x</option></select><span id="cvPlayText"></span></div></div></div>
+    <div id="cvFly" role="menu" hidden>
+      <div class="flyGroup" data-group="shapes" aria-label="Shapes"><button class="flyItem" role="menuitem" id="cvAddRect" title="Add a rectangle" aria-label="Add a rectangle"><span>Rectangle</span></button><button class="flyItem" role="menuitem" id="cvAddCircle" title="Add an ellipse" aria-label="Add an ellipse"><span>Ellipse</span></button><button class="flyItem" role="menuitem" id="cvAddTri" title="Add a triangle" aria-label="Add a triangle"><span>Triangle</span></button><button class="flyItem" role="menuitem" id="cvAddRightTri" title="Add a right-angled triangle" aria-label="Add a right-angled triangle"><span>Right-angled triangle</span></button><button class="flyItem" role="menuitem" id="cvAddHalf" title="Add a half circle" aria-label="Add a half circle"><span>Half circle</span></button><button class="flyItem" role="menuitem" id="cvAddPolygon" title="Add a polygon" aria-label="Add a polygon"><span>Polygon</span></button><button class="flyItem" role="menuitem" id="cvAddStar" title="Add a star" aria-label="Add a star"><span>Star</span></button></div>
+      <div class="flyGroup" data-group="draw" aria-label="Draw"><button class="flyItem" role="menuitem" id="cvAddPen" title="Draw lines and curves: click for each point, click the first to close, double-click or Enter to finish (P)" aria-label="Draw lines and curves"><span>Lines and curves</span><kbd>P</kbd></button><button class="flyItem" role="menuitem" id="cvFree" title="Draw freehand: drag on the board" aria-label="Draw freehand"><span>Freehand</span></button><button class="flyItem" role="menuitem" id="cvAddArc" title="Draw an arc: click its two ends, then a point it passes through" aria-label="Draw an arc"><span>Arc</span></button><button class="flyItem" role="menuitem" id="cvErase" title="Eraser: drag over drawn lines to rub them out" aria-label="Eraser"><span>Eraser</span></button></div>
+      <div class="flyGroup" data-group="tools" aria-label="Tools"><button class="flyItem" role="menuitem" id="cvExtend" title="Extend: click near the end of a drawn line to carry it on until it meets another" aria-label="Extend lines"><span>Extend</span></button><button class="flyItem" role="menuitem" id="cvTrim" title="Trim: click a drawn line to cut it back to where it crosses another" aria-label="Trim lines"><span>Trim</span></button><button class="flyItem" role="menuitem" id="cvDim" title="Measure: click two points to draw a dimension, which is never cut" aria-label="Measure"><span>Measure</span></button><button class="flyItem" role="menuitem" id="cvAddClamp" title="Add a clamp zone: nothing is cut there, and the bit stays up crossing it" aria-label="Add a clamp zone"><span>Clamp zone</span></button></div>
+    </div>
+    <div id="cvStageWrap"><div id="cvLayout" class="seg" role="group" aria-label="What to see"><button data-lay="board" title="The board only" aria-label="The board only"></button><button data-lay="split" title="The board and the carving in 3D, side by side" aria-label="Side by side"></button><button data-lay="3d" title="The carving in 3D only" aria-label="3D only"></button></div><svg id="cvStage" role="img" aria-label="The board"></svg><div id="cv3d" hidden><p id="cv3dNote">Worked out from the bit paths. Drag to turn, right drag to slide, wheel to zoom.</p><div id="cvPlay" role="group" aria-label="Play the cut"><button class="ic" id="cvPlayBack" title="Back to the start" aria-label="Back to the start"></button><button class="ic" id="cvPlayBtn" title="Play the cut (Space)" aria-label="Play the cut"></button><button class="ic" id="cvPlayNext" title="To the end of this toolpath" aria-label="To the end of this toolpath"></button><input type="range" id="cvPlayAt" min="0" max="1000" value="1000" aria-label="How far through the cut"><select id="cvPlaySpeed" title="How fast it plays, times real speed" aria-label="Playing speed"><option value="10">10x</option><option value="30" selected>30x</option><option value="100">100x</option><option value="300">300x</option><option value="1000">1000x</option></select><span id="cvPlayText"></span></div></div></div>
     <aside id="cvPanel"><div id="cvHead"></div><div id="cvSide"></div><div id="cvChecks" aria-live="polite"></div><div id="cvSaveBar"><button class="btn line" id="cvAir" title="Save an air test" aria-label="Save an air test"></button><button class="btn main" id="cvExport">Save G-code</button></div></aside>
   </div>
 
@@ -134,20 +133,18 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
 </dialog>
 <dialog id="newDlg" aria-labelledby="startTitle">
   <div id="startSide">
-    <h2 id="startTitle">Start something new</h2>
-    <button class="startAct" id="startBlank"><span class="startIc" data-ic="file-plus"></span><span><b>Blank design</b><small>An empty space to build in</small></span></button>
-    <button class="startCarve" id="startCarve">
-      <svg viewBox="0 0 230 72" aria-hidden="true"><defs><pattern id="startGrain" width="120" height="24" patternUnits="userSpaceOnUse"><rect width="120" height="24" fill="#dcc29a"/><path d="M0 5C30 2 70 9 120 5M0 15C40 19 80 11 120 15" fill="none" stroke="#b8935f" stroke-opacity=".5" stroke-width=".6"/></pattern></defs><rect width="230" height="72" fill="url(#startGrain)"/><rect x="9.5" y="9.5" width="211" height="53" fill="none" stroke="#5a3d22" stroke-width="1"/><text x="115" y="48" text-anchor="middle" font-family="Barlow,sans-serif" font-weight="600" font-size="31" fill="#5a3d22" stroke="#f1e0c3" stroke-width=".5" paint-order="stroke">Your text</text></svg>
-      <span><b>Carve on a board</b><small>Text and SVG art, cut on your CNC</small></span>
-    </button>
-    <button class="startAct" id="startOpen"><span class="startIc" data-ic="folder-open"></span><span><b>Open a file</b><small>An Atelier project</small></span></button>
-    <button class="startAct" id="startImport"><span class="startIc" data-ic="file-box"></span><span><b>Import a house</b><small>From Sweet Home 3D</small></span></button>
-    <div id="startRecent"></div>
+    <div id="startBrand"><img src="lib/icon.svg" alt="" width="24" height="24"><h2 id="startTitle">Atelier</h2></div>
+    <button class="startNew" id="startBlank"><span class="startIc" data-ic="layout-grid"></span><span><b>New design</b><small>Furniture from panels</small></span></button>
+    <button class="startNew" id="startCarve"><span class="startIc" data-ic="drill"></span><span><b>New carving</b><small>Cut on your CNC</small></span></button>
+    <hr>
+    <button class="startAct" id="startOpen"><span class="startIc" data-ic="folder-open"></span>Open a project</button>
+    <button class="startAct" id="startImport"><span class="startIc" data-ic="file-box"></span>Import a house</button>
   </div>
   <div id="startMain">
-    <div id="startHead"><h3>Ready-made furniture</h3><button class="ic" id="newClose" title="Close" aria-label="Close"></button></div>
-    <p class="note">Every piece is loose panels, so you can change all of it.</p>
+    <div id="startHead"><div class="seg" id="startKind" role="tablist" aria-label="Kind of project"><button role="tab" data-kind="design" aria-selected="true">Designs</button><button role="tab" data-kind="carve" aria-selected="false">Carvings</button></div><button class="ic" id="newClose" title="Close" aria-label="Close"></button></div>
+    <h3 class="startH">Start from</h3>
     <div id="cat"></div>
+    <div id="startRecent"></div>
   </div>
 </dialog>
 
@@ -185,17 +182,22 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
 <section id="rend" aria-label="Photoreal picture">
   <div id="rendTop">
     <button class="btn line" id="rendBack">Back to design</button>
-    <label class="drfield">Size<select id="rendSize"></select></label>
-    <label class="drfield">Quality<select id="rendQuality"></select></label>
-    <label class="drfield">Light<select id="rendLight"><option value="day">Daylight</option><option value="studio">Studio</option></select></label>
-    <label class="drfield check"><input type="checkbox" id="rendRoom">Show the room</label>
-    <label class="drfield">Sun turn<input type="range" id="rendTurn" min="0" max="360" step="5"></label>
-    <label class="drfield">Sun height<input type="range" id="rendHeight" min="5" max="85" step="5"></label>
-    <label class="drfield">Brightness<input type="range" id="rendExposure" min="0.2" max="3" step="0.05"></label>
+    <span class="rsep"></span>
+    <div class="seg" id="rendLook" role="group" aria-label="Look"><button data-look="studio" title="On a photographer's backdrop, under a big soft light">Studio</button><button data-look="day" title="On open ground, in the sun">Daylight</button><button data-look="room" title="Inside the room, as in the 3D view">In the room</button></div>
+    <label class="drfield" title="More samples, less grain, and longer to make">Quality<select id="rendQuality"></select></label>
+    <label class="drfield" title="The size of the picture, in pixels">Size<select id="rendSize"></select></label>
+    <button class="btn line" id="rendAdjustBtn" aria-expanded="false" aria-controls="rendAdjust" title="Brightness, light and framing"></button>
     <span class="grow"></span>
     <span id="rendState" aria-live="polite"></span>
     <button class="btn line" id="rendStop">Stop</button>
-    <button class="btn main" id="rendSave">Save PNG</button>
+    <button class="btn main" id="rendSave">Save picture</button>
+  </div>
+  <div id="rendAdjust" hidden>
+    <label class="drfield">Brightness<input type="range" id="rendExposure" min="0.2" max="3" step="0.05"></label>
+    <label class="drfield" title="Where the light comes from, round the furniture. 0 is from the camera">Light from<input type="range" id="rendTurn" min="-180" max="180" step="5"></label>
+    <label class="drfield" title="How high the light is">Light height<input type="range" id="rendHeight" min="5" max="85" step="5"></label>
+    <label class="drfield check" title="Moves the camera in or out so the furniture fills the picture, seen from the same side as the 3D view"><input type="checkbox" id="rendFit">Fill the picture</label>
+    <button class="btn line" id="rendReset">Reset</button>
   </div>
   <div id="rendBody"><canvas id="rendCanvas"></canvas></div>
 </section>
@@ -248,6 +250,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
 <script src="src/carvepaths.js"></script>
 <script src="src/carve.js"></script>
 <script src="src/carvetools.js"></script>
+<script src="src/carveview.js"></script>
 <script src="src/safety.js"></script>
 <script src="src/ui.js"></script>
 <script src="src/commands.js"></script>

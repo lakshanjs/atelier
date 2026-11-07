@@ -3,7 +3,7 @@ const side = document.getElementById('side');
 let handlers = {}, pendingFocus = null; const openSec = { params: true, size: true, pos: true, board: true, edge: true, angle: false, shape: false, fit: false, copies: false };
 const field = (label, val, id, type) => `<label class="field">${label}<input type="text" data-f="${id}" value="${esc(val)}"></label>`;
 const lenF = (label, mm, id) => `<label class="field">${label}<input type="text" data-f="${id}" data-len="1" value="${esc(bare(mm))}"></label>`;
-const triF = cells => `<div class="tri">${cells.map(([n, mm, id, fx]) => `<label>${n}<input type="text" class="${fx ? 'hasfx' : ''}" data-f="${id}" data-len="1" ${fx ? `data-fxtext="${esc(fx)}" title="${esc(fx)}"` : ''} value="${esc(bare(mm))}"></label>`).join('')}</div>`;
+const triF = cells => `<div class="tri">${cells.map(([n, mm, id, fx]) => `<label>${n}<input type="text" class="${fx ? 'hasfx' : ''}" data-f="${id}" data-len="1" ${fx ? `data-fxtext="${esc(fx)}" title="${esc(fx)}"` : ''} value="${mm == null ? '' : esc(bare(mm))}"${mm == null ? ' placeholder="Mixed" title="They differ. Type a size to give them all the same."' : ''}></label>`).join('')}</div>`;   // null: the selected ones differ
 const sec = (key, title, body) => `<details class="sec" data-sec="${key}" ${openSec[key] ? 'open' : ''}><summary>${title}</summary>${body}</details>`;
 function bindFields() {
   side.querySelectorAll('details[data-sec]').forEach(d => d.addEventListener('toggle', () => { openSec[d.dataset.sec] = d.open; }));
@@ -93,6 +93,8 @@ function renderSide() {
       h += `<h3>Space evenly</h3><div class="rowb"><button class="btn line" data-sp="0" ${list.length < 3 ? 'disabled' : ''}>Across</button><button class="btn line" data-sp="1" ${list.length < 3 ? 'disabled' : ''}>Up</button><button class="btn line" data-sp="2" ${list.length < 3 ? 'disabled' : ''}>Deep</button></div>`;
     }
     h += `<p class="note">${bare(u.max[0] - u.min[0])} wide, ${bare(u.max[1] - u.min[1])} high, ${bare(u.max[2] - u.min[2])} deep</p>`;
+    { const free = list.filter(i => !i.locked), names = free.every(i => i.kind === 'panel') ? [['Length', 'l'], ['Width', 'w'], ['Thick', 't']] : free.every(i => i.kind !== 'panel') ? [['Width', 'l'], ['Height', 't'], ['Depth', 'w']] : [['Length', 'l'], ['Width', 'w'], ['Thick', 't']];
+      if (free.length) h += sec('size', 'Size', triF(names.map(([n, k]) => { const same = free.every(i => Math.abs(i[k] - free[0][k]) < .01); handlers['ms' + k] = num(v => edit(() => { free.forEach(i => setSize(i, k, v)); }), 1); return [n, same ? free[0][k] : null, 'ms' + k]; })) + (free.length < list.length ? '<p class="note">Locked ones keep their size.</p>' : '')); }
     h += sec('pos', 'Position', triF([['From left', 0], ['From floor', 1], ['From back', 2]].map(([n, a]) => { handlers['p' + a] = num(v => edit(() => { const mv = movable(); if (!mv.length) return; const d = v - unionBounds(mv).min[a]; mv.forEach(i => { i.pos[a] += d; }); })); return [n, u.min[a], 'p' + a]; })));
     h += moveByHtml();
     h += sec('angle', 'Angle', turnButtons() + angleToolsHtml(null));
@@ -236,8 +238,10 @@ const EYE = ic('eye'), EYEOFF = ic('eye-off'), CROSS = ic('x'), LOCK = ic('lock'
 const ARROW = open => ic(open ? 'chevron-down' : 'chevron-right');
 let renaming = null;
 let renamingLevel = null;
+let layerFind = '', layerLast = null;   // what the layers are filtered by, and the layer clicked last, for Shift
+const layerMatch = name => !layerFind || String(name).toLowerCase().includes(layerFind.toLowerCase());
 function renderGroups() {
-  const box = document.getElementById('groups'), s = new Set(sel), keep = box.scrollTop;
+  const box = document.getElementById('groups'), s = new Set(sel), keep = box.scrollTop, finding = document.activeElement && document.activeElement.id === 'gFind', at = finding ? document.activeElement.selectionStart : 0;
   const itemRow = it => `<div class="grow-row sub ${s.has(it.id) ? 'on' : ''} ${it.hidden ? 'is-hidden' : ''}"><button class="ic" data-ieye="${it.id}" aria-label="${it.hidden ? 'Show' : 'Hide'} ${esc(it.name)}">${it.hidden ? EYEOFF : EYE}</button><button class="nm" data-isel="${it.id}">${esc(it.name)}${it.kind === 'panel' ? ' ' + it.id : ''}</button><button class="ic ${it.locked ? 'on' : ''}" data-ilock="${it.id}" aria-label="${it.locked ? 'Unlock' : 'Lock'} ${esc(it.name)}" title="${it.locked ? 'Unlock' : 'Lock'}">${it.locked ? LOCK : UNLOCK}</button></div>`;
   const row = (g, list) => {
     const hidden = g ? g.hidden : P.looseHidden, open = g ? g.open : P.looseOpen, key = g ? g.id : 0, on = list.length && list.every(i => s.has(i.id)), allLocked = list.length && list.every(i => i.locked);
@@ -245,20 +249,24 @@ function renderGroups() {
     return `<div class="grow-row ${on ? 'on' : ''} ${hidden ? 'is-hidden' : ''}"><button class="ic" data-gopen="${key}" aria-label="${open ? 'Collapse' : 'Expand'}">${ARROW(open)}</button><button class="ic" data-geye="${key}" aria-label="${hidden ? 'Show' : 'Hide'} layer">${hidden ? EYEOFF : EYE}</button>${name}<span class="ct">${list.length}</span><button class="ic ${allLocked ? 'on' : ''}" data-glock="${key}" aria-label="${allLocked ? 'Unlock' : 'Lock'} all" title="${allLocked ? 'Unlock all' : 'Lock all'}">${allLocked ? LOCK : UNLOCK}</button>${g && (P.levels || []).length ? `<select class="lvlmove" data-gmove="${key}" title="Move to a level" aria-label="Move ${esc(g.name)} to a level"><option value="">No level</option>${P.levels.map(l => `<option value="${l.id}" ${g.level === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select>` : ''}${g ? `<button class="ic" data-gdel="${key}" aria-label="Remove layer, keep its items" title="Remove layer, keep its items">${CROSS}</button>` : ''}</div>` + (open ? list.map(itemRow).join('') : '');
   };
   const loose = P.items.filter(i => !i.group || !groupOf(i));
-  box.innerHTML = `<div class="ghead"><h2>Layers</h2><span class="gbtns"><button class="btn line" id="lNew" title="Add an empty level">New level</button><button class="btn line" id="gNew" ${sel.length ? '' : 'disabled'} title="Make a layer from what's selected">New layer</button></span></div>`
-    + (P.levels || []).map(l => {
-      const gs = P.groups.filter(g => g.level === l.id), ids = new Set(gs.map(g => g.id)), list = P.items.filter(i => ids.has(i.group)), locked = list.length && list.every(i => i.locked), only = P.levels.every(x => x === l ? !x.hidden : x.hidden);
+  const shownGroups = gs => gs.filter(g => layerMatch(g.name)), anyShown = layerFind && !P.groups.some(g => layerMatch(g.name)) && !(P.levels || []).some(l => layerMatch(l.name));
+  box.innerHTML = `<div class="ghead"><h2>Layers</h2><span class="gbtns"><button class="btn line" id="lNew" title="Add an empty level">New level</button><button class="btn line" id="gNew" ${sel.length ? '' : 'disabled'} title="Make a layer from what's selected">New layer</button></span></div><label class="gfind">${ic('search')}<input id="gFind" type="search" placeholder="Find a layer" value="${esc(layerFind)}" aria-label="Find a layer by name"></label>${anyShown ? '<p class="note" style="margin:6px 2px">No layer has that in its name.</p>' : ''}`
+    + (P.levels || []).filter(l => layerMatch(l.name) || shownGroups(P.groups.filter(g => g.level === l.id)).length).map(l => {
+      const gs = layerMatch(l.name) ? P.groups.filter(g => g.level === l.id) : shownGroups(P.groups.filter(g => g.level === l.id)), ids = new Set(gs.map(g => g.id)), list = P.items.filter(i => ids.has(i.group)), locked = list.length && list.every(i => i.locked), only = P.levels.every(x => x === l ? !x.hidden : x.hidden);
       const name = renamingLevel === l.id ? `<input data-lname="${l.id}" value="${esc(l.name)}" aria-label="Level name">` : `<button class="nm" data-lsel="${l.id}" title="Click to select all. Double-click to rename.">${esc(l.name)}</button>`;
       return `<div class="grow-row lvl ${l.hidden ? 'is-hidden' : ''}"><button class="ic" data-lopen="${l.id}" aria-label="${l.open ? 'Collapse' : 'Expand'}">${ARROW(l.open)}</button><button class="ic" data-leye="${l.id}" aria-label="${l.hidden ? 'Show' : 'Hide'} level">${l.hidden ? EYEOFF : EYE}</button>${name}<span class="ct">${list.length}</span><button class="only ${only ? 'on' : ''}" data-lonly="${l.id}" title="${only ? 'Show all levels' : 'Show only this level'}">${only ? 'All' : 'Only'}</button><button class="ic ${locked ? 'on' : ''}" data-llock="${l.id}" aria-label="${locked ? 'Unlock' : 'Lock'} level" title="${locked ? 'Unlock level' : 'Lock level'}">${locked ? LOCK : UNLOCK}</button><button class="ic" data-ldel="${l.id}" aria-label="Remove level, keep its layers" title="Remove level, keep its layers">${CROSS}</button></div>` + (l.open ? `<div class="lvl-kids">${gs.map(g => row(g, P.items.filter(i => i.group === g.id))).join('')}</div>` : '');
     }).join('')
-    + P.groups.filter(g => !levelOfGroup(g)).map(g => row(g, P.items.filter(i => i.group === g.id))).join('') + (loose.length ? row(null, loose) : '');
+    + shownGroups(P.groups.filter(g => !levelOfGroup(g))).map(g => row(g, P.items.filter(i => i.group === g.id))).join('') + (loose.length && !layerFind ? row(null, loose) : '');
   box.scrollTop = keep;
+  const find = box.querySelector('#gFind'); find.oninput = () => { layerFind = find.value; renderGroups(); }; find.onkeydown = e => { e.stopPropagation(); if (e.key === 'Escape') { layerFind = ''; renderGroups(); } };
+  if (finding) { find.focus(); try { find.setSelectionRange(at, at); } catch (e) {} }
   addIcon(box.querySelector('#gNew'), 'folder-plus'); addIcon(box.querySelector('#lNew'), 'folder-plus');
   const linp = box.querySelector('[data-lname]');
   if (linp) { linp.focus(); linp.select(); const done = () => { const l = P.levels.find(x => x.id === renamingLevel); renamingLevel = null; if (l && linp.value.trim() && linp.value.trim() !== l.name) edit(() => { l.name = linp.value.trim(); }); else renderGroups(); }; linp.onblur = done; linp.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') linp.blur(); if (e.key === 'Escape') { linp.value = ''; linp.blur(); } }; }
   const inp = box.querySelector('[data-gname]');
   if (inp) { inp.focus(); inp.select(); const done = () => { const g = P.groups.find(x => x.id === renaming); renaming = null; if (g && inp.value.trim() && inp.value.trim() !== g.name) edit(() => { g.name = inp.value.trim(); }); else renderGroups(); }; inp.onblur = done; inp.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') { inp.value = ''; inp.blur(); } }; }
 }
+const box = () => document.getElementById('groups');
 document.getElementById('groups').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
   if (b.id === 'gNew') { groupSelection(); return; }
@@ -279,9 +287,15 @@ document.getElementById('groups').addEventListener('click', e => {
   if (d.ilock != null) { edit(() => { const it = byId(+d.ilock); if (it.locked) delete it.locked; else it.locked = true; }); return; }
   if (d.gdel != null) { edit(() => { members(d.gdel).forEach(i => { delete i.group; }); P.groups = P.groups.filter(g => g.id !== +d.gdel); }); return; }
   if (d.gsel != null && e.detail >= 2 && +d.gsel) { renaming = +d.gsel; renderGroups(); return; }   // the row redraws between clicks, so a double-click is read here
-  if (d.gsel != null) { sel = members(d.gsel).filter(i => !isHidden(i)).map(i => i.id); render(); return; }
+  if (d.gsel != null) {   // Ctrl adds a layer to what's picked, or takes it away; Shift picks every layer from the one clicked last
+    const keys = [...box().querySelectorAll('[data-gsel]')].map(x => +x.dataset.gsel), ids = k => members(k).filter(i => !isHidden(i)).map(i => i.id);
+    if (e.shiftKey && layerLast != null && keys.includes(layerLast)) { const [a, c] = [keys.indexOf(layerLast), keys.indexOf(+d.gsel)].sort((x, y) => x - y); sel = [...new Set([...(e.ctrlKey || e.metaKey ? sel : []), ...keys.slice(a, c + 1).flatMap(ids)])]; }
+    else if (e.ctrlKey || e.metaKey) { const mine = ids(+d.gsel), all = mine.every(i => sel.includes(i)); sel = all ? sel.filter(i => !mine.includes(i)) : [...new Set([...sel, ...mine])]; layerLast = +d.gsel; }
+    else { sel = ids(+d.gsel); layerLast = +d.gsel; }
+    render(); return;
+  }
   if (d.ieye != null) { edit(() => { const it = byId(+d.ieye); it.hidden = !it.hidden; sel = sel.filter(i => !isHidden(byId(i))); }); return; }
-  if (d.isel != null) { const it = byId(+d.isel); if (!isHidden(it)) { setTab('props'); sel = e.shiftKey ? [...new Set([...sel, it.id])] : [it.id]; render(); } }
+  if (d.isel != null) { const it = byId(+d.isel); if (!isHidden(it)) { setTab('props'); sel = e.ctrlKey || e.metaKey ? (sel.includes(it.id) ? sel.filter(i => i !== it.id) : [...sel, it.id]) : e.shiftKey ? [...new Set([...sel, it.id])] : [it.id]; render(); } }
 });
 document.getElementById('groups').addEventListener('change', e => {
   const m = e.target.closest('[data-gmove]'); if (!m) return;

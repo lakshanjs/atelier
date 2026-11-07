@@ -170,6 +170,8 @@ function fxSolve() {
 }
 let fxWarned = 0;
 function fxUpdate() {
+  const carved = typeof cvFxSolve === 'function' ? cvFxSolve() : [];   // Carve's sizes follow the same parameters
+  if (carved.length && Date.now() - fxWarned > 3000 && typeof toast === 'function') { fxWarned = Date.now(); toast(carved.length === 1 ? 'A value on the board was changed by hand, so it no longer follows its formula.' : `${carved.length} values on the board were changed by hand, so they no longer follow their formulas.`); }
   if (!fxHasAny()) { fxIssues = new Map(); return; }
   const dropped = fxSync(); fxSolve();
   if (dropped.length && Date.now() - fxWarned > 3000 && typeof toast === 'function') { fxWarned = Date.now(); const names = [...new Set(dropped)]; toast(names.length === 1 ? `${names[0].name} was changed by hand, so that value no longer follows its formula.` : `${names.length} items were changed by hand, so those values no longer follow their formulas.`); }
@@ -211,6 +213,7 @@ const fxParamHasLoop = (p, gid) => { try { fxParamValue(p, gid); return false; }
 function fxRenameEverywhere(oldName, newName, gid) {
   const re = new RegExp(`\\b${oldName}\\b(?!\\s*\\()`, 'gi'), swap = o => { if (o) o.e = o.e.replace(re, newName); };
   P.items.forEach(it => { if (it.fx && (!gid || it.group === gid)) Object.values(it.fx).forEach(swap); });
+  if (!gid && P.carve) P.carve.items.forEach(it => { if (it.fx) Object.values(it.fx).forEach(swap); });
   (gid ? fxParams(gid) : [...fxParams(null), ...P.groups.flatMap(g => g.params || [])]).forEach(swap);
 }
 function fxAddParam(gid) {

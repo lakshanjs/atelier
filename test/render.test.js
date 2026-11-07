@@ -144,3 +144,30 @@ test("Delete doesn't remove the selection while a full-page window is open", asy
     return P.items.length === n;`);
   assert.ok(v);
 });
+
+test("pictures look real and are simple to make: rounded board edges, a studio backdrop, the furniture filling the frame, and a short bar", async () => {
+  const v = await app.run(`
+    loadProject(newDesign(TEMPLATES[2].make)); document.querySelectorAll('dialog[open]').forEach(d => d.close()); sel = [];
+    const sc = rendGather(false), panels = panelsOnly().filter(p => !hasShape(p)).length, unit = (() => { for (let i = 0; i < sc.nor.length; i += 3) if (Math.abs(Math.hypot(sc.nor[i], sc.nor[i + 1], sc.nor[i + 2]) - 1) > .01) return false; return true; })();
+    const cam = rendCamera(true, 16 / 9), before = sc.mid.length; rendAddBackdrop(sc, cam); const backdrop = sc.mid.length - before;
+    let lo = 1e9, hi = -1e9; for (let i = before * 9 + 1; i < sc.pos.length; i += 3) { lo = Math.min(lo, sc.pos[i]); hi = Math.max(hi, sc.pos[i]); }
+    // every corner of the furniture is inside the picture, and it fills most of it
+    const u = unionBounds(P.items.filter(i => !isRoomPart(i))), tv = Math.tan(cam.fov * Math.PI / 360), th = tv * 16 / 9; let most = 0, inside = true;
+    for (const x of [u.min[0], u.max[0]]) for (const y of [u.min[1], u.max[1]]) for (const z of [u.min[2], u.max[2]]) {
+      const d = [x - cam.pos[0], y - cam.pos[1], z - cam.pos[2]], f = d[0] * cam.fwd[0] + d[1] * cam.fwd[1] + d[2] * cam.fwd[2], sx = (d[0] * cam.right[0] + d[1] * cam.right[1] + d[2] * cam.right[2]) / (f * th), sy = (d[0] * cam.up[0] + d[1] * cam.up[1] + d[2] * cam.up[2]) / (f * tv);
+      if (Math.abs(sx) > 1 || Math.abs(sy) > 1) inside = false; most = Math.max(most, Math.abs(sx), Math.abs(sy));
+    }
+    rendOpts.quality = 'draft'; rendOpts.size = 'view'; rendOpts.light = 'studio'; rendOpts.room = false; openRender();
+    const looks = [...document.querySelectorAll('#rendLook [data-look]')].filter(b => !b.hidden).map(b => b.dataset.look), pressed = document.querySelector('#rendLook [aria-pressed="true"]').dataset.look;
+    const bar = [...document.querySelectorAll('#rendTop select, #rendTop input')].length, adjustShut = rq('rendAdjust').hidden;
+    rq('rendAdjustBtn').click(); const adjustOpen = !rq('rendAdjust').hidden;
+    document.querySelector('#rendLook [data-look="day"]').click(); const day = [rendOpts.light, rendOpts.room];
+    rendStopJob(); await new Promise(r => setTimeout(r, 300)); closeRender();
+    return { tris: sc.mid.length, panels, unit, backdrop, lo, hi, inside, most, looks, pressed, bar, adjustShut, adjustOpen, day };`);
+  assert.ok(v.unit, "normals are unit length, the rounded edges' too");
+  assert.ok(v.backdrop > 20, "a backdrop with a curved sweep: " + v.backdrop); assert.ok(v.hi - v.lo > 1000, "it rises behind the furniture");
+  assert.ok(v.inside, "the whole of the furniture is in the picture"); assert.ok(v.most > .6, "and it fills it: " + v.most);
+  assert.deepStrictEqual(v.looks, ["studio", "day"], "no room, so no In the room"); assert.strictEqual(v.pressed, "studio");
+  assert.strictEqual(v.bar, 2, "the bar has only Quality and Size to set"); assert.ok(v.adjustShut && v.adjustOpen, "the rest is under Adjust");
+  assert.deepStrictEqual(v.day, ["day", false]);
+});

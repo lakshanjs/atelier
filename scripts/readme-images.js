@@ -55,12 +55,5 @@ const SIGN = `
     execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-framerate", "12", "-i", path.join(tmp, "f%03d.png"), "-i", path.join(tmp, "palette.png"), "-lavfi", `${crop}[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle`, "-loop", "0", path.join(docs, "carving.gif")]);
     console.log("  docs/carving.gif");
 
-    // 5. Cut in Carve: a panel from the design, ready to cut, holes and all
-    await app.run(`cv3dShow(false); closeCarve(); loadProject(newProject('Shelf')); document.querySelectorAll('dialog[open]').forEach(d => d.close());
-      const it = panelBox('Shelf', [0, 200, 0, 6, 0, 150]); it.mat = 'bass'; it.id = nextId(); P.items.push(it);
-      it.ops = [[30, 37], [170, 37], [30, 113], [170, 113]].map(([x, z]) => ({ k: 'hole', x, z, d: 3.175, depth: 3, face: 'top' })).concat([{ k: 'hole', x: 100, z: 75, d: 12, depth: 6, face: 'top' }, { k: 'groove', axis: 'l', x: 100, z: 135, width: 6, depth: 2, face: 'top' }, { k: 'hole', x: 0, z: 75, d: 5, depth: 20, face: 'c' }]);
-      const sh = shapeOf(it); sh.c[0] = { k: 'round', a: 20, b: 20 }; sh.c[2] = { k: 'round', a: 20, b: 20 }; machInvalidate();
-      cvBits = JSON.parse(JSON.stringify(CV_BITS_START)); cvFromPanel(it); await new Promise(r => setTimeout(r, 700)); document.getElementById('toast').hidden = true;`);
-    await shot("cut-in-carve.png");
   } finally { await app.close(); fs.rmSync(tmp, { recursive: true, force: true }); }
 })().catch(e => { console.error(e); process.exit(1); });

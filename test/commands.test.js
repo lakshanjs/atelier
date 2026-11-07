@@ -73,7 +73,7 @@ test("Ctrl+K finds a command by name, runs it, and remembers it", async () => {
 
 test("the command list has everything, with sensible search", async () => {
   const v = await app.run(`
-    const all = commandList(), menu = [...document.querySelectorAll('#menus .mlist [data-do]')].map(b => b.dataset.do).filter(a => a !== 'tbsep' && !a.startsWith('recent:')), ids = all.map(c => c.id);
+    const all = commandList(), menu = [...document.querySelectorAll('#menus .mlist [data-do]')].filter(b => !b.hidden).map(b => b.dataset.do).filter(a => a !== 'tbsep' && !a.startsWith('recent:')), ids = all.map(c => c.id);
     const find = q => all.map(c => ({ c, s: cmdScore(c, q) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s).map(x => x.c.name)[0];
     return { missing: menu.filter(a => !ids.includes(a)), unrunnable: all.filter(c => typeof c.run !== 'function').map(c => c.id), names: all.filter(c => !c.name).map(c => c.id), noKbdInName: all.filter(c => /Ctrl\\+/.test(c.name)).map(c => c.name), tools: ids.filter(i => i.startsWith('tool.')).length,
       save: find('save'), photo: find('photoreal'), letters: find('wkdrw'), words: find('hardware cat'), nothing: find('zzzzqq') };`);
