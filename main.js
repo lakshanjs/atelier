@@ -1,7 +1,8 @@
 "use strict";
 // Desktop shell for Atelier. The app itself is index.html; this only gives it a window,
 // an installer identity and updates from the GitHub releases of lakshanjs/atelier (see scripts/release.js).
-const { app, BrowserWindow, ipcMain, Menu, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, Menu, shell, session } = require("electron");
+const net = require("net");
 const path = require("path");
 const fs = require("fs");
 const { pathToFileURL } = require("url");
@@ -75,6 +76,36 @@ try { ({ autoUpdater } = require("electron-updater")); } catch (e) { console.err
 
 let win = null;
 
+// ---------- the CNC machine ----------
+// USB: the page talks to the port itself with Web Serial. Electron has no port chooser, so the page says which port it
+// wants by name (COM8) before asking, and this picks it. Asking for "?" picks nothing and just lists what's there.
+let serialWant = null, serialList = [];
+ipcMain.on("serial:want", (e, name) => { serialWant = name; });
+ipcMain.handle("serial:list", () => serialList);
+function serialSetup(ses) {
+  ses.on("select-serial-port", (event, portList, wc, callback) => {
+    event.preventDefault();
+    serialList = portList.map((p) => ({ name: p.portName, label: p.displayName || p.portName, vendorId: p.vendorId, productId: p.productId }));
+    const want = serialWant, hit = want && portList.find((p) => p.portName === want); serialWant = null;
+    callback(hit ? hit.portId : "");
+  });
+  ses.setPermissionCheckHandler(() => true);   // as without a handler, which allows everything; serial needs it said
+  ses.setDevicePermissionHandler((d) => d.deviceType === "serial");
+}
+// Wi-Fi: GRBL over telnet (the MKS DLC32 listens on port 23). The page can't open a network socket, so it's done here.
+const socks = new Map(); let sockN = 0;
+ipcMain.handle("tcp:open", (e, { host, port }) => new Promise((resolve, reject) => {
+  const id = ++sockN, s = net.createConnection({ host, port }), wc = e.sender; let open = false;
+  s.setTimeout(5000);
+  s.once("connect", () => { open = true; s.setTimeout(0); s.setNoDelay(true); socks.set(id, s); resolve(id); });
+  s.on("timeout", () => { if (!open) { s.destroy(); reject(new Error(`no answer from ${host}:${port}`)); } });
+  s.on("error", (err) => { if (!open) reject(err); });
+  s.on("data", (d) => { if (!wc.isDestroyed()) wc.send("tcp:data", { id, text: d.toString("latin1") }); });
+  s.on("close", () => { socks.delete(id); if (open && !wc.isDestroyed()) wc.send("tcp:closed", { id }); });
+}));
+ipcMain.on("tcp:write", (e, { id, text }) => { const s = socks.get(id); if (s) s.write(Buffer.from(text, "latin1")); });
+ipcMain.on("tcp:close", (e, id) => { const s = socks.get(id); if (s) s.destroy(); });
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1500,
@@ -119,6 +150,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     if (process.platform === "win32") app.setAppUserModelId("com.lakshan.atelier");
     sessionBegin();
+    serialSetup(session.defaultSession);
     Menu.setApplicationMenu(null);   // the app draws its own menu bar
     createWindow();
     if (autoUpdater && app.isPackaged) {

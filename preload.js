@@ -1,5 +1,5 @@
 "use strict";
-// Lets the page keep the Windows minimize, maximize and close buttons in its own colours.
+// Lets the page keep the Windows minimize, maximize and close buttons in its own colours, and reach the CNC machine.
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("atelierWin", {
@@ -11,4 +11,11 @@ contextBridge.exposeInMainWorld("atelierWin", {
   onUpdateReady: (cb) => ipcRenderer.on("update:ready", (e, version) => cb(version)),
   updateWaiting: () => ipcRenderer.sendSync("update:waiting"),
   restartToUpdate: () => ipcRenderer.send("update:restart"),
+  // the CNC machine: which USB port to pick, and GRBL over Wi-Fi (telnet)
+  serialWant: (name) => ipcRenderer.send("serial:want", name),
+  serialList: () => ipcRenderer.invoke("serial:list"),
+  tcpOpen: (host, port) => ipcRenderer.invoke("tcp:open", { host, port }),
+  tcpWrite: (id, text) => ipcRenderer.send("tcp:write", { id, text }),
+  tcpClose: (id) => ipcRenderer.send("tcp:close", id),
+  onTcp: (onData, onClosed) => { ipcRenderer.on("tcp:data", (e, m) => onData(m.id, m.text)); ipcRenderer.on("tcp:closed", (e, m) => onClosed(m.id)); },
 });

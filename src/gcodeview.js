@@ -87,15 +87,16 @@ function cvGcodeGuessBit(G) {
 }
 
 let cvGcodeN = 0;
-async function cvGcodeOpen(f) {
-  const text = await f.text(), name = f.name, G = cvGcodeParse(text, (P && P.carve && P.carve.maxRate) || 1500);
+async function cvGcodeOpen(f) { return cvGcodeOpenText(await f.text(), f.name); }
+async function cvGcodeOpenText(text, name) {
+  const G = cvGcodeParse(text, (P && P.carve && P.carve.maxRate) || 1500);
   if (!G.moves.length) throw new Error('there are no moves in it');
   if (!cvOpen()) {   // from a design, a new carving is made for it, with a board that fits it
     if (!P.carve || P.kind !== 'carve') loadProject({ ...newProject(name.replace(/\.[^.]+$/, '')), kind: 'carve', carve: CV_DEFAULT() });
     if (!cvOpen()) await openCarve();
     if (!P.carve.items.length) cvGcodeFitBoard(G, false);
   }
-  CV3D.gcode = { id: ++cvGcodeN, name, G, bit: cvGcodeGuessBit(G) };
+  CV3D.gcode = { id: ++cvGcodeN, name, G, text, bit: cvGcodeGuessBit(G) };
   if (!CV3D.on) cvLayoutSet(cvLayout === 'board' ? '3d' : cvLayout); else { CV3D.key = ''; cv3dBake(); }
   cvGcodeBar(); cv3dAim(); cv3dDraw();
 }
@@ -134,7 +135,7 @@ function cvGcodeBar() {
   bar.hidden = false;
   bar.innerHTML = `<div class="gcrow">${ic('file-output')}<b title="${esc(g.name)}">${esc(g.name)}</b><span>${size}, about ${Math.max(1, Math.round(G.total))} min, ${G.lines} lines${G.inch ? ', in inches' : ''}</span>`
     + `<label>Bit <select id="cvGcBit" title="The file doesn't say which bit; this one is drawn">${opts}</select></label>`
-    + `<button class="btn line" data-gc="fit" title="Make the board this job's size, with the zero where it starts">Fit the board to it</button><button class="btn line" data-gc="close" title="Back to the carving">${ic('x')}Close</button></div>`
+    + `<button class="btn line" data-gc="fit" title="Make the board this job's size, with the zero where it starts">Fit the board to it</button><button class="btn line" data-gc="send" title="Run this file on the machine">${ic('plug')}Send to machine</button><button class="btn line" data-gc="close" title="Back to the carving">${ic('x')}Close</button></div>`
     + (warn.length ? `<ul class="gcwarn">${warn.map(w => `<li>${esc(w)}</li>`).join('')}</ul>` : '<p class="gcok">Nothing in it that GRBL would refuse.</p>');
 }
-function cvGcodeBarClick(e) { const b = e.target.closest('[data-gc]'); if (!b) return; if (b.dataset.gc === 'close') cvGcodeClose(); else if (b.dataset.gc === 'fit') cvGcodeFitBoard(CV3D.gcode.G); }
+function cvGcodeBarClick(e) { const b = e.target.closest('[data-gc]'); if (!b) return; if (b.dataset.gc === 'close') cvGcodeClose(); else if (b.dataset.gc === 'fit') cvGcodeFitBoard(CV3D.gcode.G); else if (b.dataset.gc === 'send') machOpen('view'); }

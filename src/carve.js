@@ -27,7 +27,7 @@ let cvWoodRates = {}; try { cvWoodRates = JSON.parse(localStorage.getItem(CV_RAT
 const cvRatesFor = key => ({ feedPct: CV_WOODS[key].feedPct, stepPct: CV_WOODS[key].stepPct, ...(cvWoodRates[key] || {}) });
 function cvRatesKeep(key, field, v) { (cvWoodRates[key] = cvWoodRates[key] || {})[field] = v; try { localStorage.setItem(CV_RATES_STORE, JSON.stringify(cvWoodRates)); } catch (e) {} }
 const cvHex = rgb => '#' + rgb.map(v => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('');
-const CV_DEFAULT = () => ({ board: { wood: 'bass', l: 203.2, w: 152.4, t: 3 }, items: [], safeZ: 6.35, tabW: 6.35, tabH: 1, workX: 300, workY: 180, maxRate: 1500, ramp: CV_RAMP, airZ: CV_AIR, zero: [0, 0], nextId: 1 });
+const CV_DEFAULT = () => ({ board: { wood: 'bass', l: 203.2, w: 152.4, t: 3 }, items: [], safeZ: 6.35, tabW: 6.35, tabH: 1, workX: 300, workY: 180, maxRate: 1500, ramp: CV_RAMP, airZ: CV_AIR, zero: [0, 0], nextId: 1, ...(typeof machDefaults === 'function' ? machDefaults() : {}) });   // My machine's travel, speed and safe height, when set
 const cvNow = () => { if (!P.carve) P.carve = CV_DEFAULT(); return P.carve; };
 const cvBitOf = id => cvBits.find(b => b.id === id) || (P && P.carve && P.carve.bitsUsed && P.carve.bitsUsed[id]) || null;
 const cvOwned = () => cvBits.filter(b => b.have);
@@ -753,7 +753,7 @@ function closeCarve() { CV3D.gcode = null; if (CV3D.on) cv3dShow(false); cvModeS
 const cvKind = p => p.kind || (p.carveMode && p.carve ? 'carve' : 'design');
 function cvSyncMode() { if (cvKind(P) === 'carve') { if (!cvOpen()) openCarve(); else { cvView = null; cvSel = null; carveRender(); } } else if (cvOpen()) closeCarve(); }
 // menu commands in a carving: these act on the board, these work anywhere, and the rest belong to designs, so they're left out
-const CV_ANYWHERE = new Set(['undo', 'redo', 'save', 'saveas', 'new', 'open', 'palette', 'keys', 'help', 'history', 'theme', 'tbsep', 'tbreset']);
+const CV_ANYWHERE = new Set(['undo', 'redo', 'save', 'saveas', 'new', 'open', 'machine', 'palette', 'keys', 'help', 'history', 'theme', 'tbsep', 'tbreset']);
 function cvRoute(a) {
   if (a === 'del') { cvRemove(); return true; }
   if (a === 'dup') { cvCopy(); return true; }

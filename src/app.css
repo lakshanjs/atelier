@@ -700,3 +700,56 @@ details.cvmore[open] { padding-bottom: 4px; }
 #cvGcodeBar select { max-width: 200px; }
 #cvGcodeBar .gcwarn { margin: 6px 0 0; padding-left: 18px; color: var(--bad, #b93a1a); }
 #cvGcodeBar .gcok { margin: 6px 0 0; color: var(--soft); }
+/* My machine: a panel that stays open beside the work, and the emergency stop */
+#mach { position: fixed; right: 16px; top: 84px; bottom: 36px; width: 340px; z-index: 30; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 24px rgba(20, 30, 35, .22); overflow-y: auto; font-size: 13px; outline: none; }
+#mach[hidden] { display: none; }
+#mach .mhead { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; padding: 9px 10px; background: var(--bar); border-bottom: 1px solid var(--line); }
+#mach .mhead b { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#mach .mstate { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: var(--canvas); color: var(--soft); }
+#mach .mstate[data-st=Idle] { background: #d9f0e0; color: #1e6b3a; }
+#mach .mstate[data-st=Run], #mach .mstate[data-st=Jog] { background: #d8e9f7; color: #1d5a8a; }
+#mach .mstate[data-st=Hold], #mach .mstate[data-st=Door] { background: #fff1c2; color: #7a5a00; }
+#mach .mstate[data-st=Alarm] { background: #f9d9d2; color: #9b2c14; }
+#mach .mrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 10px; }
+#mach .mrow select, #mach .mrow input:not([type=range]) { min-width: 0; flex: 1; }
+#mach .mrow .mport { flex: 0 0 52px; }
+#mach .msec { border-top: 1px solid var(--line); }
+#mach .msec > summary { padding: 8px 10px; font-weight: 600; cursor: pointer; }
+#mach .mpos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 0 10px; }
+#mach .mpos > div { display: flex; flex-direction: column; align-items: center; gap: 3px; background: var(--canvas); border-radius: 4px; padding: 6px 4px; }
+#mach .mpos b { font-size: 17px; font-variant-numeric: tabular-nums; }
+#mach .mpos .btn { height: 22px; padding: 0 8px; }
+#mach .mnote { color: var(--soft); font-size: 12px; margin: 2px 10px 6px; }
+#mach .mrow .mnote { margin: 0; }
+#mach .mwarn { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: #9b2c14; background: #fbe6e0; border-radius: 4px; margin: 6px 10px; padding: 6px 8px; }
+#mach .mjog { display: grid; grid-template-columns: repeat(5, 46px); grid-template-rows: repeat(3, 40px); gap: 4px; justify-content: center; padding: 4px 10px; }
+#mach .mjog .mj { flex-direction: column; justify-content: center; gap: 0; padding: 0; height: 40px; }
+#mach .mjog .mj small { font-size: 10px; color: var(--soft); }
+#mach .mjog .mjc { display: grid; place-items: center; color: var(--soft); }
+#mach .mseg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+#mach .mseg button { border: 0; background: var(--field); padding: 3px 8px; cursor: pointer; font: inherit; }
+#mach .mseg button + button { border-left: 1px solid var(--line); }
+#mach .mseg button[aria-checked=true] { background: var(--active-bg); color: var(--active-ink); font-weight: 600; }
+#mach .mf { display: flex; align-items: center; gap: 4px; color: var(--soft); }
+#mach .mf input { width: 56px; flex: none !important; }
+#mach .movr { display: flex; align-items: center; gap: 4px; padding: 3px 10px; }
+#mach .movr span { width: 56px; color: var(--soft); }
+#mach .movr b { width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
+#mach .movr .btn { height: 24px; padding: 0 7px; }
+#mach .mprog { height: 8px; margin: 6px 10px 2px; background: var(--canvas); border-radius: 4px; overflow: hidden; }
+#mach .mprog div { height: 100%; background: #2f8f5b; transition: width .3s; }
+#mach .mlog { height: 150px; overflow-y: auto; margin: 0 10px; padding: 4px 6px; background: var(--canvas); border-radius: 4px; font: 11.5px/1.45 Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
+#mach .mlog .out { color: var(--soft); }
+#mach .mlog .bad { color: #b93a1a; }
+#mach .field { margin: 4px 10px; }
+#machStop { position: fixed; right: 372px; bottom: 44px; z-index: 31; display: flex; align-items: center; gap: 8px; padding: 12px 20px; border: 3px solid #fff; border-radius: 10px; background: #c62828; color: #fff; font: 700 17px/1 inherit; letter-spacing: .06em; box-shadow: 0 4px 16px rgba(120, 20, 20, .45); cursor: pointer; }
+#machStop[hidden] { display: none; }
+#machStop .lu { width: 26px; height: 26px; stroke-width: 2.4; }
+#machStop:hover { background: #a91f1f; }
+#machStop:active { transform: translateY(1px); }
+#mach[hidden] ~ #machStop { right: 16px; }
+#machDlg { max-width: 460px; }
+#machDlg .check { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; }
+:root[data-theme=dark] #mach .mstate[data-st=Idle] { background: #1f3a2a; color: #8fd6a8; }
+:root[data-theme=dark] #mach .mwarn { background: #3a201b; color: #ffb4a3; }
+body.mach-open #cvGcodeBar { right: 110px; }
