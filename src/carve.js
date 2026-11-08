@@ -191,6 +191,7 @@ function cvStageRender() {
     + `<text x="${b.l / 2}" y="${-8 * px}" text-anchor="middle" font-size="${12 * px}" fill="var(--soft)" font-family="Barlow,sans-serif">${esc(cvLen(b.l))}</text><text x="${b.l + 8 * px}" y="${b.w / 2}" font-size="${12 * px}" fill="var(--soft)" font-family="Barlow,sans-serif">${esc(cvLen(b.w))}</text></g>`
     + cvPickedSvg(px) + '<g id="cvPen" pointer-events="none"></g>';
   clearTimeout(cvPathsTimer); cvPathsTimer = setTimeout(cvCutsRender, cvDrag ? 300 : 30);   // bit paths can take a moment, so the board draws first
+  if (CV3D.on && typeof cv3dOverlay === 'function') cv3dOverlay();
 }
 function cvCutsRender() { const g = cvEl('cvCuts'); if (!g || cvDrag || !cvOpen()) return; g.innerHTML = cvPathsSvg(cvNow()) + cvUncutSvg(cvNow()); cvChecksRender(); }
 const cvOpen = () => cvEl('carve').classList.contains('open');
@@ -240,7 +241,7 @@ function cv3dMesh(map) {
   return box;
 }
 function cv3dDispose() { if (!CV3D.mesh) return; CV3D.scene.remove(CV3D.mesh); CV3D.mesh.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.uniforms) o.material.uniforms.uH.value.dispose(); o.material.dispose(); } }); CV3D.mesh = null; }
-const cv3dDraw = () => { if (CV3D.on && CV3D.renderer) CV3D.renderer.render(CV3D.scene, CV3D.camera); };
+const cv3dDraw = () => { if (CV3D.on && CV3D.renderer) { CV3D.renderer.render(CV3D.scene, CV3D.camera); if (typeof cv3dOverlay === 'function') cv3dOverlay(); } };
 function cv3dSize() {
   const box = cvEl('cv3d'), W = box.clientWidth, H = box.clientHeight; if (!W || !H || !CV3D.renderer) return;
   CV3D.renderer.setSize(W, H); CV3D.camera.aspect = W / H; CV3D.camera.updateProjectionMatrix(); cv3dDraw();
@@ -257,9 +258,11 @@ function cv3dSetup() {
   const ctl = new THREE.OrbitControls(cam, r.domElement); ctl.maxPolarAngle = Math.PI * .92; ctl.addEventListener('change', cv3dDraw);
   r.domElement.addEventListener('contextmenu', e => e.preventDefault());
   Object.assign(CV3D, { renderer: r, scene, camera: cam, controls: ctl });
+  if (typeof cv3dWire === 'function') cv3dWire(r.domElement);
 }
 function cv3dBake() {
   if (!CV3D.on) return;
+  if (CV3D.gcode) { cvGcodeBake(); return; }   // a G-code file being looked at
   const cv = cvNow(), key = JSON.stringify([cv.board, cv.items, cv.tabW, cv.tabH, cvRampOf(cv), cvBits, Object.keys(cvFontsLoadedKey())]); if (key === CV3D.key && CV3D.mesh) return;
   cvPlayStop();
   const S = cvCarveSteps(cv, cvBitOf), map = cvCarveGrid(cv); S.steps.forEach(s => cvStamp(map, s.a, s.b, s.bit));
@@ -297,7 +300,8 @@ function cvPlayShow() {
   cvEl('cvPlayAt').value = Math.round(P3.t / Math.max(P3.total, 1e-9) * 1000);
   const playing = !!cvPlayFrame, btn = cvEl('cvPlayBtn'); btn.innerHTML = ic(playing ? 'pause' : 'play'); btn.title = playing ? 'Pause (Space)' : 'Play the cut (Space)'; btn.setAttribute('aria-label', playing ? 'Pause' : 'Play the cut');
   const part = P3.parts.filter(p => p.t <= P3.t + 1e-9).pop() || P3.parts[0];
-  cvEl('cvPlayText').textContent = `${Math.round(P3.t)} of ${Math.max(1, Math.round(P3.total))} min` + (part ? `  ·  File ${part.file + 1}, ${part.bit.name}: ${(part.clearing ? cvSecondWhat(part.it) : CV_JOB_SHORT[part.it.op.kind]).toLowerCase()} ${cvItemName(part.it)}` : '');
+  const now = P3.upto > 0 ? P3.steps[P3.upto - 1] : null;
+  cvEl('cvPlayText').textContent = `${Math.round(P3.t)} of ${Math.max(1, Math.round(P3.total))} min` + (part && part.gcode ? `  ·  ${part.bit.name}, line ${now ? now.line : part.line}` : part ? `  ·  File ${part.file + 1}, ${part.bit.name}: ${(part.clearing ? cvSecondWhat(part.it) : CV_JOB_SHORT[part.it.op.kind]).toLowerCase()} ${cvItemName(part.it)}` : '');
   cvPlayTool();
 }
 function cvPlayTick(now) {
@@ -549,6 +553,20 @@ function cvWorldBox(it) { const s = cvLocal(it), place = cvPlaceFn(it), pts = s.
 // ---------- the mouse ----------
 let cvDrag = null, cvTool = null;
 const cvPoint = e => { const svg = cvEl('cvStage'), r = svg.getBoundingClientRect(), k = cvView.k; return [cvView.x + (e.clientX - r.left) * k, P.carve.board.w - (cvView.y + (e.clientY - r.top) * k)]; };
+// grabbing a handle: the corners scale, the round one turns. The board and the 3D view both start a drag this way.
+function cvHandleDrag(handle, it, p) { const s = cvLocal(it); return { handle, it, start: p, size: it.size, spacing: it.spacing, w: it.w, h: it.h, paths: it.paths && JSON.parse(JSON.stringify(it.paths)), rot: it.rot || 0, a0: Math.atan2(p[1] - it.y, p[0] - it.x), r0: Math.hypot(p[0] - it.x, p[1] - it.y) || 1, lw: s.w, lh: s.h, moved: false }; }
+// clicking an item: Shift adds it or takes it away; otherwise it's picked, and a drag moves everything picked
+function cvItemDown(e, id, p) {
+  if (e.shiftKey) {
+    const grp = cvGroupOf(P.carve.items.find(i => i.id === id)), now = cvPicked();
+    if (now.some(i => i.id === id)) cvPickList(now.filter(i => !grp.includes(i))); else cvPickList(now.concat(grp));
+    carveRender(); return false;
+  }
+  if (!cvPicked().some(i => i.id === id)) { cvPickOnly(id); carveRender(); }
+  const list = cvPicked(), lead = list.find(i => i.id === id);
+  cvDrag = { move: true, list: list.map(it => ({ it, ox: it.x, oy: it.y })), lead: { it: lead, ox: lead.x, oy: lead.y }, start: p, moved: false, sx: e.clientX, sy: e.clientY };
+  return true;
+}
 function cvStageDown(e) {
   const svg = cvEl('cvStage');
   if (e.button === 1 || e.button === 2) { cvDrag = { pan: true, x: e.clientX, y: e.clientY, vx: cvView.x, vy: cvView.y }; svg.setPointerCapture(e.pointerId); return; }
@@ -556,19 +574,8 @@ function cvStageDown(e) {
   if (cvNodeDown(e, cvPoint(e))) return;
   const h = e.target.closest && e.target.closest('.cvh'), g = e.target.closest && e.target.closest('.cvitem'), p = cvPoint(e);
   document.activeElement && document.activeElement.blur && document.activeElement !== document.body && document.activeElement.blur();
-  if (h && cvItem() && !cvMore.size) { const it = cvItem(), s = cvLocal(it); cvDrag = { handle: h.dataset.h, it, start: p, size: it.size, spacing: it.spacing, w: it.w, h: it.h, paths: it.paths && JSON.parse(JSON.stringify(it.paths)), rot: it.rot || 0, a0: Math.atan2(p[1] - it.y, p[0] - it.x), r0: Math.hypot(p[0] - it.x, p[1] - it.y) || 1, lw: s.w, lh: s.h, moved: false }; svg.setPointerCapture(e.pointerId); return; }
-  if (g) {
-    const id = +g.dataset.it;
-    if (e.shiftKey) {   // add it to what's picked, or take it away
-      const grp = cvGroupOf(P.carve.items.find(i => i.id === id)), now = cvPicked();
-      if (now.some(i => i.id === id)) cvPickList(now.filter(i => !grp.includes(i))); else cvPickList(now.concat(grp));
-      carveRender(); return;
-    }
-    if (!cvPicked().some(i => i.id === id)) { cvPickOnly(id); carveRender(); }
-    const list = cvPicked(), lead = list.find(i => i.id === id);
-    cvDrag = { move: true, list: list.map(it => ({ it, ox: it.x, oy: it.y })), lead: { it: lead, ox: lead.x, oy: lead.y }, start: p, moved: false, sx: e.clientX, sy: e.clientY };
-    svg.setPointerCapture(e.pointerId); return;
-  }
+  if (h && cvItem() && !cvMore.size) { cvDrag = cvHandleDrag(h.dataset.h, cvItem(), p); svg.setPointerCapture(e.pointerId); return; }
+  if (g) { if (cvItemDown(e, +g.dataset.it, p)) svg.setPointerCapture(e.pointerId); return; }
   cvDrag = { box: true, start: p, now: p, add: e.shiftKey, sx: e.clientX, sy: e.clientY };   // on empty board: a box picks everything it touches
   svg.setPointerCapture(e.pointerId);
 }
@@ -577,16 +584,21 @@ function cvStageMove(e) {
   if (!cvDrag) return;
   if (cvDrag.onMove) { cvDrag.onMove(e, cvPoint(e)); return; }
   if (cvDrag.pan) { cvView.x = cvDrag.vx - (e.clientX - cvDrag.x) * cvView.k; cvView.y = cvDrag.vy - (e.clientY - cvDrag.y) * cvView.k; cvStageRender(); return; }
-  const p = cvPoint(e), it = cvDrag.it, b = P.carve.board;
+  const p = cvPoint(e), b = P.carve.board;
   if (cvDrag.box) {
     cvDrag.now = p; let r = cvEl('cvBoxSel'); if (!r) { cvEl('cvStage').insertAdjacentHTML('beforeend', '<rect id="cvBoxSel" fill="rgba(32,38,42,.06)" stroke="#20262a" stroke-dasharray="4 3" pointer-events="none"/>'); r = cvEl('cvBoxSel'); }
     const x0 = Math.min(p[0], cvDrag.start[0]), x1 = Math.max(p[0], cvDrag.start[0]), y0 = Math.min(p[1], cvDrag.start[1]), y1 = Math.max(p[1], cvDrag.start[1]);
     r.setAttribute('x', x0); r.setAttribute('y', b.w - y1); r.setAttribute('width', x1 - x0); r.setAttribute('height', y1 - y0); r.setAttribute('stroke-width', cvView.k); return;
   }
-  if (cvDrag.move && !cvDrag.moved && Math.hypot(e.clientX - cvDrag.sx, e.clientY - cvDrag.sy) < 3) return;
+  if (cvDragTo(e, p, cvView.k)) cvStageRender();
+}
+// moves, scales or turns what's being dragged to board point p; k is millimetres per screen pixel there. False until it moves.
+function cvDragTo(e, p, k) {
+  const it = cvDrag.it, b = P.carve.board;
+  if (cvDrag.move && !cvDrag.moved && Math.hypot(e.clientX - cvDrag.sx, e.clientY - cvDrag.sy) < 3) return false;
   if (!cvDrag.moved) { pushUndo(); cvDrag.moved = true; }
   if (cvDrag.move) {
-    let dx = p[0] - cvDrag.start[0], dy = p[1] - cvDrag.start[1]; const near = 7 * cvView.k, L = cvDrag.lead;
+    let dx = p[0] - cvDrag.start[0], dy = p[1] - cvDrag.start[1]; const near = 7 * k, L = cvDrag.lead;
     if (!e.altKey) { if (Math.abs(L.ox + dx - b.l / 2) < near) dx = b.l / 2 - L.ox; if (Math.abs(L.oy + dy - b.w / 2) < near) dy = b.w / 2 - L.oy; }   // the board's middle pulls gently. Alt turns it off.
     cvDrag.list.forEach(m => { m.it.x = m.ox + dx; m.it.y = m.oy + dy; });
   } else if (cvDrag.handle === 'r') {
@@ -598,7 +610,7 @@ function cvStageMove(e) {
     else if (e.shiftKey) { it.w = Math.max(1, cvDrag.w * f); it.h = Math.max(1, cvDrag.h * f); }
     else { const r = -(it.rot || 0) * Math.PI / 180, dx = p[0] - it.x, dy = p[1] - it.y, lx = dx * Math.cos(r) - dy * Math.sin(r), ly = dx * Math.sin(r) + dy * Math.cos(r); it.w = Math.max(1, Math.abs(lx) * 2); it.h = Math.max(1, Math.abs(ly) * 2); }
   }
-  cvStageRender();
+  return true;
 }
 function cvStageUp() {
   const d = cvDrag; cvDrag = null; if (!d) return;
@@ -736,7 +748,7 @@ async function openCarve() {
   if (cvLayout !== 'board' && cvOpen()) cv3dShow(true); else cvLayoutShow('board');
   if (!cvOwned().length) cvOpenBits();
 }
-function closeCarve() { if (CV3D.on) cv3dShow(false); cvModeShow(false); cvSel = null; cvNodeEdit = null; cvTool = null; if (P.carveMode) { P.carveMode = false; autosave(); } dirty = true; }
+function closeCarve() { CV3D.gcode = null; if (CV3D.on) cv3dShow(false); cvModeShow(false); cvSel = null; cvNodeEdit = null; cvTool = null; if (P.carveMode) { P.carveMode = false; autosave(); } dirty = true; }
 // A project is a design or a carving, chosen when it's started. Older projects open the way they were left.
 const cvKind = p => p.kind || (p.carveMode && p.carve ? 'carve' : 'design');
 function cvSyncMode() { if (cvKind(P) === 'carve') { if (!cvOpen()) openCarve(); else { cvView = null; cvSel = null; carveRender(); } } else if (cvOpen()) closeCarve(); }
@@ -819,10 +831,10 @@ cvEl('cvDim').onclick = () => cvToolStart('dim');
 cvEl('cvAddClamp').onclick = () => cvAddClamp();
 cvEl('cvStage').addEventListener('dblclick', e => { if (cvTool) { e.preventDefault(); cvToolFinish(false); } else if (cvNodeItem()) { e.preventDefault(); cvNodeAdd(cvPoint(e)); } });
 cvEl('cvAddSvg').onclick = () => cvEl('cvSvgIn').click();
-cvEl('cvSvgIn').onchange = async e => {
-  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-  try { await cvImportFile(f); } catch (err) { toast(`Couldn't use ${f.name}: ${err.message}.`, true); }
-};
+cvEl('cvSvgIn').onchange = async e => { const files = [...e.target.files]; e.target.value = ''; await cvImportFiles(files); };
+// files dropped on the board or the 3D view come in the same way
+cvEl('cvStageWrap').addEventListener('dragover', e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+cvEl('cvStageWrap').addEventListener('drop', e => { if (!e.dataTransfer || !e.dataTransfer.files.length) return; e.preventDefault(); cvImportFiles([...e.dataTransfer.files]); });
 const cvStage = cvEl('cvStage');
 cvStage.addEventListener('pointerdown', cvStageDown);
 cvStage.addEventListener('pointermove', cvStageMove);

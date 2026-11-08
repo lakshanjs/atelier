@@ -152,3 +152,14 @@ test("gallery objects come in a layer of their own; walls join Room; boards don'
   assert.strictEqual(v.w, "Room"); assert.ok(v.same, "both walls in Room");
   assert.strictEqual(v.b, null); assert.strictEqual(v.h, null);
 });
+
+test("the 3D picture keeps the measurements, numbers and all, unless they're hidden", async () => {
+  const v = await app.run(`${SETUP}
+    P.dims = [{ a: { id: a1.id, f: [-.5, .5, .5] }, b: { id: c2.id, f: [.5, .5, .5] }, axis: 0 }]; P.hideDims = false; persist(); render();
+    const keep = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function () {};
+    const reds = async url => { const im = new Image(); im.src = url; await im.decode(); const c = document.createElement('canvas'); c.width = im.width; c.height = im.height; const x = c.getContext('2d'); x.drawImage(im, 0, 0); const d = x.getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] > 150 && d[i + 1] < 90 && d[i + 2] < 60) n++; return n; };
+    const shown = await reds(savePicture()); P.hideDims = true; render(); const hidden = await reds(savePicture()); P.hideDims = false;
+    HTMLAnchorElement.prototype.click = keep; return { shown, hidden, stillHidden: P.hideDims };`);
+  assert.ok(v.shown > 200, "the measurement's red line and number are in the picture: " + v.shown);
+  assert.ok(v.hidden < v.shown / 4, "and not when measurements are hidden: " + v.hidden);
+});

@@ -195,7 +195,7 @@ async function openHandle(h) {
 }
 async function openProject() {
   if (!window.showOpenFilePicker) { document.getElementById('fileIn').click(); return; }
-  try { const [h] = await showOpenFilePicker({ types: [{ description: 'Atelier project', accept: { 'application/x-atlr': ['.atlr'], 'application/json': ['.json'] } }] }); await openHandle(h); }
+  try { const [h] = await showOpenFilePicker({ types: [{ description: 'Atelier project', accept: { 'application/x-atlr': ['.atlr'], 'application/json': ['.json'] } }, { description: 'G-code, to look at', accept: { 'text/plain': ['.nc', '.gcode', '.ngc', '.tap'] } }] }); if (CV_GCODE_EXT.test(h.name)) { await cvGcodeOpen(await h.getFile()); return; } await openHandle(h); }
   catch (e) { if (e.name !== 'AbortError') fileMsg(`Couldn't open that file: ${e.message}. Choose a file saved from here.`); }
 }
 async function openRecent(i) {
@@ -207,6 +207,7 @@ async function openRecent(i) {
 document.getElementById('bOpen').onclick = openProject;
 document.getElementById('fileIn').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  if (CV_GCODE_EXT.test(f.name)) { try { await cvGcodeOpen(f); } catch (err) { toast(`Couldn't read ${f.name}: ${err.message}.`, true); } return; }   // G-code opens in Carve, to be looked at
   try { await openBytes(await f.arrayBuffer()); fileHandle = null; openedName = f.name; markSaved(false); }
   catch (err) { toast(`Couldn't open ${f.name}: ${err.message}. Choose a file saved from here.`, true); }
 };

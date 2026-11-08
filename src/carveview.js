@@ -155,11 +155,14 @@ function cv3dExtras() {
     const m = 25, th = 8, shade = [.78, .78, .86, .7, 1, .55].map(k => new THREE.MeshBasicMaterial({ color: new THREE.Color(.62 * k, .55 * k, .45 * k) })), box = new THREE.Mesh(new THREE.BoxGeometry(l + m * 2, w + m * 2, th), shade);
     box.position.set(l / 2, w / 2, -t - th / 2 - .02); g.add(box);
   }
-  const steps = CV3D.play && CV3D.play.steps;
-  if (steps && steps.length && (cvShowPaths || cvViewOpts.material === false)) {
-    const pos = new Float32Array(steps.length * 6); steps.forEach((s, i) => { pos.set([s.a[0], s.a[1], s.a[2] + .03, s.b[0], s.b[1], s.b[2] + .03], i * 6); });
+  const steps = CV3D.play && CV3D.play.steps, lines = (list, color, opacity) => {
+    if (!list.length) return; const pos = new Float32Array(list.length * 6); list.forEach((s, i) => { pos.set([s.a[0], s.a[1], s.a[2] + .03, s.b[0], s.b[1], s.b[2] + .03], i * 6); });
     const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    g.add(new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0x0f7d8c, transparent: true, opacity: .8 })));
+    g.add(new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity })));
+  };
+  if (steps && steps.length && (CV3D.gcode || cvShowPaths || cvViewOpts.material === false)) {   // a G-code file always shows its moves: cuts in teal, rapids faint
+    lines(steps.filter(s => !s.rapid), 0x0f7d8c, .8);
+    if (CV3D.gcode) lines(steps.filter(s => s.rapid), isDark() ? 0xc8d0d3 : 0x5c686e, .35);
   }
   CV3D.extras = g; CV3D.scene.add(g); cv3dDraw();
 }
@@ -212,3 +215,72 @@ function cvLayoutSet(mode) {
   cv3dShow(mode !== 'board'); cvView = null; cvStageRender();
 }
 cvEl('cvLayout').addEventListener('click', e => { const b = e.target.closest('[data-lay]'); if (b) cvLayoutSet(b.dataset.lay); });
+
+// ---------- editing in the 3D view ----------
+// The same picking, moving, scaling and turning as on the board, done on the board's top face as seen in 3D. A click picks
+// (Shift adds), a drag on something moves it, the corner squares scale and the round handle turns, all through the board's
+// own drag code. A drag on empty space still turns the view; right-click opens the same menu as on the board.
+const cv3dRay = new THREE.Raycaster(), cv3dTop = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+function cv3dPt(e) {   // where the pointer meets the board's top, in board millimetres
+  const el = CV3D.renderer.domElement, r = el.getBoundingClientRect();
+  cv3dRay.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), CV3D.camera);
+  const hit = cv3dRay.ray.intersectPlane(cv3dTop, new THREE.Vector3()); return hit ? [hit.x, hit.y] : null;
+}
+function cv3dK(p) {   // millimetres per screen pixel at a point on the board
+  const cam = CV3D.camera, d = cam.position.distanceTo(new THREE.Vector3(p[0], p[1], 0)), h = CV3D.renderer.domElement.clientHeight || 1;
+  return d * 2 * Math.tan(cam.fov * Math.PI / 360) / h;
+}
+// the item under a board point: of those whose outline box holds it, the smallest, so a small one on a big pocket can be had
+function cv3dItemAt(p) {
+  const tol = 4 * cv3dK(p); let best = null, area = Infinity;
+  P.carve.items.forEach(it => { const b = cvWorldBox(it); if (p[0] < b.x0 - tol || p[0] > b.x1 + tol || p[1] < b.y0 - tol || p[1] > b.y1 + tol) return; const a = (b.x1 - b.x0 + tol) * (b.y1 - b.y0 + tol); if (a <= area) { area = a; best = it; } });
+  return best;
+}
+const cv3dEditable = () => CV3D.on && !CV3D.gcode && !cvTool && !cvNodeItem();
+function cv3dScreen(q) { const el = CV3D.renderer.domElement, v = new THREE.Vector3(q[0], q[1], 0).project(CV3D.camera); return v.z > 1 ? null : [(v.x + 1) / 2 * el.clientWidth, (1 - v.y) / 2 * el.clientHeight]; }
+function cv3dOverlay() {
+  const svg = cvEl('cv3dOver'); if (!svg) return;
+  const list = CV3D.on && cv3dEditable() && P.carve ? cvPicked() : []; if (!list.length) { if (svg.innerHTML) svg.innerHTML = ''; return; }
+  const P2 = (pts) => { const s = pts.map(cv3dScreen); return s.some(x => !x) ? null : s; }, path = s => `M${s.map(q => `${q[0].toFixed(1)} ${q[1].toFixed(1)}`).join('L')}Z`;
+  let h = '';
+  list.forEach(it => {
+    const s = cvLocal(it), place = cvPlaceFn(it), k = cv3dK([it.x, it.y]), w = Math.max(s.w, 4) / 2 + 3 * k, ht = Math.max(s.h, 4) / 2 + 3 * k, ox = s.ox || 0, oy = s.oy || 0;
+    const box = P2([[-w, -ht], [w, -ht], [w, ht], [-w, ht]].map(q => place([ox + q[0], oy + q[1]]))); if (!box) return;
+    h += `<path d="${path(box)}" fill="none" stroke="#ffc928" stroke-width="1.5"/>`;
+    if (list.length > 1) return;
+    const stalk = P2([place([ox, oy + ht]), place([ox, oy + ht + 22 * k])]);
+    if (stalk) h += `<line x1="${stalk[0][0]}" y1="${stalk[0][1]}" x2="${stalk[1][0]}" y2="${stalk[1][1]}" stroke="#ffc928" stroke-width="1.5"/><circle class="cv3h" data-h="r" cx="${stalk[1][0]}" cy="${stalk[1][1]}" r="6" fill="#fff" stroke="#e5a900" stroke-width="1.5"><title>Drag to turn. Shift keeps to 15° steps.</title></circle>`;
+    if (it.type !== 'dim') box.forEach((q, i) => { h += `<rect class="cv3h" data-h="${'abcd'[i]}" x="${q[0] - 5}" y="${q[1] - 5}" width="10" height="10" fill="#fff" stroke="#e5a900" stroke-width="1.5"><title>Drag to scale</title></rect>`; });
+  });
+  if (svg.innerHTML !== h) svg.innerHTML = h;
+}
+function cv3dWire(el) {
+  const box = cvEl('cv3d'); box.insertAdjacentHTML('beforeend', '<svg id="cv3dOver" aria-hidden="true"></svg>');
+  const over = cvEl('cv3dOver'); let down = null;
+  const start = (e, d) => { cvDrag = d; cvDrag.in3d = true; CV3D.controls.enabled = false; e.preventDefault(); e.stopImmediatePropagation(); };
+  over.addEventListener('pointerdown', e => {   // a handle
+    const hdl = e.target.closest('.cv3h'), it = cvItem(); if (!hdl || !it || e.button !== 0) return; const p = cv3dPt(e); if (!p) return;
+    start(e, cvHandleDrag(hdl.dataset.h, it, p));
+  });
+  el.addEventListener('pointerdown', e => {   // before the view's own turning, so a drag on something moves it instead
+    down = null; if (e.button !== 0 || e.ctrlKey || e.metaKey || !cv3dEditable()) return;
+    const p = cv3dPt(e); if (!p) return; const it = cv3dItemAt(p);
+    if (!it) { down = [e.clientX, e.clientY, e.shiftKey]; return; }
+    if (cvItemDown(e, it.id, p)) start(e, cvDrag); else e.stopImmediatePropagation();
+  }, true);
+  window.addEventListener('pointermove', e => {
+    if (!cvDrag || !cvDrag.in3d) return; const p = cv3dPt(e); if (!p) return;
+    if (cvDragTo(e, p, cv3dK(p))) { cvStageRender(); cv3dSchedule(); }
+  });
+  window.addEventListener('pointerup', e => {
+    if (cvDrag && cvDrag.in3d) { CV3D.controls.enabled = true; cvStageUp(); return; }
+    if (down && Math.hypot(e.clientX - down[0], e.clientY - down[1]) < 4 && !down[2] && cvSel !== null) { cvPickOnly(null); carveRender(); }   // a click on empty space lets go
+    down = null;
+  });
+  el.addEventListener('contextmenu', e => {
+    if (typeof rdown !== 'undefined' && rdown && Math.hypot(e.clientX - rdown[0], e.clientY - rdown[1]) > 4) return;   // that was a right-drag to slide the view
+    if (!cv3dEditable()) return; const p = cv3dPt(e), it = p ? cv3dItemAt(p) : null;
+    if (it) { if (!cvPicked().some(i => i.id === it.id)) cvPickOnly(it.id); } else cvPickOnly(null);
+    carveRender(); cvMenuOpen(e.clientX, e.clientY);
+  });
+}

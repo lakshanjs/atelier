@@ -17,7 +17,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
     <img id="logo" src="lib/icon.svg" alt="" width="18" height="18">
     <nav id="menus" aria-label="Menu">
       <div class="menu"><button class="mbtn">File</button><div class="mlist" hidden>
-        <button data-do="new">New…</button><button data-do="open">Open…</button><button data-do="importsh3d">Import Sweet Home 3D…</button><button data-do="libimport">Import to library…</button><button data-do="libexport">Export library…</button><button data-do="save">Save<kbd>Ctrl+S</kbd></button><button data-do="saveas">Save as…<kbd>Ctrl+Shift+S</kbd></button><hr>
+        <button data-do="new">New…</button><button data-do="open" title="An Atelier project, or a G-code file (.nc) to look at">Open…</button><button data-do="importsh3d">Import Sweet Home 3D…</button><button data-do="libimport">Import to library…</button><button data-do="libexport">Export library…</button><button data-do="save">Save<kbd>Ctrl+S</kbd></button><button data-do="saveas">Save as…<kbd>Ctrl+Shift+S</kbd></button><hr>
         <div id="recentList"></div>
         <button data-do="history">Version history…</button><button data-do="hwcat">Hardware catalogue…</button><hr>
         <button data-do="plans">Cut list and plans</button><button data-do="drawings">Workshop drawings</button><button data-do="print">Print or save PDF</button><hr>
@@ -41,7 +41,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
     <button class="btn" id="bNew" title="New" aria-label="New"></button>
     <button class="btn" id="bOpen" title="Open" aria-label="Open"></button>
     <button class="btn" id="bSave" title="Save (Ctrl+S)" aria-label="Save"></button>
-    <input type="file" id="fileIn" accept=".atlr,.json" hidden>
+    <input type="file" id="fileIn" accept=".atlr,.json,.nc,.gcode,.ngc,.tap" hidden>
     <input type="file" id="sh3dIn" accept=".sh3d,.zip" hidden>
     <input type="file" id="libIn" accept=".sh3d,.sh3f,.atlib,.zip" hidden>
     <div class="sep"></div>
@@ -98,7 +98,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
   <div id="carve" aria-label="Carve on a board">
     <nav id="cvRail" aria-label="Add to the board">
       <button class="btn tool" id="cvAddText" title="Add text" aria-label="Add text"></button>
-      <button class="btn tool" id="cvAddSvg" title="Import an SVG or DXF drawing, an STL model to carve in 3D, or a picture to trace" aria-label="Import a drawing, model or picture"></button>
+      <button class="btn tool" id="cvAddSvg" title="Import SVG or DXF drawings, STL models to carve in 3D, or pictures to trace, several at once. A G-code file (.nc) opens to be looked at." aria-label="Import drawings, models or pictures"></button>
       <button class="btn tool" id="cvGrpShapes" data-fly="shapes" aria-haspopup="menu" aria-expanded="false" title="Rectangles, circles, triangles and stars"></button>
       <button class="btn tool" id="cvGrpDraw" data-fly="draw" aria-haspopup="menu" aria-expanded="false" title="Draw lines and curves, freehand or as arcs, or rub them out"></button>
       <button class="btn tool" id="cvGrpTools" data-fly="tools" aria-haspopup="menu" aria-expanded="false" title="Extend and trim drawn lines, measure, and mark where the clamps go"></button>
@@ -109,7 +109,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
       <button class="btn tool" id="cvBits" title="Your bits" aria-label="Your bits"></button>
       <button hidden class="btn tool" id="cv3dBtn" title="See it carved in 3D" aria-label="See it carved in 3D" aria-pressed="false"></button>
       <button hidden class="btn tool" id="cvPaths" title="Show or hide the bit's path" aria-label="Show or hide the bit's path"></button>
-      <input type="file" id="cvSvgIn" accept=".svg,image/svg+xml,.dxf,.stl,.png,.jpg,.jpeg,.bmp,.gif,.webp,image/png,image/jpeg,image/bmp,image/gif,image/webp" hidden>
+      <input type="file" id="cvSvgIn" multiple accept=".svg,image/svg+xml,.dxf,.stl,.nc,.gcode,.ngc,.tap,.png,.jpg,.jpeg,.bmp,.gif,.webp,image/png,image/jpeg,image/bmp,image/gif,image/webp" hidden>
     </nav>
     <div id="cvFly" role="menu" hidden>
       <div class="flyGroup" data-group="shapes" aria-label="Shapes"><button class="flyItem" role="menuitem" id="cvAddRect" title="Add a rectangle" aria-label="Add a rectangle"><span>Rectangle</span></button><button class="flyItem" role="menuitem" id="cvAddCircle" title="Add an ellipse" aria-label="Add an ellipse"><span>Ellipse</span></button><button class="flyItem" role="menuitem" id="cvAddTri" title="Add a triangle" aria-label="Add a triangle"><span>Triangle</span></button><button class="flyItem" role="menuitem" id="cvAddRightTri" title="Add a right-angled triangle" aria-label="Add a right-angled triangle"><span>Right-angled triangle</span></button><button class="flyItem" role="menuitem" id="cvAddHalf" title="Add a half circle" aria-label="Add a half circle"><span>Half circle</span></button><button class="flyItem" role="menuitem" id="cvAddPolygon" title="Add a polygon" aria-label="Add a polygon"><span>Polygon</span></button><button class="flyItem" role="menuitem" id="cvAddStar" title="Add a star" aria-label="Add a star"><span>Star</span></button></div>
@@ -253,6 +253,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
 <script src="src/carve.js"></script>
 <script src="src/carvetools.js"></script>
 <script src="src/carveview.js"></script>
+<script src="src/gcodeview.js"></script>
 <script src="src/safety.js"></script>
 <script src="src/ui.js"></script>
 <script src="src/commands.js"></script>

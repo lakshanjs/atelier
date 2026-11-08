@@ -539,7 +539,7 @@ select option { background: var(--field); color: var(--ink); }
 #fCarve { display: none; }
 body.carving #fCarve { display: inline; }
 body.carving #foot > span:not(#fCarve), body.carving #warnBtn { display: none; }
-body.carving #lay, body.carving #bSection, body.carving .snapc, body.carving #gridSel, body.carving #bPack, body.carving .tb-sep ~ .tb-sep { display: none !important; }
+body.carving #lay, body.carving #bSection, body.carving .snapc, body.carving #gridSel, body.carving #pickSeg, body.carving #bPack, body.carving .tb-sep ~ .tb-sep { display: none !important; }
 #cvHead { flex: none; display: flex; align-items: center; justify-content: space-between; min-height: 31px; box-sizing: border-box; padding: 0 6px 0 12px; font-weight: 600; background: var(--bar); border-bottom: 1px solid var(--line); }
 #cvHead span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #cvSaveBar { flex: none; display: flex; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--line); }
@@ -682,8 +682,21 @@ details.cvmore[open] { padding-bottom: 4px; }
 #ctx .ctxlist { max-height: 220px; overflow-y: auto; }
 #ctx .ctxlist button { padding-left: 20px; }
 /* what a click picks: the whole layer or just the part */
-.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; height: 28px; }
-.seg button { border: 0; background: var(--field); color: var(--ink); padding: 0 9px; cursor: pointer; font: inherit; }
-.seg button + button { border-left: 1px solid var(--line); }
-.seg button:hover { background: var(--canvas); }
-.seg button[aria-checked=true] { background: var(--active-bg); color: var(--active-ink); }
+#pickSeg { border-radius: 4px; height: 28px; }
+#pickSeg button { background: var(--field); color: var(--ink); padding: 0 9px; font: inherit; }
+#pickSeg button + button { border-left: 1px solid var(--line); }
+#pickSeg button:hover { background: var(--canvas); }
+#pickSeg button[aria-checked=true] { background: var(--active-bg); color: var(--active-ink); }
+/* Carve's 3D view: outlines and handles for what's picked, drawn over the carving */
+#cv3dOver { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 3; }
+#cv3dOver .cv3h { pointer-events: all; cursor: grab; }
+/* a G-code file being looked at in Carve's 3D view */
+#cvGcodeBar { position: absolute; left: 12px; right: 12px; top: 44px; z-index: 6; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 1px 4px rgba(20, 30, 35, .14); padding: 6px 10px; font-size: 12.5px; max-height: 40%; overflow: auto; }
+#cvGcodeBar[hidden] { display: none; }
+#cvGcodeBar .gcrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+#cvGcodeBar .gcrow b { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#cvGcodeBar .gcrow span { color: var(--soft); }
+#cvGcodeBar label { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+#cvGcodeBar select { max-width: 200px; }
+#cvGcodeBar .gcwarn { margin: 6px 0 0; padding-left: 18px; color: var(--bad, #b93a1a); }
+#cvGcodeBar .gcok { margin: 6px 0 0; color: var(--soft); }

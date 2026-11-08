@@ -29,11 +29,26 @@ document.getElementById('secFlip').onclick = () => { sect.flip = !sect.flip; upd
 document.getElementById('secAxis').onchange = e => { sect.axis = +e.target.value; const [a, b] = secRange(); sect.pos = (a + b) / 2; updateSection(); syncSection(); dirty = true; };
 document.getElementById('secPos').oninput = e => { sect.pos = +e.target.value; document.getElementById('secVal').textContent = fmt(sect.pos); updateSection(); dirty = true; };
 // ---------- exports ----------
+// The 3D view as a picture, without the selection or handles. Measurements show as they do on screen: their lines are in
+// the scene, and their numbers, which float over the view as HTML, are painted on in the same style.
 function savePicture() {
-  const keepSel = sel, keepDims = P.hideDims, keepBig = big, was = sect.on; sel = []; P.hideDims = true; draw3D();
+  const keepSel = sel, keepBig = big, was = sect.on; sel = []; draw3D();
   const pr = renderer.getPixelRatio(); renderer.setPixelRatio(Math.max(2, pr)); giz.visible = false; floorGrid.visible = false; renderer.render(scene, camera);
-  const url = renderer.domElement.toDataURL('image/png');
-  renderer.setPixelRatio(pr); sel = keepSel; P.hideDims = keepDims; dirty = true;
+  const src = renderer.domElement, c = document.createElement('canvas'); c.width = src.width; c.height = src.height;
+  const x = c.getContext('2d'); x.drawImage(src, 0, 0);
+  if (!P.hideDims) {
+    const css = getComputedStyle(document.documentElement), col = css.getPropertyValue('--dim').trim() || '#b93a1a', bg = css.getPropertyValue('--dim-bg').trim() || '#fff';
+    const k = src.width / (src.clientWidth || src.width);   // picture pixels per screen pixel
+    x.font = `600 ${12.5 * k}px ${getComputedStyle(document.body).fontFamily}`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.lineWidth = k;
+    visDims().forEach(({ a, b }) => {
+      const v = V3((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2).project(camera); if (v.z > 1) return;
+      const px = (v.x + 1) / 2 * c.width, py = (1 - v.y) / 2 * c.height, t = bare(dist3(a, b)), w = x.measureText(t).width + 10 * k, h = 18 * k;
+      x.fillStyle = bg; x.strokeStyle = col; x.beginPath(); x.roundRect(px - w / 2, py - h / 2, w, h, 2 * k); x.fill(); x.stroke();
+      x.fillStyle = col; x.fillText(t, px, py + k / 2);
+    });
+  }
+  const url = c.toDataURL('image/png');
+  renderer.setPixelRatio(pr); sel = keepSel; dirty = true;
   const a = document.createElement('a'); a.href = url; a.download = `${P.name}.png`; a.click();
   return url;
 }

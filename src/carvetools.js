@@ -460,6 +460,30 @@ async function cvImportFile(f) {
   return cvAddSvgText(await f.text());
 }
 
+const CV_GCODE_EXT = /\.(nc|gcode|ngc|tap|gc|cnc)$/i;
+// Several files at once. Each comes in as it would alone; then, if there are several, they're laid out in a grid across the
+// board, each shrunk to fit its own cell, and all are picked. A G-code file opens to be looked at instead.
+async function cvImportFiles(files) {
+  files = [...files]; if (!files.length) return;
+  const g = files.find(f => CV_GCODE_EXT.test(f.name)); if (g) { try { await cvGcodeOpen(g); } catch (err) { toast(`Couldn't read ${g.name}: ${err.message}.`, true); } files = files.filter(f => !CV_GCODE_EXT.test(f.name)); if (!files.length) return; }
+  const had = new Set(cvNow().items.map(i => i.id)), sets = [], bad = [];
+  for (const f of files) {
+    const before = new Set(cvNow().items.map(i => i.id));
+    try { await cvImportFile(f); const made = cvNow().items.filter(i => !before.has(i.id)); if (made.length) sets.push(made); } catch (err) { bad.push(`${f.name}: ${err.message}`); }
+  }
+  if (sets.length > 1) {
+    const b = cvNow().board, cols = Math.ceil(Math.sqrt(sets.length * b.l / b.w)), rows = Math.ceil(sets.length / cols), cw = b.l / cols, ch = b.w / rows;
+    cvEdit(() => sets.forEach((list, n) => {
+      const box = cvBoxOf(list), bw = Math.max(box.x1 - box.x0, 1), bh = Math.max(box.y1 - box.y0, 1), f = Math.min(1, cw * .85 / bw, ch * .85 / bh);
+      const cx = (box.x0 + box.x1) / 2, cy = (box.y0 + box.y1) / 2, tx = (n % cols + .5) * cw, ty = b.w - (Math.floor(n / cols) + .5) * ch;   // left to right, back to front
+      list.forEach(i => { cvScaleItem(i, f); i.x = tx + (i.x - cx) * f; i.y = ty + (i.y - cy) * f; });
+    }));
+  }
+  const made = cvNow().items.filter(i => !had.has(i.id)); if (made.length) { cvPickList(made); carveRender(); }
+  if (bad.length) toast(`Couldn't use ${bad.join('; ')}.`, true);
+  else if (sets.length > 1) toast(`${sets.length} files imported and laid out across the board.`);
+}
+
 // ---------- clamps and dimensions ----------
 // Both sit on the board and are never cut. A clamp zone is where a clamp holds the board: nothing may cut into it, and the
 // bit stays at the safe height crossing it. A dimension shows a measurement between two points.
