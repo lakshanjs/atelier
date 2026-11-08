@@ -609,12 +609,25 @@ function cvAlong(ring, q) {   // the nearest point on a ring: how far along it, 
   }
   return best;
 }
-// Where the tabs go: spread evenly along each finished edge. The rough passes put theirs at the same places, so the two line up.
+// Where the tabs go: spread along each finished edge, each moved within its share of the edge to the straightest stretch,
+// so none lands on a point or a tight curve, where snapping it off would break the shape. The rough passes put theirs at the same places.
 function cvTabSpots(rings, tabs, width) {
   const spots = []; let fewer = false;
   rings.forEach(ring => {
     const { pts, L, len } = cvRingLen(ring), n = Math.min(tabs, Math.floor(len / (width * 2))); if (n < tabs) fewer = true;
-    for (let i = 0; i < n; i++) { const m = len * (i + .5) / n, k = Math.max(0, L.findIndex(v => v >= m)), s0 = k ? L[k - 1] : 0, a = pts[k], b = pts[k + 1], t = L[k] > s0 ? (m - s0) / (L[k] - s0) : 0; spots.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); }
+    if (!n) return;
+    const at = m => { m = ((m % len) + len) % len; const k = Math.max(0, L.findIndex(v => v >= m)), s0 = k ? L[k - 1] : 0, a = pts[k], b = pts[k + 1] || pts[0], t = L[k] > s0 ? (m - s0) / (L[k] - s0) : 0; return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; };
+    // how much the edge turns at each corner, and where along it that corner is
+    const bends = []; for (let k = 0; k < pts.length - 1; k++) {
+      const p = pts[(k - 1 + pts.length - 1) % (pts.length - 1)], q = pts[k], r = pts[k + 1], a1 = Math.atan2(q[1] - p[1], q[0] - p[0]), a2 = Math.atan2(r[1] - q[1], r[0] - q[0]);
+      let d = Math.abs(a2 - a1); if (d > Math.PI) d = 2 * Math.PI - d; if (d > 1e-9) bends.push([k ? L[k - 1] : 0, d]);
+    }
+    const reach = width / 2 + 1, bendNear = m => bends.reduce((s, [p, d]) => { let g = Math.abs(p - m); g = Math.min(g, len - g); return g <= reach ? s + d : s; }, 0);
+    for (let i = 0; i < n; i++) {
+      const m0 = len * (i + .5) / n, room = len / n * .35, step = Math.max(.25, room / 40); let best = m0, cost = Infinity;
+      for (let m = m0 - room; m <= m0 + room + 1e-9; m += step) { const c = bendNear(m) + Math.abs(m - m0) / len * .2; if (c < cost - 1e-9) { cost = c; best = m; } }
+      spots.push(at(best));
+    }
   });
   return { spots, fewer };
 }
@@ -862,6 +875,8 @@ function cvItemPaths(cv, it, bit, bitOf = typeof cvBitOf === 'function' ? cvBitO
       if (fin > 0) chains = chains.concat(cvContourPaths(edge, [depth], bit, spots, cv.tabW, tabZ, .5));   // then the skin, in one pass at full depth
     }
     if (bit.type !== 'v') chains = chains.map(c => cvRamp(c, c.top ?? 0, cvRampOf(cv)));
+    // a shallow V-bit line is a few tenths wide: a Z0 set a hair high, or a board not quite flat, and it barely marks
+    if (op.kind === 'line' && bit.type === 'v' && depth < .4 && chains.length) notes.push({ info: true, text: `is only ${cvLenNote(depth)} deep, so a Z0 set a little high can leave it faint. In wood, 0.5 to 1 mm reads well` });
   }
   const answer = { chains, notes }; if (it._c.size >= 4) it._c.delete(it._c.keys().next().value);
   it._c.set(key, answer); return answer;
@@ -949,6 +964,9 @@ function cvClipChain(chain, t) {   // the parts of a chain inside a tile, each i
 const cvMarkChains = (x, y) => [[[x - CV_MARK, y, -CV_MARK_DEPTH], [x + CV_MARK, y, -CV_MARK_DEPTH]], [[x, y - CV_MARK, -CV_MARK_DEPTH], [x, y + CV_MARK, -CV_MARK_DEPTH]]];
 const cvTileName = (cv, t) => (t.n ? `the cross at ${Math.round(t.x0 * 10) / 10}, ${Math.round(t.y0 * 10) / 10} mm on the board` : 'front left corner of the board');
 
+// The spindle comes up to speed in four steps rather than all at once: a gentler pull on the power supply, which on a
+// small machine also feeds the controller. About 5 seconds, the same as the single wait it replaces plus two.
+const cvSpinUp = rpm => { const s = Math.round(rpm); return [`M3 S${Math.round(s / 4)}`, 'G4 P1', `M3 S${Math.round(s / 2)}`, 'G4 P1', `M3 S${Math.round(s * 3 / 4)}`, 'G4 P1', `M3 S${s}`, 'G4 P2']; };
 // opts: air lifts the whole job this much, so it can be watched without cutting, and clear is how high its lowest point is, for the note.
 // tile limits it to one tile, zeroed at that tile's corner, and marks are crosses to engrave first, for later tiles.
 function cvGcode(cv, file, bit, n, of, title, opts = {}) {
@@ -962,7 +980,7 @@ function cvGcode(cv, file, bit, n, of, title, opts = {}) {
   say(`Board ${r(cv.board.l)} x ${r(cv.board.w)} x ${r(cv.board.t)} mm`);
   if (tile && cv.tile) { say(`X0 Y0 = ${tile.n ? 'the cross at' : 'front left corner of the board.'}`); if (tile.n) say(`${r(tile.x0)}, ${r(tile.y0)} mm on the board. Z0 = top.`); else say('Z0 = top of board.'); }
   else say(`X0 Y0 = ${cvZeroName(cv)} of board. Z0 = top of board.`);
-  out.push('G21 G90 G17 G94', `G0 Z${Z(safe)}`, `M3 S${Math.round(bit.rpm)}`, 'G4 P3');
+  out.push('G21 G90 G17 G94', `G0 Z${Z(safe)}`, ...cvSpinUp(bit.rpm));
   const feedTo = (x, y, z, rate) => { const d = where ? Math.hypot(x - where[0], y - where[1], z - where[2]) : 0; minutes += d / rate; length += d; };
   let lastF = null; const F = r => { if (r === lastF) return ''; lastF = r; return ` F${Math.round(r)}`; };
   const run = chain => {

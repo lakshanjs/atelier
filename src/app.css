@@ -732,6 +732,7 @@ details.cvmore[open] { padding-bottom: 4px; }
 #mach .mseg button[aria-checked=true] { background: var(--active-bg); color: var(--active-ink); font-weight: 600; }
 #mach .mf { display: flex; align-items: center; gap: 4px; color: var(--soft); }
 #mach .mf input { width: 56px; flex: none !important; }
+body.mach-picking #cvStage { cursor: crosshair; }
 #mach .movr { display: flex; align-items: center; gap: 4px; padding: 3px 10px; }
 #mach .movr span { width: 56px; color: var(--soft); }
 #mach .movr b { width: 44px; text-align: center; font-variant-numeric: tabular-nums; }

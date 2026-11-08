@@ -6,7 +6,11 @@
 // The profile (travel, top speed and so on) belongs to the app; new carvings take their limits from it.
 
 const MACH_STORE = 'atelier-machine', MACH_RX = 127;
-const MACH_PROFILE = { name: 'TTC 3018 PRO', link: 'usb', port: 'COM8', baud: 115200, host: '192.168.1.99', tcpPort: 23, workX: 300, workY: 180, maxRate: 1500, sMax: 1000, safeZ: 6.35, jogFeed: 1000 };
+const MACH_PROFILE = { name: 'TTC 3018 PRO', link: 'usb', port: 'COM8', baud: 115200, host: '192.168.1.99', tcpPort: 23, workX: 300, workY: 180, maxRate: 1500, sMax: 1000, safeZ: 6.35, jogFeed: 1000, send: '' };
+// How lines are sent. Fast fills GRBL's 127-byte buffer (character counting), as Candle does. One line at a time waits for
+// each ok first. An ESP32 board (MKS DLC32) restarted itself mid-job three times when Candle streamed to it over Wi-Fi, and ran
+// a 35-minute job cleanly one line at a time, so that's the default over Wi-Fi. Not proven the cause, but it's what worked.
+const machOneByOne = () => (machProfile.send || (M.kind === 'wifi' ? 'safe' : 'fast')) === 'safe';
 let machProfile = { ...MACH_PROFILE }; try { Object.assign(machProfile, JSON.parse(localStorage.getItem(MACH_STORE)) || {}); } catch (e) {}
 const machSaveProfile = () => { try { localStorage.setItem(MACH_STORE, JSON.stringify(machProfile)); } catch (e) {} };
 function machDefaults() { const p = machProfile; return { workX: p.workX, workY: p.workY, maxRate: p.maxRate, safeZ: p.safeZ }; }
@@ -102,6 +106,8 @@ function machSim(onText, speed = 1) {
     },
     close: async () => { S.alive = false; clearInterval(tick); },
     start() { say("Grbl 1.1h ['$' for help]"); },
+    // the board restarting by itself, as a power dip or a crash does: it counts from zero wherever the head is, keeps its work offsets (G54)
+    reboot() { S.plan = []; S.wait = []; S.hold = false; S.alarm = false; S.check = false; S.spindle = 0; S.abs = true; S.k = 1; S.line = ''; S.m = [0, 0, 0]; S.p = [0, 0, 0]; say("Grbl 1.1h ['$' for help]"); },
   };
 }
 
@@ -116,7 +122,7 @@ function machRealtime(c) { machWrite(c); }
 function machSend(line, job = null) { M.queue.push({ line, job }); machPump(); }
 function machPump() {
   if (!M.link) return; let used = M.sent.reduce((n, x) => n + x.len, 0);
-  while (M.queue.length) { const q = M.queue[0], len = q.line.length + 1; if (used + len > MACH_RX && M.sent.length) break; M.queue.shift(); M.sent.push({ ...q, len }); used += len; machWrite(q.line + '\n'); if (q.job === null) machLog(q.line, 'out'); }
+  while (M.queue.length) { const q = M.queue[0], len = q.line.length + 1; if (M.sent.length && (used + len > MACH_RX || machOneByOne())) break; M.queue.shift(); M.sent.push({ ...q, len }); used += len; machWrite(q.line + '\n'); if (q.job === null) machLog(q.line, 'out'); }
   if (M.job && !M.job.done && !M.job.paused && M.queue.length === 0) machJobFeed();
 }
 function machText(t) {
@@ -132,25 +138,45 @@ function machLine(l) {
     machPump(); return;
   }
   if (l.startsWith('ALARM:')) { const n = +l.slice(6); machLog(`Alarm: ${MACH_ALARMS[n] || 'alarm ' + n}. Check the machine, then Unlock.`, 'bad'); if (M.job && !M.job.done) machJobEnd(`Stopped by an alarm: ${MACH_ALARMS[n] || n}`); machRender(); return; }
-  if (/^Grbl /.test(l)) { M.sent = []; M.queue = []; if (M.job && !M.job.done) machJobEnd('Stopped: the machine was reset'); machLog(l); machRender(); return; }
+  if (/^Grbl /.test(l)) {
+    const j = M.job; M.sent = []; M.queue = [];
+    if (j && !j.done && !j.check) {   // nobody asked for this reset: the board restarted by itself, mid-cut
+      M.restart = machRestartInfo(j); M.from = M.restart.from; machOpenSecs.add('find');
+      machJobEnd('Stopped: the machine restarted by itself. It has lost its position, so X0 Y0 and Z0 no longer match the board. Use Find zero again before carrying on.');
+    } else if (j && !j.done) machJobEnd('Stopped: the machine was reset');
+    machLog(l); machRender(); return;
+  }
   machLog(l);
 }
 function machStatus(l) {
   const parts = l.slice(1, -1).split('|'), st = M.st; st.state = parts[0];
   parts.slice(1).forEach(p => { const [k, v] = p.split(':'), n = (v || '').split(',').map(Number);
-    if (k === 'MPos') { st.m = n; st.w = n.map((x, i) => x - st.wco[i]); } else if (k === 'WPos') { st.w = n; st.m = n.map((x, i) => x + st.wco[i]); } else if (k === 'WCO') { st.wco = n; st.w = st.m.map((x, i) => x - n[i]); } else if (k === 'FS') { st.f = n[0]; st.s = n[1] || 0; } else if (k === 'F') st.f = n[0]; else if (k === 'Ov') st.ov = n; });
+    if (k === 'MPos') { st.m = n; st.w = n.map((x, i) => x - st.wco[i]); } else if (k === 'WPos') { st.w = n; st.m = n.map((x, i) => x + st.wco[i]); } else if (k === 'WCO') { st.wco = n; st.w = st.m.map((x, i) => x - n[i]); } else if (k === 'FS') { st.f = n[0]; st.s = n[1] || 0; } else if (k === 'F') st.f = n[0]; else if (k === 'Ov') st.ov = n; else if (k === 'Bf') st.bf = n; });
+  if (M.restart && !M.restart.m0) M.restart.m0 = st.m.slice();   // where the machine counts from since it restarted
+  machWatchStarve();
   if (M.job && !M.job.done && M.job.sentAll && !M.sent.some(x => x.job !== null) && st.state === 'Idle') machJobEnd(null);
   machFollowTool(); machRenderLive();
 }
 async function machConnect() {
   if (M.link || M.connecting) return; const p = machProfile; M.connecting = true; machRender();
-  const onClose = () => { if (!M.link) return; M.link = null; clearInterval(M.poll); M.st.state = 'Off'; if (M.job && !M.job.done) machJobEnd('The connection was lost while running. Switch the machine off if it is still moving.'); machLog('Disconnected', 'bad'); machRender(); };
+  M.earlyClose = false;
+  const onClose = () => {
+    if (!M.link) { if (M.connecting) M.earlyClose = true; return; } const quick = Date.now() - M.linkAt < 4000; M.link = null; clearInterval(M.poll); M.st.state = 'Off';
+    if (M.job && !M.job.done) machJobEnd('The connection was lost while running. Switch the machine off if it is still moving.');
+    // a board that takes one connection at a time lets a second one in, then drops it
+    if (quick && M.kind === 'wifi') { machLog('The machine closed the connection straight away. Candle, gSender or its web page may be connected to it: it talks to one program at a time. Close the other one, then connect again.', 'bad'); toast('The machine dropped the connection. Is Candle or gSender connected to it?', true); }
+    else machLog('Disconnected', 'bad');
+    machRender();
+  };
   try {
     M.link = p.link === 'sim' ? machSim(machText, M.simSpeed || 1) : p.link === 'wifi' ? await machWifi(p, machText, onClose) : await machUsb(p, machText, onClose);
-    M.kind = p.link; M.sent = []; M.queue = []; M.buf = ''; M.st.state = 'Connecting'; machLog(`Connected to ${M.link.label}`);
+    M.kind = p.link; M.linkAt = Date.now(); M.sent = []; M.queue = []; M.buf = ''; M.st.state = 'Connecting'; machLog(`Connected to ${M.link.label}`);
+    if (M.earlyClose) { M.earlyClose = false; onClose(); M.connecting = false; machRender(); return; }   // dropped before we'd even finished connecting
     if (M.link.start) M.link.start();
     clearInterval(M.poll); M.poll = setInterval(() => machWrite('?'), 200);
+    const link = M.link;
     setTimeout(() => { if (M.link && M.st.state === 'Connecting') { machWrite('\r\n'); machSend('$I'); } }, 2500);   // no greeting yet (some boards say nothing over Wi-Fi): ask
+    setTimeout(() => { if (M.link === link && M.st.state === 'Connecting') machLog('No answer from the machine. If Candle, gSender or its web page is connected to it, close that: it talks to one program at a time.', 'bad'); }, 5000);
   } catch (e) { M.link = null; machLog(`Couldn't connect: ${e.message}.`, 'bad'); toast(`Couldn't connect: ${e.message}.`, true); }
   M.connecting = false; machRender();
 }
@@ -175,16 +201,107 @@ function machStop() {
 // ---------- the job ----------
 // Comments and blank lines aren't sent; each sent line keeps its line number in the file, to follow it in 3D.
 function machJobLines(text) { const out = []; text.split(/\r?\n/).forEach((raw, i) => { const l = raw.replace(/\([^)]*\)/g, '').replace(/;.*$/, '').replace(/\s+/g, ' ').trim(); if (l && l !== '%') out.push({ l, n: i + 1 }); }); return out; }
-function machJobStart(src, check) {
-  const lines = machJobLines(src.text); if (!lines.length) { toast('That file has nothing to send.', true); return; }
-  M.job = { name: src.name, lines, next: 0, acked: 0, started: Date.now(), check: !!check, errors: [], paused: false, done: false, sentAll: false, total: src.minutes || 0 };
+// The height of the bit after each line, from the Z words, or NaN where it can't be known (relative moves).
+function machJobZ(lines) {
+  let z = NaN, abs = true, k = 1;
+  return lines.map(({ l }) => {
+    const u = l.toUpperCase(); if (/G20(?!\d)/.test(u)) k = 25.4; if (/G21(?!\d)/.test(u)) k = 1; if (/G91(?!\.)/.test(u)) abs = false; if (/G90(?!\.)/.test(u)) abs = true;
+    const m = u.match(/Z\s*([-+]?(?:\d+\.?\d*|\.\d+))/); if (m && !/G10|G28|G30|G53|G92/.test(u)) z = abs ? +m[1] * k : z + +m[1] * k;
+    return abs ? z : NaN;
+  });
+}
+// Starting part-way: what the file has set up by line `from` (its line number), and the moves that set it up again safely:
+// up to the safe height, the spindle up to speed, over the point where that line starts, then down to its height.
+function machResumeLines(text, from) {
+  const all = machJobLines(text), before = all.filter(L => L.n < from), rest = all.filter(L => L.n >= from);
+  if (!rest.length) throw new Error(`the file ends before line ${from}`);
+  let x = 0, y = 0, z = NaN, f = 0, plunge = 0, s = 0, on = false, motion = 'G0', inch = false, rel = false;
+  before.forEach(({ l }) => {
+    const u = l.toUpperCase(), w = {}; [...u.matchAll(/([A-Z])\s*([-+]?(?:\d+\.?\d*|\.\d+))/g)].forEach(m => { if (m[1] === 'G') { const g = parseFloat(m[2]); if (g <= 3) motion = 'G' + g; if (g === 20) inch = true; if (g === 21) inch = false; if (g === 91) rel = true; if (g === 90) rel = false; } else w[m[1]] = +m[2]; });
+    if (/G10|G28|G30|G53|G92|G4(?!\d)/.test(u)) return;
+    if ('F' in w) f = w.F; if ('S' in w) s = w.S; if (/M0?[34](?!\d)/.test(u)) on = true; if (/M0?5(?!\d)|M30|M0?2(?!\d)/.test(u)) on = false;
+    if ('Z' in w && !('X' in w) && !('Y' in w) && motion === 'G1' && 'F' in w) plunge = w.F;
+    if ('X' in w) x = w.X; if ('Y' in w) y = w.Y; if ('Z' in w) z = w.Z;
+  });
+  if (rel) throw new Error('the file moves by relative amounts (G91) before that line, so it can only start from the top');
+  const safe = +machProfile.safeZ || 5, n = from, sz = inch ? safe / 25.4 : safe, up = Math.max(sz, isNaN(z) ? sz : z), r = v => +v.toFixed(4);
+  const pre = [`${inch ? 'G20' : 'G21'} G90 G17 G94`, `G0 Z${r(up)}`];
+  if (on && s > 0) pre.push(`M3 S${Math.round(s / 4)}`, 'G4 P1', `M3 S${Math.round(s / 2)}`, 'G4 P1', `M3 S${Math.round(s * 3 / 4)}`, 'G4 P1', `M3 S${s}`, 'G4 P2');
+  pre.push(`G0 X${r(x)} Y${r(y)}`);
+  if (!isNaN(z) && z < up) { const near = inch ? 1 / 25.4 : 1; if (z < near) { pre.push(`G0 Z${r(Math.max(z, near))}`); pre.push(`G1 Z${r(z)} F${Math.round(plunge || Math.min(f || 100, 100))}`); } else pre.push(`G0 Z${r(z)}`); }
+  if (f > 0) pre.push(`G1 F${f}`);
+  // the first line carries on the file's motion (G0 to G3) if it doesn't say its own
+  const first = rest[0], hasG = /G0*[0-3](?![\d.])/i.test(first.l), hasXYZ = /[XYZ]/i.test(first.l);
+  const lines = pre.map(l => ({ l, n })).concat([{ l: hasXYZ && !hasG ? `${motion} ${first.l}` : first.l, n: first.n }], rest.slice(1));
+  return { lines, at: { x, y, z, f, s, on } };
+}
+function machJobStart(src, check, from = 1) {
+  let lines;
+  if (from > 1 && !check) { try { lines = machResumeLines(src.text, from).lines; } catch (e) { toast(`Can't start from line ${from}: ${e.message}.`, true); return; } }
+  else lines = machJobLines(src.text);
+  if (!lines.length) { toast('That file has nothing to send.', true); return; }
+  if (!check) { M.restart = null; M.from = 1; } M.paper = null;   // a later Start begins at the top again unless told otherwise; a Check keeps what's known about a restart
+  M.job = { name: src.name, lines, z: machJobZ(lines), next: 0, acked: 0, started: Date.now(), check: !!check, errors: [], paused: false, done: false, sentAll: false, total: src.minutes || 0, from: from > 1 ? from : 0, starve: [0, 0] };
   if (!check && typeof cvOpen === 'function' && cvOpen() && (!CV3D.gcode || CV3D.gcode.text !== src.text)) cvGcodeOpenText(src.text, src.name).catch(() => {});   // follow it in 3D
   if (check) machSend('$C');
-  machLog(`${check ? 'Checking' : 'Running'} ${src.name}: ${lines.length} lines`); machPump(); machRender();
+  machLog(`${check ? 'Checking' : 'Running'} ${src.name}: ${lines.length} lines${M.job.from ? `, from line ${from}` : ''}`); machPump(); machRender();
+}
+// What's known when the board restarts mid-job. GRBL has said ok to `acked` lines, and up to 16 of those may still have
+// been waiting in its planner, so the bit was somewhere in that stretch. If the depth is the same all through it, that's the
+// depth the bit was at, and Z0 can be found from it. `from` is the start of the cut it was on: the last time the bit was above the board.
+function machRestartInfo(j) {
+  // the last 17 moves it said ok to (lines without X, Y or Z take no room in the planner), and the line before the oldest,
+  // since the oldest may have been under way, starting from that line's height
+  const last = j.acked; let lo = last, moves = 0; while (lo > 0 && moves < 17) { lo--; if (/[XYZ]/i.test(j.lines[lo].l)) moves++; } lo = Math.max(0, lo - 1);
+  const span = j.z.slice(lo, Math.max(lo + 1, last));
+  const depth = last > 0 && span.every(v => Number.isFinite(v) && Math.abs(v - span[0]) < 1e-6) && span[0] < 0 ? span[0] : null;
+  let i = lo - 1; while (i >= 0 && !(j.z[i] >= 0)) i--;
+  const from = j.lines[Math.min(j.lines.length - 1, i + 1)].n, at = j.lines[Math.max(0, last - 1)].n;
+  return { name: j.name, depth, from: Math.max(1, from), at, m0: null };
+}
+// One line at a time keeps the planner fed only if each ok comes back quickly. If its queue keeps running empty while
+// cutting, the bit is stopping between lines, which leaves marks: say so once.
+function machWatchStarve() {
+  const j = M.job, bf = M.st.bf; if (!j || j.done || j.check || !bf || !machOneByOne() || M.st.state !== 'Run') return;
+  j.starve[0]++; if (bf[0] >= 13) j.starve[1]++;
+  if (j.starve[0] >= 50) { if (j.starve[1] / j.starve[0] > .6 && !j.starveSaid) { j.starveSaid = true; machLog('The machine keeps running out of moves: sending one line at a time is too slow here, so the bit pauses between lines. Fast sending in Machine profile avoids it, if this machine copes with it.', 'bad'); } j.starve = [0, 0]; }
+}
+
+// ---------- finding zero again ----------
+// After a restart, X0 Y0 and Z0 point at the wrong place. A point of the cut whose place is known, like a sharp corner of an
+// engraving or the end of a groove, gives it back: pick it on the board, put the bit on it, and say that's where it is.
+let machPickOn = false; const machCutPts = { text: null, pts: [] };
+function machCutPoints(text) {   // the ends of every cutting move, below the board top, in the file's own coordinates
+  if (machCutPts.text === text) return machCutPts.pts;
+  const pts = []; try { cvGcodeParse(text).moves.forEach(m => { if (!m.rapid && m.b[2] < 0) pts.push([m.b[0], m.b[1]]); }); } catch (e) {}
+  machCutPts.text = text; machCutPts.pts = pts; return pts;
+}
+// a click on Carve's board, while picking: snaps to the nearest end of a cut within 15 pixels
+function machPickAt(p) {
+  if (!machPickOn || !P.carve) return false; machPickOn = false; document.body.classList.remove('mach-picking');
+  const [zx, zy] = cvZeroAt(P.carve), src = machSources().find(s => s.key === machSrcKey); let best = null, bd = 15 * (cvView ? cvView.k : 1);
+  if (src) machCutPoints(src.text).forEach(q => { const d = Math.hypot(q[0] + zx - p[0], q[1] + zy - p[1]); if (d < bd) { bd = d; best = q; } });
+  M.find = best ? { x: best[0], y: best[1], snapped: true } : { x: p[0] - zx, y: p[1] - zy, snapped: false };
+  machOpenSecs.add('find'); machRender(); if (cvOpen()) cvStageRender(); return true;
+}
+function machPickSvg(px) {   // the picked point, drawn on the board
+  if (!M.find || !P.carve) return ''; const [zx, zy] = cvZeroAt(P.carve), x = M.find.x + zx, y = P.carve.board.w - (M.find.y + zy), r = 7 * px;
+  return `<g pointer-events="none" id="machPick"><circle cx="${x}" cy="${y}" r="${r}" fill="none" stroke="#c0392b" stroke-width="${1.5 * px}"/><path d="M${x - r * 1.8} ${y}H${x - r * .4}M${x + r * .4} ${y}H${x + r * 1.8}M${x} ${y - r * 1.8}V${y - r * .4}M${x} ${y + r * .4}V${y + r * 1.8}" stroke="#c0392b" stroke-width="${1.5 * px}"/></g>`;
+}
+// The paper test: down to 0.2 mm, then 0.1 mm, over plain wood. Each answer moves Z0 by half the step and goes back to the same height.
+function machPaper(a) {
+  const P2 = M.paper; if (!M.link) return;
+  if (a === 'paper') { M.paper = { at: .2 }; machSend('G90'); if (M.st.w[2] < 1) machSend('G0 Z1'); machSend('G1 Z0.2 F100'); machRender(); return; }
+  if (!P2) return; const d = P2.at > .15 ? .1 : .05;
+  if (a === 'paperNext') { P2.at = .1; machSend('G1 Z0.1 F50'); }
+  else if (a === 'paperLow') { machSend(`G10 L20 P1 Z${+(P2.at - d).toFixed(3)}`); machSend(`G1 Z${P2.at} F50`); P2.moved = (P2.moved || 0) + d; machLog(`Z0 raised by ${d} mm`); }   // pinched: the board top is higher than Z0 said
+  else if (a === 'paperHigh') { machSend(`G10 L20 P1 Z${+(P2.at + d).toFixed(3)}`); machSend(`G1 Z${P2.at} F50`); P2.moved = (P2.moved || 0) - d; machLog(`Z0 lowered by ${d} mm`); }
+  else if (a === 'paperEnd' || a === 'paperOk') { M.paper = null; machSend('G91 G0 Z' + (+machProfile.safeZ || 5)); machSend('G90'); if (a === 'paperOk') toast('Z0 checked.'); }
+  machRender();
 }
 function machJobFeed() {
   const j = M.job; if (!j || j.done || j.paused) return; let used = M.sent.reduce((n, x) => n + x.len, 0);
-  while (j.next < j.lines.length) { const L = j.lines[j.next], len = L.l.length + 1; if (used + len > MACH_RX && M.sent.length) break; M.sent.push({ line: L.l, job: j.next, len }); used += len; machWrite(L.l + '\n'); j.next++; }
+  while (j.next < j.lines.length) { const L = j.lines[j.next], len = L.l.length + 1; if (M.sent.length && (used + len > MACH_RX || machOneByOne())) break; M.sent.push({ line: L.l, job: j.next, len }); used += len; machWrite(L.l + '\n'); j.next++; }
   if (j.next >= j.lines.length && !j.sentAll) { j.sentAll = true; if (j.check) machSend('$C'); }
   if (j.check && j.sentAll && !M.sent.length) machJobEnd(null);
 }
@@ -245,8 +362,19 @@ function machRender() {
   // where it is
   h += mSec('pos', 'Position', `<div class="mpos">${['X', 'Y', 'Z'].map((a, i) => `<div><small>${a}</small><b data-mw="${i}">${mf(M.st.w[i])}</b><button class="btn line" data-m="zero${a}" ${dis(idle)} title="Make this X0">0</button></div>`).join('')}</div>`
     + `<div class="mrow">${mBtn('zeroXY', 'Zero X and Y', 'crosshair', dis(idle) + ' title="Here becomes X0 Y0"')}${mBtn('zeroZ', 'Zero Z', 'arrow-down-to-line', dis(idle) + ' title="Touch the board top first (paper test), then Z0"')}</div>`
-    + `<div class="mrow">${mBtn('home', 'Go to X0 Y0', 'house', dis(idle) + ' title="Lifts by the safe height first, then goes to X0 Y0"')}${mBtn('raise', 'Lift the bit', 'chevron-up', dis(idle) + ` title="Up ${p.safeZ} mm"`)}</div>`
+    + `<div class="mrow">${mBtn('home', 'Go to X0 Y0', 'house', dis(idle) + ' title="Lifts by the safe height first, then goes to X0 Y0"')}${mBtn('raise', 'Lift the bit', 'chevron-up', dis(idle) + ` title="Up ${p.safeZ} mm"`)}${mBtn('paper', 'Paper test', 'ruler', dis(idle && !M.paper) + ' title="Checks Z0: over plain wood, the bit goes down to 0.2 mm, then 0.1 mm, for a sheet of paper under it"')}</div>`
+    + (M.paper ? (M.paper.at > .15
+      ? `<p class="mnote">Slide a sheet of paper under the bit. At 0.2 mm it should pass with a small gap.</p><div class="mrow">${mBtn('paperNext', 'Small gap: on to 0.1 mm', '', dis(idle))}${mBtn('paperLow', 'Pinched', '', dis(idle) + ' title="Z0 is too low: raise it 0.1 mm"')}${mBtn('paperHigh', 'Big gap', '', dis(idle) + ' title="Z0 is too high: lower it 0.1 mm"')}${mBtn('paperEnd', 'Stop', '', dis(on))}</div>`
+      : `<p class="mnote">At 0.1 mm the paper should just drag as it slides.</p><div class="mrow">${mBtn('paperOk', 'It drags: Z0 is right', '', dis(idle))}${mBtn('paperHigh', 'Slides freely', '', dis(idle) + ' title="Z0 is a little high: lower it 0.05 mm"')}${mBtn('paperLow', 'Pinched', '', dis(idle) + ' title="Z0 is a little low: raise it 0.05 mm"')}${mBtn('paperEnd', 'Stop', '', dis(on))}</div>`) : '')
     + `<p class="mnote" data-mm>Machine: ${M.st.m.map(mf).join(', ')}</p>`);
+  // finding zero again, from a point of the cut
+  const rs = M.restart, canPick = !!(P && P.carve && P.kind === 'carve' && typeof cvOpen === 'function' && cvOpen());
+  h += mSec('find', 'Find zero again', (rs ? `<p class="mwarn">${ic('triangle-alert')}It restarted while cutting ${esc(rs.name)}, around line ${rs.at}. Its position was lost.</p>` : '')
+    + `<p class="mnote">Pick a point of the cut whose place you know, like a sharp corner of an engraving or the end of a groove. It snaps to the nearest end of a cut.</p>`
+    + `<div class="mrow">${mBtn('pick', machPickOn ? 'Click the board…' : 'Pick on the board', 'crosshair', dis(canPick) + (canPick ? '' : ' title="Open the carving to pick on it"'))}<label class="mf">X<input data-mf="x" value="${M.find ? mf(M.find.x) : ''}" aria-label="X of the point"></label><label class="mf">Y<input data-mf="y" value="${M.find ? mf(M.find.y) : ''}" aria-label="Y of the point"></label></div>`
+    + `<p class="mnote">Spindle off. Jog until the bit sits right on that point, with its tip just in the groove. Then:</p>`
+    + `<div class="mrow">${mBtn('findXY', M.find ? `The bit is at X ${mf(M.find.x)}, Y ${mf(M.find.y)}` : 'The bit is on the point', 'crosshair', dis(idle && M.find) + ' title="Sets X0 Y0 back where they were (G10 L20 P1)"')}</div>`
+    + (rs && rs.depth !== null && rs.m0 ? `<p class="mnote">It restarted during a pass ${esc(cvLenNote(-rs.depth))} deep. If this bit hasn't been taken out since, Z0 can be worked out from that, wherever the bit is now.</p><div class="mrow">${mBtn('findZ', 'Set Z0 from the cut', 'arrow-down-to-line', dis(idle))}</div>` : `<p class="mnote">Then set Z0 on the board top as usual, and check it with the paper test.</p>`));
   // jog
   const jb = (axis, dir, icon, label) => `<button class="btn line mj" data-jog="${axis}${dir}" ${dis(idle || M.st.state === 'Jog')} title="${label}" aria-label="${label}">${ic(icon)}<small>${axis}${dir > 0 ? '+' : '−'}</small></button>`;
   h += mSec('jog', 'Jog', `<div class="mjog"><span></span>${jb('Y', 1, 'chevron-up', 'Away from you (Y+)')}<span></span><span></span>${jb('Z', 1, 'chevron-up', 'Up (Z+)')}${jb('X', -1, 'chevron-left', 'Left (X−)')}<span class="mjc">${ic('crosshair')}</span>${jb('X', 1, 'chevron-right', 'Right (X+)')}<span></span><span></span><span></span>${jb('Y', -1, 'chevron-down', 'Towards you (Y−)')}<span></span><span></span>${jb('Z', -1, 'chevron-down', 'Down (Z−)')}</div>`
@@ -267,13 +395,15 @@ function machRender() {
     jh += `<div class="mrow">${j.paused || /^Hold/.test(M.st.state) ? mBtn('resume', 'Resume', 'play') : mBtn('pause', 'Pause', 'pause')}${mBtn('stop', 'Stop the job', 'square')}</div>`;
   } else {
     if (j && j.done) jh += `<p class="${j.why || (j.check && j.errors.length) ? 'mwarn' : 'mnote'}">${esc(j.name)}: ${esc(j.why || (j.check ? (j.errors.length ? j.errors.slice(0, 5).join('; ') : 'GRBL accepts every line.') : 'done.'))}</p>`;
-    jh += `<div class="mrow">${mBtn('check', 'Check', 'square-check', dis(idle && srcs.length) + ' title="Runs it through GRBL without moving ($C), to find lines it would refuse"')}<button class="btn main" data-m="start" ${dis(idle && srcs.length)}>${ic('play')}Start</button></div>`;
+    if (rs && M.from > 1) jh += `<p class="mnote">It was on line ${rs.at}. Starting from line ${M.from} cuts that part again from its beginning: the passes already made are gone over again without taking off any wood.</p>`;
+    jh += `<div class="mrow">${mBtn('check', 'Check', 'square-check', dis(idle && srcs.length) + ' title="Runs it through GRBL without moving ($C), to find lines it would refuse"')}<label class="mf" title="Starts part-way: lifts, starts the spindle, goes over where that line starts and down to its height">from line<input data-m-from value="${M.from > 1 ? M.from : 1}" aria-label="Start from line"></label><button class="btn main" data-m="start" ${dis(idle && srcs.length)}>${ic('play')}Start</button></div>`;
   }
   h += mSec('job', 'Job', jh);
   // console and settings
   h += mSec('console', 'Console', `<div class="mlog" data-mlog></div><div class="mrow"><input data-m-cmd placeholder="A GRBL command, then Enter" ${dis(on)} aria-label="GRBL command">${mBtn('cmd:$$', 'Settings', '', dis(idle))}${mBtn('unlock', 'Unlock', 'lock-open', dis(on))}${mBtn('reset', 'Reset', 'rotate-ccw', dis(on))}</div>`);
   h += mSec('profile', 'Machine profile', `<p class="mnote">New carvings take their travel, top speed and safe height from here. Settings in the machine ($$) are never changed.</p>`
     + [['name', 'Name'], ['workX', 'Travel X, mm'], ['workY', 'Travel Y, mm'], ['maxRate', 'Top speed, mm/min'], ['sMax', 'Spindle full speed (S)'], ['safeZ', 'Safe height, mm'], ['baud', 'USB speed (baud)']].map(([k, n]) => `<label class="field">${n}<input data-mp="${k}" value="${esc(p[k])}"></label>`).join('')
+    + `<label class="field">Sending<select data-mp="send">${[['', 'Automatic: one line at a time over Wi-Fi'], ['safe', 'One line at a time'], ['fast', 'Fill GRBL\'s buffer (faster)']].map(([v, n]) => `<option value="${v}" ${(p.send || '') === v ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`
     + (P && P.carve && P.kind === 'carve' ? `<div class="mrow">${mBtn('applyCarve', 'Use for this carving too')}</div>` : ''));
   machEl.innerHTML = h; machConsole();
 }
@@ -284,13 +414,17 @@ function machRenderLive() {   // the numbers that change all the time, without r
 }
 function machConsole() { const el = machEl.querySelector('[data-mlog]'); if (!el) return; el.innerHTML = M.log.slice(-150).map(x => `<div class="${x.kind}">${esc(x.t)}</div>`).join(''); el.scrollTop = el.scrollHeight; }
 // the checklist before cutting, as Easel asks it
-function machConfirmStart(src) {
+const machDeepest = text => { let z = 0; for (const m of text.matchAll(/^[^(;]*?Z\s*([-+]?(?:\d+\.?\d*|\.\d+))/gim)) z = Math.min(z, +m[1]); return z; };
+function machConfirmStart(src, from = 1) {
   const dlg = document.getElementById('machDlg') || (() => { const d = document.createElement('dialog'); d.id = 'machDlg'; document.body.appendChild(d); return d; })();
-  const zero = P.carve ? cvZeroName(P.carve) : 'where the file expects';
-  const items = [`The board is held down firmly, and clamps are clear of the cut.`, `The bit is in: <b>${esc(src.bit || 'the one the file is for')}</b>.`, `X0 Y0 is set at the <b>${esc(zero)}</b> of the board.`, `Z0 is set on the top of the board, after this bit went in.`, `Eyes and ears are protected, and the dust extraction is on.`, `You can reach the machine's power switch.`];
-  dlg.innerHTML = `<h2>Ready to cut?</h2><p class="note">${esc(src.name)}${src.minutes ? `, about ${Math.round(src.minutes)} min` : ''}. The spindle starts when the file says so.</p>${items.map((t, i) => `<label class="check"><input type="checkbox" data-ok="${i}">${t}</label>`).join('')}<div class="rowb" style="margin-top:12px"><button class="btn line" data-d="no">Not yet</button><button class="btn main" data-d="go" disabled>${ic('play')}Start cutting</button></div>`;
+  const zero = P.carve ? cvZeroName(P.carve) : 'where the file expects', deep = -machDeepest(src.text), t = P.carve && P.carve.board ? P.carve.board.t : 0;
+  const items = [`The board is held down firmly, and clamps are clear of the cut.`, `The bit is in: <b>${esc(src.bit || 'the one the file is for')}</b>.`, `X0 Y0 is set at the <b>${esc(zero)}</b> of the board.`, `Z0 is set on the top of the board, after this bit went in.`];
+  // a through cut goes a little below the board: into a spoilboard, or into the machine's bed, which snaps a small bit
+  if (t > 0 && deep >= t - 1e-6) items.push(`There's a spoilboard under the board: this file cuts ${esc(cvLenNote(deep))} deep, right through it.`);
+  items.push(`Eyes and ears are protected, and the dust extraction is on.`, `You can reach the machine's power switch.`);
+  dlg.innerHTML = `<h2>Ready to cut?</h2><p class="note">${esc(src.name)}${src.minutes ? `, about ${Math.round(src.minutes)} min` : ''}${from > 1 ? `, <b>from line ${from}</b>` : ''}. The spindle starts when the file says so.</p>${items.map((t, i) => `<label class="check"><input type="checkbox" data-ok="${i}">${t}</label>`).join('')}<div class="rowb" style="margin-top:12px"><button class="btn line" data-d="no">Not yet</button><button class="btn main" data-d="go" disabled>${ic('play')}Start cutting</button></div>`;
   dlg.onchange = () => { dlg.querySelector('[data-d="go"]').disabled = ![...dlg.querySelectorAll('[data-ok]')].every(c => c.checked); };
-  dlg.onclick = e => { const b = e.target.closest('[data-d]'); if (!b) return; dlg.close(); if (b.dataset.d === 'go') machJobStart(src, false); };
+  dlg.onclick = e => { const b = e.target.closest('[data-d]'); if (!b) return; dlg.close(); if (b.dataset.d === 'go') machJobStart(src, false, from); };
   dlg.showModal();
 }
 // ---------- jogging ----------
@@ -319,7 +453,7 @@ machEl.addEventListener('click', async e => {
   if (a === 'disconnect') { machDisconnect(); return; }
   if (a === 'ports') { if (window.atelierWin && atelierWin.serialWant && navigator.serial) { atelierWin.serialWant('?'); try { await navigator.serial.requestPort(); } catch (err) {} M.ports = await atelierWin.serialList(); machRender(); if (!M.ports.length) toast('No USB ports found. Is the machine plugged in and on?', true); } return; }
   if (a === 'unlock') { machSend('$X'); return; }
-  if (a === 'reset') { machRealtime('\x18'); M.queue = []; M.sent = []; return; }
+  if (a === 'reset') { machRealtime('\x18'); M.queue = []; M.sent = []; if (M.job && !M.job.done) machJobEnd('Stopped: the machine was reset'); machRender(); return; }   // ended here, so its greeting isn't taken for a restart by itself
   if (a.startsWith('cmd:')) { machSend(a.slice(4)); machOpenSecs.add('console'); machRender(); return; }
   if (a.startsWith('ov:')) { machRealtime(a.slice(3)); return; }
   if (a === 'zeroX' || a === 'zeroY' || a === 'zeroZ') { machSend(`G10 L20 P1 ${a.slice(4)}0`); return; }
@@ -330,13 +464,27 @@ machEl.addEventListener('click', async e => {
   if (a === 'pause') { machPause(); return; }
   if (a === 'resume') { machResume(); return; }
   if (a === 'stop') { machStop(); return; }
-  if (a === 'start' || a === 'check') { const src = machSources().find(s => s.key === machSrcKey); if (!src) return; if (a === 'check') machJobStart(src, true); else machConfirmStart(src); return; }
+  if (a === 'start' || a === 'check') { const src = machSources().find(s => s.key === machSrcKey); if (!src) return; if (a === 'check') machJobStart(src, true); else machConfirmStart(src, M.from > 1 ? M.from : 1); return; }
+  if (a === 'pick') { machPickOn = !machPickOn; document.body.classList.toggle('mach-picking', machPickOn); if (machPickOn) toast('Click a point of the cut on the board.'); machRender(); return; }
+  if (a === 'findXY' && M.find) { machSend(`G10 L20 P1 X${+M.find.x.toFixed(3)} Y${+M.find.y.toFixed(3)}`); machLog(`This point is now X ${mf(M.find.x)}, Y ${mf(M.find.y)}`); return; }
+  if (a === 'findZ' && M.restart && M.restart.m0 && M.restart.depth !== null) {
+    const z = M.restart.depth + (M.st.m[2] - M.restart.m0[2]); machSend(`G10 L20 P1 Z${+z.toFixed(3)}`);
+    machLog(`Z0 set from the cut: the bit is ${mf(z)} from the board top now`); toast('Z0 set from the cut. Check it with the paper test.'); return;
+  }
+  if (a.startsWith('paper')) { machPaper(a); return; }
   if (a === 'applyCarve' && P.carve) { cvEdit(() => Object.assign(P.carve, machDefaults())); carveRender(); toast('This carving now uses the machine profile.'); }
 });
 machEl.addEventListener('change', e => {
   const el = e.target;
   if (el.dataset.mSrc !== undefined) { machSrcKey = el.value; return; }
+  if (el.dataset.mFrom !== undefined) { const n = Math.floor(+el.value); M.from = n > 1 ? n : 1; machRender(); return; }
+  if (el.dataset.mf) {   // typed: only the button changes, so Tab still goes on to the other box
+    const v = parseFloat(el.value); if (Number.isFinite(v)) { M.find = { ...(M.find || { x: 0, y: 0 }), [el.dataset.mf]: v, snapped: false }; if (typeof cvStageRender === 'function' && P.carve && cvOpen()) cvStageRender(); }
+    const b = machEl.querySelector('[data-m="findXY"]'); if (b && M.find) { b.lastChild.textContent = `The bit is at X ${mf(M.find.x)}, Y ${mf(M.find.y)}`; b.disabled = !(M.link && /^(Idle|Check)/.test(M.st.state) && !(M.job && !M.job.done)); }
+    return;
+  }
   const k = el.dataset.mp; if (!k) return;
+  if (k === 'send') { machProfile.send = el.value; machSaveProfile(); machRender(); return; }
   if (k === 'spinPct') { M.spinPct = +el.value; if (M.spindle && M.link) machSend(`M3 S${Math.round((+machProfile.sMax || 1000) * M.spinPct / 100)}`); machRender(); return; }
   const num = ['workX', 'workY', 'maxRate', 'sMax', 'safeZ', 'jogFeed', 'tcpPort', 'baud'].includes(k), v = num ? parseFloat(el.value) : el.value.trim();
   if (num && !(v > 0)) { machRender(); return; } if (!num && !v) { machRender(); return; }

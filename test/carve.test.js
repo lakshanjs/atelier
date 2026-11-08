@@ -885,3 +885,19 @@ test("a ball nose: drawn round, cuts a round-bottomed groove, and carves a relie
   assert.ok(worst > -.06, "no part of the ball goes into the model: " + worst);
   assert.ok(Math.min(...g.cuts.map(c => c.to.z)) < -4.2);
 });
+
+test("tabs keep off points and tight curves; files bring the spindle up in steps; a faint V-bit line is noted", async () => {
+  const v = await app.run(`${SETUP}
+    const ring = cvPolygon(100, 100, 5, .5), star = cvTabSpots([ring], 5, 9).spots;
+    const near = star.map(s => Math.min(...ring.map(p => Math.hypot(p[0] - s[0], p[1] - s[1]))));
+    const sq = cvTabSpots([[[0, 0], [100, 0], [100, 60], [0, 60]]], 4, 9).spots.map(p => p.map(x => Math.round(x * 100) / 100));
+    const it = add({ type: 'rect', w: 40, h: 20 }, { kind: 'line', bit: 'v-30', depth: .25 });
+    const job = cvJob(cv, cvBitOf, 'T')[0].text, faint = cvChecks(cv, cvBitOf, true).map(c => c.text);
+    it.op.depth = .8; const deeper = cvChecks(cv, cvBitOf, true).map(c => c.text);
+    return { near, sq, spin: job.split(/\\r?\\n/).filter(l => /^(M3|G4) /.test(l)), faint, deeper };`);
+  assert.ok(v.near.every(d => d > 9 / 2), "each star tab is clear of every point and inner corner: " + v.near.map(d => d.toFixed(1)));
+  assert.deepStrictEqual(v.sq, [[40, 0], [100, 20], [60, 60], [0, 40]], "on straight edges they stay evenly spread");
+  assert.deepStrictEqual(v.spin, ["M3 S250", "G4 P1", "M3 S500", "G4 P1", "M3 S750", "G4 P1", "M3 S1000", "G4 P2"]);
+  assert.ok(v.faint.some(t => /is only .* deep, so a Z0 set a little high can leave it faint/.test(t)), JSON.stringify(v.faint));
+  assert.ok(!v.deeper.some(t => /can leave it faint/.test(t)));
+});

@@ -189,7 +189,7 @@ function cvStageRender() {
     + cvTilesSvg(cv, px) + cv.items.map(cvItemSvg).join('') + `<g id="cvCuts" pointer-events="none"></g>`
     + `<g pointer-events="none" id="cvZeroMark"><line x1="${zx}" y1="${zsy}" x2="${zx + mark * 2}" y2="${zsy}" stroke="#c0392b" stroke-width="${2 * px}"/><line x1="${zx}" y1="${zsy}" x2="${zx}" y2="${zsy - mark * 2}" stroke="#1e8449" stroke-width="${2 * px}"/><circle cx="${zx}" cy="${zsy}" r="${4 * px}" fill="#20262a"/><text x="${zx + (zLeft ? -6 : 6) * px}" y="${zsy + (zFront ? 14 : -8) * px}" font-size="${11 * px}" text-anchor="${zLeft ? 'end' : 'start'}" fill="var(--soft)" font-family="Barlow,sans-serif">Zero</text></g><g pointer-events="none">`
     + `<text x="${b.l / 2}" y="${-8 * px}" text-anchor="middle" font-size="${12 * px}" fill="var(--soft)" font-family="Barlow,sans-serif">${esc(cvLen(b.l))}</text><text x="${b.l + 8 * px}" y="${b.w / 2}" font-size="${12 * px}" fill="var(--soft)" font-family="Barlow,sans-serif">${esc(cvLen(b.w))}</text></g>`
-    + cvPickedSvg(px) + '<g id="cvPen" pointer-events="none"></g>';
+    + cvPickedSvg(px) + (typeof machPickSvg === 'function' ? machPickSvg(px) : '') + '<g id="cvPen" pointer-events="none"></g>';
   clearTimeout(cvPathsTimer); cvPathsTimer = setTimeout(cvCutsRender, cvDrag ? 300 : 30);   // bit paths can take a moment, so the board draws first
   if (CV3D.on && typeof cv3dOverlay === 'function') cv3dOverlay();
 }
@@ -570,6 +570,7 @@ function cvItemDown(e, id, p) {
 function cvStageDown(e) {
   const svg = cvEl('cvStage');
   if (e.button === 1 || e.button === 2) { cvDrag = { pan: true, x: e.clientX, y: e.clientY, vx: cvView.x, vy: cvView.y }; svg.setPointerCapture(e.pointerId); return; }
+  if (typeof machPickAt === 'function' && e.button === 0 && machPickAt(cvPoint(e))) return;   // My machine is waiting for a point of the cut
   if (cvTool) { cvToolDown(e, cvPoint(e)); return; }
   if (cvNodeDown(e, cvPoint(e))) return;
   const h = e.target.closest && e.target.closest('.cvh'), g = e.target.closest && e.target.closest('.cvitem'), p = cvPoint(e);
