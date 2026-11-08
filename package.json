@@ -1,7 +1,7 @@
 {
   "name": "atelier",
   "productName": "Atelier",
-  "version": "1.0.32",
+  "version": "1.0.33",
   "description": "A desktop furniture design app: free panels, 3D and plan views, cut lists.",
   "author": "Lakshan",
   "license": "PolyForm-Strict-1.0.0",
@@ -26,7 +26,13 @@
       "lib/**/*"
     ],
     "fileAssociations": [
-      { "ext": "atlr", "name": "Atelier project", "description": "Atelier project", "icon": "lib/icon.ico", "role": "Editor" }
+      {
+        "ext": "atlr",
+        "name": "Atelier project",
+        "description": "Atelier project",
+        "icon": "lib/icon.ico",
+        "role": "Editor"
+      }
     ],
     "win": {
       "target": "nsis",

@@ -59,15 +59,18 @@ function downloadBlob(name, data, type) { const a = document.createElement('a');
 // ---------- right-click menu ----------
 const ctxEl = document.getElementById('ctx'); let rdown = null;
 const closeCtx = () => { ctxEl.hidden = true; };
-function openCtx(x, y) {
-  const has = sel.length > 0, anyLocked = selected().some(i => i.locked);
-  const row = (act, label, icon, key) => `<button data-cx="${act}" role="menuitem">${ic(icon)}${label}${key ? `<kbd>${key}</kbd>` : ''}</button>`;
-  ctxEl.innerHTML = has
-    ? row('cut', 'Cut', 'scissors', 'Ctrl+X') + row('copy', 'Copy', 'clipboard-copy', 'Ctrl+C') + (clip ? row('paste', 'Paste', 'clipboard-paste', 'Ctrl+V') : '') + row('dup', 'Duplicate', 'copy', 'Ctrl+D') + '<hr>' + row('spin', 'Spin 90°', 'rotate-cw', 'R') + row('mirx', 'Mirror, left to right', 'flip-horizontal-2') + row('mirz', 'Mirror, front to back', 'cv-flip-v') + row('drop', 'Set down', 'arrow-down-to-line') + (sel.length > 1 ? row('mid', 'Line up their middles', 'align-center-vertical') : '') + '<hr>' + row('group', 'Make a layer', 'group') + row('hide', 'Hide', 'eye-off') + row('lock', anyLocked ? 'Unlock' : 'Lock', 'lock') + '<hr>' + row('del', 'Delete', 'trash-2', 'Del')
-    : (clip ? row('paste', 'Paste', 'clipboard-paste', 'Ctrl+V') : '') + row('all', 'Select all', 'square-mouse-pointer', 'Ctrl+A') + row('fit', 'Fit everything', 'scan', 'F') + row('gallery', 'Add from the Gallery', 'layout-grid');
-  ctxEl.hidden = false;
+const ctxRow = (act, label, icon, key) => `<button data-cx="${esc(act)}" role="menuitem">${ic(icon)}${esc(label)}${key ? `<kbd>${esc(key)}</kbd>` : ''}</button>`;
+function placeCtx(x, y, html) {
+  ctxEl.innerHTML = html; ctxEl.hidden = false;
   const r = ctxEl.getBoundingClientRect();
-  ctxEl.style.left = Math.min(x, innerWidth - r.width - 4) + 'px'; ctxEl.style.top = Math.min(y, innerHeight - r.height - 4) + 'px';
+  ctxEl.style.left = Math.max(4, Math.min(x, innerWidth - r.width - 4)) + 'px'; ctxEl.style.top = Math.max(4, Math.min(y, innerHeight - r.height - 4)) + 'px';
+}
+function openCtx(x, y) {
+  const has = sel.length > 0, anyLocked = selected().some(i => i.locked), row = ctxRow;
+  const layerRows = row('group', 'Make a layer', 'group', keyLabel('group')) + (selected().some(i => i.group) ? row('ungroup', 'Take out of layer', 'ungroup', keyLabel('ungroup')) : '');
+  placeCtx(x, y, has
+    ? row('cut', 'Cut', 'scissors', 'Ctrl+X') + row('copy', 'Copy', 'clipboard-copy', 'Ctrl+C') + (clip ? row('paste', 'Paste', 'clipboard-paste', 'Ctrl+V') : '') + row('dup', 'Duplicate', 'copy', 'Ctrl+D') + '<hr>' + row('spin', 'Spin 90°', 'rotate-cw', 'R') + row('mirx', 'Mirror, left to right', 'flip-horizontal-2') + row('mirz', 'Mirror, front to back', 'cv-flip-v') + row('drop', 'Set down', 'arrow-down-to-line') + (sel.length > 1 ? row('mid', 'Line up their middles', 'align-center-vertical') : '') + '<hr>' + layerRows + row('hide', 'Hide', 'eye-off') + row('lock', anyLocked ? 'Unlock' : 'Lock', 'lock') + '<hr>' + row('del', 'Delete', 'trash-2', 'Del')
+    : (clip ? row('paste', 'Paste', 'clipboard-paste', 'Ctrl+V') : '') + row('all', 'Select all', 'square-mouse-pointer', 'Ctrl+A') + row('fit', 'Fit everything', 'scan', 'F') + row('gallery', 'Add from the Gallery', 'layout-grid'));
 }
 window.addEventListener('pointerdown', e => { if (e.button === 2) rdown = [e.clientX, e.clientY]; if (!e.target.closest('#ctx')) closeCtx(); if (!e.target.closest('#warnPop,#warnBtn')) document.getElementById('warnPop').hidden = true; }, true);
 document.getElementById('work').addEventListener('contextmenu', e => {
@@ -77,12 +80,15 @@ document.getElementById('work').addEventListener('contextmenu', e => {
   let it = null;
   if (pane.dataset.v === '3d') { const h = rayAt(e).intersectObjects(pickable).find(x => keptHit(x) && !byId(x.object.userData.id).locked); it = h ? byId(h.object.userData.id) : null; }
   else { const el = document.getElementById(VIEWS[pane.dataset.v].el), r = el.getBoundingClientRect(); it = hitFlat(pane.dataset.v, e.clientX - r.left, e.clientY - r.top); }
-  if (it) { if (!sel.includes(it.id)) { sel = [it.id]; setTab('props'); render(); } } else if (sel.length) { sel = []; render(); }
+  if (it) { if (!sel.includes(it.id)) { pick(it.id, false); render(); } } else if (sel.length) { sel = []; render(); }
   openCtx(e.clientX, e.clientY);
 });
 ctxEl.addEventListener('click', e => {
   const b = e.target.closest('[data-cx]'); if (!b) return; const a = b.dataset.cx; closeCtx();
-  if (a === 'hide') edit(() => { selected().forEach(i => { i.hidden = true; }); sel = []; });
+  if (a === 'ungroup') ungroupSelection();
+  else if (a.startsWith('mv:')) moveSelToLayer(+a.slice(3));
+  else if (/^(lay|ren|lren):/.test(a)) layerCtxRun(a);
+  else if (a === 'hide') edit(() => { selected().forEach(i => { i.hidden = true; }); sel = []; });
   else if (a === 'lock') edit(() => { const un = selected().some(i => i.locked); selected().forEach(i => { if (un) delete i.locked; else i.locked = true; }); });
   else if (a === 'drop') edit(dropDown);
   else if (a === 'mirx' || a === 'mirz') edit(() => mirrorSel(a === 'mirx' ? 0 : 2));
@@ -121,7 +127,7 @@ const DO = {
   carvecopy: () => { if (!P.carve || !P.carve.items.length) return; const c = JSON.parse(JSON.stringify(P.carve)); delete c.fromPanel; loadProject({ ...newProject(`${P.name} carving`), kind: 'carve', carve: c }); },
   copy: copySel, paste: pasteClip, cut: () => { copySel(); if (sel.length) edit(removeSel); },
   dims: () => { P.hideDims = !P.hideDims; persist(); render(); },
-  group: () => { if (sel.length) groupSelection(); }, spin: () => { if (sel.length) edit(() => rotateSel(AXES[1][0], 90)); },
+  group: () => { if (sel.length) groupSelection(); }, ungroup: () => { if (sel.length) ungroupSelection(); }, pickmode: () => { setPickMode(pickMode === 'layer' ? 'part' : 'layer'); toast(pickMode === 'layer' ? 'A click picks the whole layer' : 'A click picks just the part'); }, spin: () => { if (sel.length) edit(() => rotateSel(AXES[1][0], 90)); },
   fit: () => { Object.keys(VIEWS).forEach(fitView); resetCam(); dirty = true; }, cam: resetCam,
 };
 document.getElementById('menus').addEventListener('click', e => {
@@ -157,7 +163,7 @@ applyTheme();
 [['rendAdjustBtn', 'sliders-horizontal'], ['bShot3d', 'camera'], ['bLayout', 'layout-dashboard'], ['bSection', 'scissors-line-dashed'], ['bNew', 'file-plus'], ['bOpen', 'folder-open'], ['bSave', 'save'], ['bUndo', 'undo-2'], ['bRedo', 'redo-2'], ['bPack', 'scissors'], ['bView', 'rotate-ccw'], ['bPrint', 'printer'], ['bCsv', 'save']].forEach(([id, n]) => addIcon(document.getElementById(id), n));
 document.querySelector('.snapc').insertAdjacentHTML('beforeend', ic('magnet'));
 window.LUCIDE.keyboard = '<rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" />';
-const MENU_ICONS = { carvecopy: 'folder-plus', cnc: 'drill', drawings: 'book-open', floorgrid: 'grid-2x2', history: 'clock', hwcat: 'package', keys: 'keyboard', libimport: 'book-copy', libexport: 'archive', palette: 'search', render: 'image', resizable: 'scaling', theme: 'moon', importsh3d: 'folder-open', tbsep: 'separator-vertical', tbreset: 'rotate-ccw', layouts: 'layout-dashboard', layreset: 'rotate-ccw', help: 'circle-help', saveas: 'save-all', picture: 'camera', dxf: 'file-output', stl: 'file-box', real: 'sparkles', section: 'scissors-line-dashed', copy: 'clipboard-copy', cut: 'scissors', paste: 'clipboard-paste', dims: 'ruler', new: 'file-plus', open: 'folder-open', save: 'save', plans: 'scissors', print: 'printer', undo: 'undo-2', redo: 'redo-2', dup: 'copy', del: 'trash-2', all: 'square-mouse-pointer', group: 'group', spin: 'rotate-cw', fit: 'scan', cam: 'rotate-ccw', 'big:3d': 'box', 'big:top': 'maximize-2', 'big:front': 'maximize-2', 'big:side': 'maximize-2' };
+const MENU_ICONS = { carvecopy: 'folder-plus', cnc: 'drill', drawings: 'book-open', floorgrid: 'grid-2x2', history: 'clock', hwcat: 'package', keys: 'keyboard', libimport: 'book-copy', libexport: 'archive', palette: 'search', render: 'image', resizable: 'scaling', theme: 'moon', importsh3d: 'folder-open', tbsep: 'separator-vertical', tbreset: 'rotate-ccw', layouts: 'layout-dashboard', layreset: 'rotate-ccw', help: 'circle-help', saveas: 'save-all', picture: 'camera', dxf: 'file-output', stl: 'file-box', real: 'sparkles', section: 'scissors-line-dashed', copy: 'clipboard-copy', cut: 'scissors', paste: 'clipboard-paste', dims: 'ruler', new: 'file-plus', open: 'folder-open', save: 'save', plans: 'scissors', print: 'printer', undo: 'undo-2', redo: 'redo-2', dup: 'copy', del: 'trash-2', all: 'square-mouse-pointer', group: 'group', ungroup: 'ungroup', pickmode: 'mouse-pointer-2', spin: 'rotate-cw', fit: 'scan', cam: 'rotate-ccw', 'big:3d': 'box', 'big:top': 'maximize-2', 'big:front': 'maximize-2', 'big:side': 'maximize-2' };
 document.querySelectorAll('.mlist [data-do]').forEach(b => addIcon(b, MENU_ICONS[b.dataset.do]));
 // ---------- customizable toolbar ----------
 // Drag any menu command onto the toolbar, drag things along it to reorder, drag them off to remove. It's kept per user, not per project.
@@ -172,6 +178,12 @@ const tbOwn = {}; const tbDefault = [];
 });
 let tbLayout = tbDefault.slice(), tbDrag = null;
 try { const saved = JSON.parse(localStorage.getItem(TB_KEY)); if (Array.isArray(saved) && saved.includes('grow')) tbLayout = saved.filter(e => e === 'sep' || e === 'grow' || (e.startsWith('el:') && tbOwn[e.slice(3)]) || (e.startsWith('do:') && menuItem(e.slice(3)))); } catch (e) {}
+// a built-in added after the toolbar was saved goes in after whatever it follows by default; one taken off stays off
+{ const SEEN = TB_KEY + '-seen', NEW_SINCE = ['pickSeg']; let seen = null; try { seen = JSON.parse(localStorage.getItem(SEEN)); } catch (e) {}
+  if (!Array.isArray(seen)) seen = Object.keys(tbOwn).filter(k => !NEW_SINCE.includes(k));
+  let added = false;
+  tbDefault.forEach((e, i) => { if (!e.startsWith('el:') || seen.includes(e.slice(3)) || tbLayout.includes(e)) return; const prev = tbDefault.slice(0, i).reverse().find(p => p.startsWith('el:') && tbLayout.includes(p)); tbLayout.splice(prev ? tbLayout.indexOf(prev) + 1 : tbLayout.indexOf('grow'), 0, e); added = true; });
+  try { if (added && localStorage.getItem(TB_KEY)) localStorage.setItem(TB_KEY, JSON.stringify(tbLayout)); localStorage.setItem(SEEN, JSON.stringify(Object.keys(tbOwn))); } catch (e) {} }
 function menuItem(a) { return document.querySelector(`.mlist [data-do="${a}"]`); }
 const menuLabel = b => { const c = b.cloneNode(true); c.querySelectorAll('kbd,svg').forEach(x => x.remove()); return c.textContent.replace('…', '').trim(); };
 function renderToolbar() {
@@ -276,3 +288,8 @@ if (window.atelierWin && window.atelierWin.onUpdateReady) {
   window.atelierWin.onUpdateReady(showUpdateBar);
   const waiting = window.atelierWin.updateWaiting && window.atelierWin.updateWaiting(); if (waiting) showUpdateBar(waiting);
 }
+
+// ---------- what a click picks ----------
+function renderPickMode() { document.querySelectorAll('#pickSeg [data-pick]').forEach(b => b.setAttribute('aria-checked', b.dataset.pick === pickMode)); }
+document.getElementById('pickSeg').addEventListener('click', e => { const b = e.target.closest('[data-pick]'); if (b) setPickMode(b.dataset.pick); });
+renderPickMode();

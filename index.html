@@ -26,7 +26,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
       <div class="menu"><button class="mbtn">Edit</button><div class="mlist" hidden>
         <button data-do="undo">Undo<kbd>Ctrl+Z</kbd></button><button data-do="redo">Redo<kbd>Ctrl+Y</kbd></button><hr>
         <button data-do="copy">Copy<kbd>Ctrl+C</kbd></button><button data-do="cut">Cut<kbd>Ctrl+X</kbd></button><button data-do="paste">Paste<kbd>Ctrl+V</kbd></button><button data-do="dup">Duplicate<kbd>Ctrl+D</kbd></button><button data-do="del">Delete<kbd>Del</kbd></button><button data-do="all">Select all<kbd>Ctrl+A</kbd></button><hr>
-        <button data-do="group">Make a layer</button><button data-do="resizable">Make resizable</button><button data-do="spin">Spin 90°<kbd>R</kbd></button>
+        <button data-do="group">Make a layer</button><button data-do="ungroup">Take out of layer</button><button data-do="pickmode">Pick whole layers on or off</button><button data-do="resizable">Make resizable</button><button data-do="spin">Spin 90°<kbd>R</kbd></button>
       </div></div>
       <div class="menu"><button class="mbtn">View</button><div class="mlist" hidden>
         <button data-do="fit">Fit everything<kbd>F</kbd></button><button data-do="cam">Reset 3D view</button><hr>
@@ -53,6 +53,8 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
     <div class="sep"></div>
     <label class="snapc" title="Snap on or off (G). Hold Alt while dragging to turn it off for a moment."><input type="checkbox" id="snapOn" checked aria-label="Snap"></label>
     <select id="gridSel" aria-label="Snap size" title="Snap size"></select>
+    <div class="sep"></div>
+    <div id="pickSeg" class="seg" role="radiogroup" aria-label="A click picks" title="What a click picks. Double-click picks the other way."><button role="radio" data-pick="layer" title="A click picks the whole layer (double-click: just the part)">Layer</button><button role="radio" data-pick="part" title="A click picks just the part (double-click: its whole layer)">Part</button></div>
     <div class="grow"></div>
     <select id="unitSel" title="Units" aria-label="Units"><optgroup label="Metric"><option value="mm">mm</option><option value="cm">cm</option><option value="m">m</option></optgroup><optgroup label="Imperial"><option value="in">inches</option><option value="ft">feet</option><option value="yd">yards</option></optgroup></select>
     <button class="btn" id="bTheme" title="Dark or light interface" aria-label="Dark or light interface"></button>
@@ -128,7 +130,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
 <dialog id="helpDlg">
   <div style="display:flex;align-items:center"><h2 style="margin:0">Keyboard and mouse</h2><span class="grow"></span><button class="btn line" id="helpKeys" style="margin-right:6px">Change shortcuts</button><button class="btn line" id="helpClose">Close</button></div>
   <h3>Looking around</h3><dl class="keys"><dt>Ctrl + drag, middle drag</dt><dd>Rotate the view</dd><dt>Drag empty space</dt><dd>Rotate the view</dd><dt>Right drag</dt><dd>Slide the view</dd><dt>Wheel</dt><dd>Zoom</dd><dt>F</dt><dd>Fit everything</dd></dl>
-  <h3>Selecting</h3><dl class="keys"><dt>Click</dt><dd>Select one item</dd><dt>Shift + click</dt><dd>Select more</dd><dt>Double-click</dt><dd>Select its whole layer</dd><dt>Drag empty flat view</dt><dd>Box select</dd><dt>Shift + drag empty 3D</dt><dd>Box select</dd><dt>Right-click</dt><dd>Menu for what's under the mouse</dd></dl>
+  <h3>Selecting</h3><dl class="keys"><dt>Click</dt><dd>Select its whole layer, or one part (Layer or Part on the toolbar)</dd><dt>Shift + click</dt><dd>Select more</dd><dt>Double-click</dt><dd>Select the other way: one part, or its whole layer</dd><dt>Ctrl + G</dt><dd>Make a layer from the selection</dd><dt>Ctrl + Shift + G</dt><dd>Take the selection out of its layer</dd><dt>Drag empty flat view</dt><dd>Box select</dd><dt>Shift + drag empty 3D</dt><dd>Box select</dd><dt>Right-click</dt><dd>Menu for what's under the mouse</dd></dl>
   <h3>Changing things</h3><dl class="keys"><dt>V, E, S, M</dt><dd>Select, Rotate, Scale, Measure</dd><dt>Drag</dt><dd>Move along the floor</dd><dt>Shift + drag</dt><dd>Move up or down</dd><dt>Shift + stretch</dt><dd>Grow both ways</dd><dt>Alt + drag</dt><dd>Turn snapping off</dd><dt>G</dt><dd>Snapping on or off</dd><dt>R, Shift + R</dt><dd>Spin 90°</dd><dt>Arrow keys</dt><dd>Nudge by one grid step</dd><dt>Up or down in a size box</dt><dd>Change it by one grid step</dd></dl>
 </dialog>
 <dialog id="newDlg" aria-labelledby="startTitle">

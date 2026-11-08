@@ -76,6 +76,7 @@ To install directly: `dist\Atelier Setup <version>.exe /S`. It installs to `%LOC
 - **No room by default:** `newProject` starts with no walls or floor and sets `noRoom`, so `ensureFloor` leaves it alone. Older projects without that flag keep theirs. Walls and floors can still be added from the gallery, and the 3D view's grid (`floorGrid`) is only a guide, turned off with View > Floor grid.
 - **Items:** `kind: 'panel'` goes on the cut list. `kind: 'object'` doesn't. `isRoomPart` covers walls and floors. Local axes: `l`→x, `t`→y, `w`→z.
 - **Naming:** the UI says "Layers", while the code and data still say `group`. Old storage keys still say `furniture-*`. Both are deliberate, to keep existing saves working.
+- **Picking:** a click picks the whole layer (`pickMode`, the Layer / Part switch on the toolbar, kept in localStorage `atelier-pick`); a double-click picks the other way. `pickedBy` applies the mode to clicks, boxes and the 3D hover outline. Ctrl+G (`groupSelection`) makes a layer, Ctrl+Shift+G (`ungroupSelection`) takes the selection out of its layers, and layers left empty go (`dropEmptyLayers`) unless they hold parameters. Right-click in Layers offers the same for levels, layers and parts (`layerCtxRun` presses the row's own buttons). A gallery object or library entry comes in its own layer (`newLayer`, which numbers repeated names); walls and floors join the Room layer; boards, panels and handles get none.
 
 ## File format: `.atlr`
 

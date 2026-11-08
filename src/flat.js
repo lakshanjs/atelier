@@ -248,7 +248,7 @@ Object.keys(VIEWS).forEach(vn => {
       if (!f.moved || !b) { if (!f.add) sel = []; render(); return; }
       const [ax, bx] = [Math.min(b.x0, b.x1), Math.max(b.x0, b.x1)], [ay, by] = [Math.min(b.y0, b.y1), Math.max(b.y0, b.y1)], t2 = vt[vn];
       const inside = shown().filter(it => !it.locked).filter(it => { const c = corners(it).map(q => toS(vn, t2, q)), xs = c.map(q => q[0]), ys = c.map(q => q[1]); return Math.max(...xs) >= ax && Math.min(...xs) <= bx && Math.max(...ys) >= ay && Math.min(...ys) <= by; }).map(i => i.id);
-      sel = f.add ? [...new Set([...sel, ...inside])] : inside; if (sel.length) setTab('props'); render(); return;
+      const got = pickedBy(inside); sel = f.add ? [...new Set([...sel, ...got])] : got; if (sel.length) setTab('props'); render(); return;
     }
     if (!f.moved) { undoS.pop(); return; }
     persist(); precRemember(f); render();

@@ -86,3 +86,69 @@ test("every view saves as a picture of what it shows", async () => {
   assert.strictEqual(v.got.length, 1); assert.match(v.got[0].name, /Side view\.png$/); assert.strictEqual(v.got[0].type, "image/png"); assert.ok(v.got[0].size > 1000);
   assert.strictEqual(v.buttons, 4, "one in each of the four views");
 });
+
+test("a click picks the whole layer or one part, as the toolbar says, and the layer turns as one", async () => {
+  const v = await app.run(`${SETUP}
+    const ids = () => sel.slice().sort((x, y) => x - y), out = {};
+    document.querySelector('#pickSeg [data-pick="layer"]').click(); out.seg = document.querySelector('#pickSeg [data-pick="layer"]').getAttribute('aria-checked');
+    pick(a1.id, false); out.layer = ids(); pick(a1.id, false, true); out.layerDbl = ids();
+    pick(a1.id, false); pick(b1.id, true); out.shift = ids().length;
+    document.querySelector('#pickSeg [data-pick="part"]').click(); out.mode = pickMode;
+    pick(a1.id, false); out.part = ids(); pick(a1.id, false, true); out.partDbl = ids();
+    setPickMode('layer'); pick(a1.id, false);
+    const mid = () => { const u = unionBounds([a1, a2]); return [0, 2].map(k => Math.round((u.min[k] + u.max[k]) / 2)); }, before = mid();
+    edit(() => rotateSel(AXES[1][0], 90)); out.kept = JSON.stringify(mid()) === JSON.stringify(before);
+    out.turned = [a1, a2].every(i => Math.abs(Math.abs(new THREE.Euler().setFromQuaternion(Q(i), 'YXZ').y * 180 / Math.PI) - 90) < .5);
+    return { ...out, a: [a1.id, a2.id] };`);
+  assert.strictEqual(v.seg, "true");
+  assert.deepStrictEqual(v.layer, v.a, "Layer: a click picks both parts"); assert.deepStrictEqual(v.layerDbl, [v.a[0]], "a double-click just the one");
+  assert.strictEqual(v.shift, 4, "Shift adds the other whole layer");
+  assert.strictEqual(v.mode, "part"); assert.deepStrictEqual(v.part, [v.a[0]], "Part: a click picks one"); assert.deepStrictEqual(v.partDbl, v.a, "a double-click the layer");
+  assert.ok(v.kept && v.turned, "the layer turns round its own middle, both parts together");
+});
+
+test("Ctrl+G makes a layer, Ctrl+Shift+G takes parts out, and a layer left empty goes", async () => {
+  const v = await app.run(`${SETUP}
+    const key = (shift) => { document.activeElement && document.activeElement.blur(); window.dispatchEvent(new KeyboardEvent('keydown', { key: shift ? 'G' : 'g', code: 'KeyG', ctrlKey: true, shiftKey: !!shift, bubbles: true })); };
+    sel = [a1.id, b1.id]; key(); const g = a1.group, made = g !== ga.id && g === b1.group && !!P.groups.find(x => x.id === g);
+    const kept = !!P.groups.find(x => x.id === ga.id);
+    sel = [a2.id]; key(true); const out = !a2.group, gone = !P.groups.find(x => x.id === ga.id);
+    sel = [a1.id, b1.id]; key(true); const both = !a1.group && !b1.group && !P.groups.find(x => x.id === g);
+    undo(); const back = byId(a1.id).group === g && byId(b1.id).group === g;
+    return { made, kept, out, gone, both, back };`);
+  assert.ok(v.made, "both go in one new layer"); assert.ok(v.kept, "a layer with parts left stays");
+  assert.ok(v.out, "taken out"); assert.ok(v.gone, "its emptied layer goes");
+  assert.ok(v.both, "the new layer goes when both come out"); assert.ok(v.back, "undo puts them back");
+});
+
+test("right-click: the views offer Take out of layer; Layers offers move, rename, hide and the rest", async () => {
+  const v = await app.run(`${SETUP}
+    const rows = () => [...ctxEl.querySelectorAll('[data-cx]')].map(x => x.dataset.cx), out = {};
+    sel = [a1.id]; openCtx(100, 100); out.view = rows(); closeCtx();
+    const rc = el => { const r = el.getBoundingClientRect(); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 5, clientY: r.top + 5 })); };
+    rc(document.querySelector('#groups [data-isel="' + b1.id + '"]')); out.picked = sel.slice(); out.item = rows(); out.heading = !!ctxEl.querySelector('.ctxh');
+    ctxEl.querySelector('[data-cx="mv:' + gc.id + '"]').click(); out.moved = b1.group === gc.id && ctxEl.hidden;
+    rc(document.querySelector('#groups [data-gsel="' + gc.id + '"]')); out.layer = rows();
+    ctxEl.querySelector('[data-cx="lay:geye:' + gc.id + '"]').click(); out.hid = gc.hidden;
+    rc(document.querySelector('#groups [data-gsel="' + gb.id + '"]')); ctxEl.querySelector('[data-cx="ren:' + gb.id + '"]').click(); out.rename = !!document.querySelector('#groups [data-gname="' + gb.id + '"]');
+    document.activeElement.blur();
+    rc(document.querySelector('#groups [data-gsel="' + ga.id + '"]')); ctxEl.querySelector('[data-cx="lay:gdel:' + ga.id + '"]').click(); out.removed = !P.groups.some(g => g.id === ga.id) && !a1.group && !a2.group;
+    return out;`);
+  assert.ok(v.view.includes("group") && v.view.includes("ungroup"), "views: " + v.view);
+  assert.strictEqual(v.picked.length, 1, "right-clicking a part in Layers picks it");
+  assert.ok(v.item.includes("ungroup") && v.item.includes("hide") && v.item.includes("del") && v.heading, "part menu: " + v.item);
+  assert.ok(v.moved, "moved to the other layer");
+  ["lay:gsel", "ren", "lay:geye", "lay:glock", "lay:gdel"].forEach(a => assert.ok(v.layer.some(r => r.startsWith(a)), "layer menu has " + a));
+  assert.ok(v.hid, "hidden"); assert.ok(v.rename, "renaming"); assert.ok(v.removed, "removed, its parts kept");
+});
+
+test("gallery objects come in a layer of their own; walls join Room; boards don't get one", async () => {
+  const v = await app.run(`${SETUP}
+    const add = k => { edit(() => addFromGallery(k)); return byId(sel[0]); };
+    const p1 = add('plant'), p2 = add('plant'), w = add('wall'), w2 = add('wall'), b = add('board:ply:18'), h = add('handle');
+    const name = it => (groupOf(it) || {}).name || null;
+    return { p1: name(p1), p2: name(p2), w: name(w), same: w.group === w2.group, b: name(b), h: name(h) };`);
+  assert.strictEqual(v.p1, "Small plant"); assert.strictEqual(v.p2, "Small plant 2", "a repeated name is numbered");
+  assert.strictEqual(v.w, "Room"); assert.ok(v.same, "both walls in Room");
+  assert.strictEqual(v.b, null); assert.strictEqual(v.h, null);
+});

@@ -5,7 +5,7 @@ const KEYS_STORE = 'atelier-keys', CMD_RECENT_STORE = 'atelier-cmd-recent';
 const KEY_DEFAULTS = {
   palette: ['Ctrl+K'], keys: [], help: ['F1'],
   undo: ['Ctrl+Z'], redo: ['Ctrl+Y', 'Ctrl+Shift+Z'], save: ['Ctrl+S'], saveas: ['Ctrl+Shift+S'],
-  all: ['Ctrl+A'], copy: ['Ctrl+C'], cut: ['Ctrl+X'], paste: ['Ctrl+V'], dup: ['Ctrl+D'], del: ['Delete', 'Backspace'],
+  all: ['Ctrl+A'], group: ['Ctrl+G'], ungroup: ['Ctrl+Shift+G'], copy: ['Ctrl+C'], cut: ['Ctrl+X'], paste: ['Ctrl+V'], dup: ['Ctrl+D'], del: ['Delete', 'Backspace'],
   fit: ['F'], snap: ['G'], spin: ['R'], spinback: ['Shift+R'],
   'tool.select': ['V'], 'tool.rotate': ['E'], 'tool.scale': ['S'], 'tool.measure': ['M'],
 };

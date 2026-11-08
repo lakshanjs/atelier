@@ -92,13 +92,42 @@ function stretchSnap(axis, size, side, fixed, mid, both, ignore, thr) {
 const sizeNote = hit => (hit && hit.same ? `, same as ${hit.same.name}` : '');
 
 // ---------- selection and changes ----------
-// a click picks one item; a double-click picks its whole group
-function withGroups(ids) { const out = new Set(ids); shown().forEach(i => { if (i.group && !i.locked && ids.some(id => byId(id) && byId(id).group === i.group)) out.add(i.id); }); return [...out]; }
-function pick(id, add, wholeGroup) {
+// A click picks the whole layer an item is in, or just the item, as chosen on the toolbar (like Photoshop's auto-select).
+// A double-click picks the other way. The choice belongs to the app, not a project.
+const PICK_STORE = 'atelier-pick';
+let pickMode = 'layer'; try { if (localStorage.getItem(PICK_STORE) === 'part') pickMode = 'part'; } catch (e) {}
+function setPickMode(m) { pickMode = m === 'part' ? 'part' : 'layer'; try { localStorage.setItem(PICK_STORE, pickMode); } catch (e) {} if (typeof renderPickMode === 'function') renderPickMode(); dirty = true; }
+function withGroups(ids) { const gs = new Set(ids.map(id => byId(id)).filter(i => i && i.group && groupOf(i)).map(i => i.group)), out = new Set(ids); if (gs.size) shown().forEach(i => { if (gs.has(i.group) && !i.locked) out.add(i.id); }); return [...out]; }
+const pickedBy = (ids, flip) => ((pickMode === 'layer') !== !!flip ? withGroups(ids) : ids);   // what a click, or a box, on these picks
+function pick(id, add, flip) {
   if (id) setTab('props');
-  const ids = !id ? [] : wholeGroup ? withGroups([id]) : [id];
+  const ids = !id ? [] : pickedBy([id], flip);
   if (add) sel = ids.every(i => sel.includes(i)) ? sel.filter(i => !ids.includes(i)) : [...new Set([...sel, ...ids])];
   else sel = ids;
+}
+// ---------- layers from the selection ----------
+// A new layer gets a name no other layer has: Chair, Chair 2, Chair 3.
+function newLayer(name, o = {}) {
+  const taken = new Set(P.groups.map(g => g.name)); let n = name, k = 2; while (taken.has(n)) n = `${name} ${k++}`;
+  const g = { id: nextId(), name: n, hidden: false, open: false, ...o }; P.groups.push(g); return g;
+}
+// layers that moving items out of left empty go too, unless they hold a resizable design's parameters
+function dropEmptyLayers(ids) { const used = new Set(P.items.map(i => i.group)); P.groups = P.groups.filter(g => !ids.has(g.id) || used.has(g.id) || (g.params && g.params.length)); }
+function groupSelection() {
+  const list = selected(); if (!list.length) return;
+  edit(() => {
+    const was = new Set(list.map(i => i.group).filter(Boolean)), home = levelOfGroup(groupOf(list[0]));
+    const g = newLayer('Group ' + (P.groups.length + 1), { open: true }); if (home) g.level = home.id;
+    list.forEach(i => { i.group = g.id; }); dropEmptyLayers(was);
+  });
+}
+function ungroupSelection() {   // takes the selected items out of their layers; they stay selected
+  const list = selected().filter(i => i.group); if (!list.length) return;
+  edit(() => { const was = new Set(list.map(i => i.group)); list.forEach(i => { delete i.group; }); dropEmptyLayers(was); });
+}
+function moveSelToLayer(gid) {
+  const g = P.groups.find(x => x.id === gid), list = selected().filter(i => i.group !== gid); if (!g || !list.length) return;
+  edit(() => { const was = new Set(list.map(i => i.group).filter(Boolean)); list.forEach(i => { i.group = gid; }); dropEmptyLayers(was); });
 }
 function rotateSel(axisV, deg) {
   const list = turnable(); if (!list.length) { if (movable().length) toast('That angle is locked.', true); return; }
@@ -319,7 +348,7 @@ function addFromGallery(key, at) {
       g.params.forEach(p => { const n = p.name.toLowerCase(); if (n in add) { p.e = `${r2p(parseFloat(p.e) + add[n])}mm`; p.u = 'mm'; } });
       P.groups.push(g);
       made.forEach(i => { i.group = g.id; delete i.fxv; if (i.fx) Object.values(i.fx).forEach(f => { f.e = f.e.replace(/#(\d+)/g, (m, n) => (map.has(+n) ? '#' + map.get(+n) : m)); }); });
-    } else if (made.length > 1) { const g = { id: nextId(), name: entry.name, hidden: false, open: false }; P.groups.push(g); made.forEach(i => { i.group = g.id; }); }
+    } else { const g = newLayer(entry.name); made.forEach(i => { i.group = g.id; }); }   // even one piece gets its own layer, so it's picked and moved as one thing
     sel = made.map(i => i.id); setTimeout(ensureModels); return;   // its model may still be in the database
   }
   const board = key.startsWith('board:') ? key.split(':') : null;
@@ -330,7 +359,7 @@ function addFromGallery(key, at) {
   if (preset && key === 'drawer') {
     const w = 500, h = 180, d = 400, x = center.x, y = center.y ?? 0, z = center.z;
     const set = drawerSet(x - w / 2, x + w / 2, y, y + h, z + d / 2, z - d / 2, t);
-    const g = { id: nextId(), name: 'Drawer', hidden: false, open: false }; P.groups.push(g);
+    const g = newLayer('Drawer');
     set.forEach(i => { delete i.gname; i.id = nextId(); i.group = g.id; if (i.kind === 'panel') i.mat = lastBoard.mat; P.items.push(i); made.push(i.id); });
   } else {
     let it;
@@ -340,6 +369,9 @@ function addFromGallery(key, at) {
       it.mat = lastBoard.mat; delete it.gname;
     } else {
       const o = OBJ[key], y = center.y ?? 0; it = obj(key, center.x, y, center.z - o.d / 2);
+      delete it.gname;   // an object from the gallery comes in its own layer, walls and floors in the Room layer; boards, panels and handles don't
+      if (key === 'wall' || key === 'floor') it.group = (P.groups.find(g => g.name === 'Room' && !g.params) || newLayer('Room')).id;
+      else if (key !== 'handle') it.group = newLayer(it.name).id;
     }
     it.id = nextId(); P.items.push(it); made.push(it.id);
     // line it up with the grid and neighbours

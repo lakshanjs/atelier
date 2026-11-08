@@ -459,8 +459,10 @@ function hover3d(e) {
   if (!d3 && !e.buttons && tool !== 'measure' && !gizHover) { const hit = rayAt(e).intersectObjects(pickable).find(h => keptHit(h) && !byId(h.object.userData.id).locked); it = hit ? byId(hit.object.userData.id) : null; }
   if (gizHover) cv.style.cursor = 'grab'; else cv.style.cursor = it ? (tool === 'select' ? 'move' : 'pointer') : '';
   if (it && sel.includes(it.id)) { hoverBox.visible = false; return; }
-  hoverBox.visible = !!it;
-  if (it) { hoverBox.position.set(...it.pos); hoverBox.quaternion.copy(Q(it)); hoverBox.scale.set(it.l + 2, it.t + 2, it.w + 2); }
+  hoverBox.visible = !!it; if (!it) return;
+  const whole = pickedBy([it.id]).map(byId);   // in Layer mode, outline the whole layer a click would pick
+  if (whole.length > 1) { const u = unionBounds(whole); hoverBox.position.set((u.min[0] + u.max[0]) / 2, (u.min[1] + u.max[1]) / 2, (u.min[2] + u.max[2]) / 2); hoverBox.quaternion.identity(); hoverBox.scale.set(u.max[0] - u.min[0] + 2, u.max[1] - u.min[1] + 2, u.max[2] - u.min[2] + 2); }
+  else { hoverBox.position.set(...it.pos); hoverBox.quaternion.copy(Q(it)); hoverBox.scale.set(it.l + 2, it.t + 2, it.w + 2); }
 }
 cv.addEventListener('pointermove', e => {
   cvHover(e); hover3d(e);
@@ -613,7 +615,7 @@ window.addEventListener('pointerup', e => {
     if (!t.at) return;
     const r = cv.getBoundingClientRect(), ax = Math.min(t.down[0], t.at[0]) - r.left, bx = Math.max(t.down[0], t.at[0]) - r.left, ay = Math.min(t.down[1], t.at[1]) - r.top, by = Math.max(t.down[1], t.at[1]) - r.top;
     const inside = shown().filter(it => !it.locked).filter(it => { const c = corners(it).map(q => { const v = V3(...q).project(camera); return [(v.x + 1) / 2 * r.width, (1 - v.y) / 2 * r.height]; }), xs = c.map(q => q[0]), ys = c.map(q => q[1]); return Math.max(...xs) >= ax && Math.min(...xs) <= bx && Math.max(...ys) >= ay && Math.min(...ys) <= by; }).map(i => i.id);
-    sel = [...new Set([...sel, ...inside])]; if (sel.length) setTab('props'); render(); return;
+    sel = [...new Set([...sel, ...pickedBy(inside)])]; if (sel.length) setTab('props'); render(); return;
   }
   if (t.type === 'empty') { if (Math.hypot(e.clientX - t.down[0], e.clientY - t.down[1]) < 4 && e.target === cv) { sel = []; render(); } return; }
   if (!t.moved) { undoS.pop(); return; }

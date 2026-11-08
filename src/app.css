@@ -676,3 +676,14 @@ details.cvmore[open] { padding-bottom: 4px; }
 #rendAdjust input[type=checkbox] { width: auto; margin: 0; }
 #rendAdjust .check { gap: 6px; }
 #rend input[type=range] { accent-color: var(--ink); }
+/* right-click menu: a heading over a list of choices, which scrolls when there are many */
+#ctx { max-height: calc(100vh - 8px); overflow-y: auto; }
+#ctx .ctxh { padding: 5px 12px 2px; color: var(--soft); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+#ctx .ctxlist { max-height: 220px; overflow-y: auto; }
+#ctx .ctxlist button { padding-left: 20px; }
+/* what a click picks: the whole layer or just the part */
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; height: 28px; }
+.seg button { border: 0; background: var(--field); color: var(--ink); padding: 0 9px; cursor: pointer; font: inherit; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button:hover { background: var(--canvas); }
+.seg button[aria-checked=true] { background: var(--active-bg); color: var(--active-ink); }

@@ -103,7 +103,7 @@ function renderSide() {
       h += sec('board', 'Board', `<label class="field">Type<select id="multiMat"><option value="">Mixed</option>${Object.entries(BOARDS).map(([k, m]) => `<option value="${k}" ${panels.every(p => p.mat === k) ? 'selected' : ''}>${m.name}</option>`).join('')}</select></label>` + lenF('Thickness', same ? panels[0].t : 0, 'thk'));
       handlers.thk = num(v => edit(() => { panels.forEach(p => { p.t = v; }); }), 1);
     }
-    h += `<div class="rowb" style="margin-top:8px"><button class="btn line" id="grp">Make a layer</button><button class="ic" id="eyeAll" title="Hide all" aria-label="Hide all">${ic('eye')}</button><button class="ic" id="lockAll" title="${allLocked ? 'Unlock all' : 'Lock all'}" aria-label="${allLocked ? 'Unlock all' : 'Lock all'}">${ic(allLocked ? 'lock' : 'lock-open')}</button></div>`;
+    h += `<div class="rowb" style="margin-top:8px"><button class="btn line" id="grp" title="Make a layer (Ctrl+G)">Make a layer</button>${list.some(i => i.group) ? '<button class="btn line" id="ungrp" title="Take out of layer (Ctrl+Shift+G)">Take out</button>' : ''}<button class="ic" id="eyeAll" title="Hide all" aria-label="Hide all">${ic('eye')}</button><button class="ic" id="lockAll" title="${allLocked ? 'Unlock all' : 'Lock all'}" aria-label="${allLocked ? 'Unlock all' : 'Lock all'}">${ic(allLocked ? 'lock' : 'lock-open')}</button></div>`;
     if (list.some(i => i.locked)) h += `<p class="note">Locked items in this selection stay where they are.</p>`;
     { const gs = [...new Set(list.map(i => i.group))], g = gs.length === 1 && gs[0] ? groupOf(list[0]) : null; if (g && g.params && g.params.length) h += paramsHtml(g.id, `Parameters: ${esc(g.name)}`); else h += `<div class="rowb" style="margin-top:8px"><button class="btn line" id="fxMake" title="Adds Width, Height and Depth, and works out how each part follows them">Make resizable</button></div>`; }
     h += repeatHtml() + actions();
@@ -218,10 +218,11 @@ function renderSide() {
   if (q('drop')) q('drop').onclick = () => edit(dropDown);
   if (q('del')) q('del').onclick = () => edit(removeSel);
   if (q('grp')) q('grp').onclick = groupSelection;
+  if (q('ungrp')) q('ungrp').onclick = ungroupSelection;
   if (q('lockAll')) q('lockAll').onclick = () => edit(() => { const on = !selected().every(i => i.locked); selected().forEach(i => { if (on) i.locked = true; else delete i.locked; }); });
   if (q('eyeAll')) q('eyeAll').onclick = () => edit(() => { selected().forEach(i => { i.hidden = true; }); sel = []; });
   if (list.length === 1 && list[0].locked) side.querySelectorAll('[data-f^="s"],[data-f^="p"],[data-ang],[data-angt],[data-rot],#drop,#del,#itMat,#itThick,#grain,[data-ck],[data-hadd],[data-hdel],#role,#hingeN,#adjust,[data-f^="c"],[data-f^="h"]').forEach(el => { el.disabled = true; });
-  [['dup', 'copy'], ['drop', 'arrow-down-to-line'], ['del', 'trash-2'], ['grp', 'group']].forEach(([id, n]) => addIcon(q(id), n));
+  [['dup', 'copy'], ['drop', 'arrow-down-to-line'], ['del', 'trash-2'], ['grp', 'group'], ['ungrp', 'ungroup']].forEach(([id, n]) => addIcon(q(id), n));
   side.querySelectorAll('[data-rot]').forEach(b => addIcon(b, 'rotate-cw'));
   renderGroups();
 }
@@ -231,7 +232,6 @@ function setBoard(p, mat) {
   if (!BOARDS[mat].thick.some(o => Math.abs(o[0] - p.t) < .01)) p.t = BOARDS[mat].thick[0][0];
   lastBoard = { mat, t: p.t };
 }
-function groupSelection() { edit(() => { const g = { id: nextId(), name: 'Group ' + (P.groups.length + 1), hidden: false, open: true }; const home = levelOfGroup(groupOf(selected()[0])); if (home) g.level = home.id; P.groups.push(g); selected().forEach(i => { i.group = g.id; }); }); }
 
 // ---------- groups ----------
 const EYE = ic('eye'), EYEOFF = ic('eye-off'), CROSS = ic('x'), LOCK = ic('lock'), UNLOCK = ic('lock-open');
@@ -302,3 +302,41 @@ document.getElementById('groups').addEventListener('change', e => {
   edit(() => { const g = P.groups.find(x => x.id === +m.dataset.gmove), l = (P.levels || []).find(x => x.id === +m.value); if (l) { g.level = l.id; l.open = true; } else delete g.level; sel = sel.filter(i => !isHidden(byId(i))); });
 });
 document.getElementById('groups').addEventListener('dblclick', e => { const b = e.target.closest('[data-gsel]'); if (b && +b.dataset.gsel) { renaming = +b.dataset.gsel; renderGroups(); } });
+// right-click on a level, a layer or a part in Layers
+document.getElementById('groups').addEventListener('contextmenu', e => {
+  const r = e.target.closest('.grow-row'); if (!r) return; e.preventDefault();
+  const q = s => r.querySelector(s), row = ctxRow;
+  const lv = q('[data-lsel],[data-lname]'), gr = q('[data-gsel],[data-gname]'), itb = q('[data-isel]');
+  let h = '';
+  if (lv) {
+    const id = +(lv.dataset.lsel || lv.dataset.lname), l = (P.levels || []).find(x => x.id === id); if (!l) return;
+    const only = P.levels.every(x => x === l ? !x.hidden : x.hidden), ids = new Set(P.groups.filter(g => g.level === id).map(g => g.id)), list = P.items.filter(i => ids.has(i.group)), locked = list.length && list.every(i => i.locked);
+    h = row(`lay:lsel:${id}`, 'Select all', 'square-mouse-pointer') + row(`lren:${id}`, 'Rename', 'pencil') + '<hr>'
+      + row(`lay:leye:${id}`, l.hidden ? 'Show' : 'Hide', l.hidden ? 'eye' : 'eye-off') + row(`lay:lonly:${id}`, only ? 'Show all levels' : 'Show only this level', 'eye') + row(`lay:llock:${id}`, locked ? 'Unlock' : 'Lock', locked ? 'lock-open' : 'lock')
+      + '<hr>' + row(`lay:ldel:${id}`, 'Remove level, keep its layers', 'x');
+  } else if (gr) {
+    const key = +(gr.dataset.gsel ?? gr.dataset.gname), g = P.groups.find(x => x.id === key);
+    if (key && !g) return;
+    const members = key ? P.items.filter(i => i.group === key) : P.items.filter(i => !i.group || !groupOf(i)), hidden = g ? g.hidden : P.looseHidden, locked = members.length && members.every(i => i.locked);
+    const canMove = key && sel.some(id => byId(id) && byId(id).group !== key);
+    h = row(`lay:gsel:${key}`, 'Select all', 'square-mouse-pointer') + (canMove ? row(`mv:${key}`, sel.length === 1 ? 'Move the selected part here' : `Move the ${sel.length} selected here`, 'folder-input') : '') + (key ? row(`ren:${key}`, 'Rename', 'pencil') : '') + '<hr>'
+      + row(`lay:geye:${key}`, hidden ? 'Show' : 'Hide', hidden ? 'eye' : 'eye-off') + row(`lay:glock:${key}`, locked ? 'Unlock all' : 'Lock all', locked ? 'lock-open' : 'lock')
+      + (key ? '<hr>' + row(`lay:gdel:${key}`, 'Remove layer, keep its parts', 'ungroup') : '');
+  } else if (itb) {
+    const id = +itb.dataset.isel, it = byId(id); if (!it) return;
+    if (!sel.includes(id)) { if (isHidden(it)) return; sel = [id]; render(); }
+    const list = selected(), anyLocked = list.some(i => i.locked), gs = new Set(list.map(i => i.group || 0));
+    const others = P.groups.filter(g => !(gs.size === 1 && gs.has(g.id)));
+    h = (list.some(i => i.group) ? row('ungroup', 'Take out of layer', 'ungroup', keyLabel('ungroup')) : '') + row('group', 'Make a layer', 'group', keyLabel('group'))
+      + (others.length ? `<div class="ctxh">Move to layer</div><div class="ctxlist">${others.map(g => row(`mv:${g.id}`, layerLabel(g), 'folder-input')).join('')}</div>` : '')
+      + '<hr>' + row('hide', 'Hide', 'eye-off') + row('lock', anyLocked ? 'Unlock' : 'Lock', anyLocked ? 'lock-open' : 'lock') + '<hr>' + row('del', 'Delete', 'trash-2', keyLabel('del'));
+  }
+  if (h) placeCtx(e.clientX, e.clientY, h);
+});
+// runs a Layers menu choice through the same button a click would use
+function layerCtxRun(a) {
+  const [kind, x, y] = a.split(':');
+  if (kind === 'ren') { renaming = +x; setTab('groups'); renderGroups(); return; }
+  if (kind === 'lren') { renamingLevel = +x; setTab('groups'); renderGroups(); return; }
+  const b = document.querySelector(`#groups [data-${x}="${y}"]`); if (b) b.click();
+}
