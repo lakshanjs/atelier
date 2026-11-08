@@ -142,7 +142,7 @@ test("easy to start: a short rail, the board and 3D side by side, the essentials
     r.dispatchEvent(new Event('change', { bubbles: true })); const set = it.op.depth;
     cvPickOnly(null); carveRender(); const boardMore = inMore('[data-cf="b.feedPct"]'), smartShut = !document.querySelector('details[data-csec="smart"]').open;
     closeCarve(); return { rail, icons, shapes, flyShown, added, flyGone, drawOn, split, board, kept, panel, live, set, boardMore, smartShut };`);
-  assert.strictEqual(v.rail.length, 8, "eight buttons: " + v.rail); assert.ok(v.icons, "icons with tooltips, no text");
+  assert.strictEqual(v.rail.length, 9, "nine buttons: " + v.rail); assert.ok(v.rail.includes("My machine"), "My machine sits by Your bits"); assert.ok(v.icons, "icons with tooltips, no text");
   assert.deepStrictEqual(v.shapes, ["Rectangle", "Ellipse", "Triangle", "Right-angled triangle", "Half circle", "Polygon", "Star"]);
   assert.ok(v.flyShown && v.flyGone, "the list opens, and closes once one is picked"); assert.strictEqual(v.added, "polygon"); assert.ok(v.drawOn, "Draw shows it's in use");
   assert.deepStrictEqual(v.split, [true, true, true], "side by side"); assert.deepStrictEqual(v.board, [false, true], "the board alone"); assert.strictEqual(v.kept, "board", "the choice is remembered");

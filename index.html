@@ -107,6 +107,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
       <button class="btn tool" id="cvFitBtn" title="Fit the board (F)" aria-label="Fit the board"></button>
       <span class="grow"></span>
       <button class="btn tool" id="cvBits" title="Your bits" aria-label="Your bits"></button>
+      <button class="btn tool" id="cvMach" title="My machine: connect, jog, zero and run a job" aria-label="My machine"></button>
       <button hidden class="btn tool" id="cv3dBtn" title="See it carved in 3D" aria-label="See it carved in 3D" aria-pressed="false"></button>
       <button hidden class="btn tool" id="cvPaths" title="Show or hide the bit's path" aria-label="Show or hide the bit's path"></button>
       <input type="file" id="cvSvgIn" multiple accept=".svg,image/svg+xml,.dxf,.stl,.nc,.gcode,.ngc,.tap,.png,.jpg,.jpeg,.bmp,.gif,.webp,image/png,image/jpeg,image/bmp,image/gif,image/webp" hidden>
@@ -175,10 +176,9 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
   <div id="keysList"></div>
 </dialog>
 
-<dialog id="bitsDlg" aria-labelledby="bitsTitle">
-  <div id="bitsHead"><h2 id="bitsTitle">Your bits</h2><button class="btn main" id="bitsClose">Done</button></div>
-  <p class="note">Tick each bit you own. You'll only be offered these when you choose how to cut something.</p>
-  <div id="bitList"><div id="bitRack"></div><div id="bitDetail"><div id="bitBig"></div><div id="bitForm"></div></div></div>
+<dialog id="bitsDlg" class="wsDlg" aria-labelledby="bitsTitle">
+  <header class="wsHead" id="bitsHead"><span class="wsMark" id="bitsMark"></span><div class="wsTitle"><h2 id="bitsTitle">Your bits</h2><p>Tick each bit you own. Only these are offered when you choose how to cut something.</p></div><span class="wsCount" id="bitsCount"></span><button class="btn main" id="bitsClose">Done</button></header>
+  <div class="wsBody" id="bitList"><div class="wsMain" id="bitRack"></div><div class="wsSide" id="bitDetail"><div id="bitBig"></div><div id="bitForm"></div></div></div>
 </dialog>
 
 <section id="rend" aria-label="Photoreal picture">

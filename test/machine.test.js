@@ -21,7 +21,7 @@ const SETUP = `
 
 test("the practice machine: connect, jog, zero, and a job runs to the end without overfilling GRBL's buffer", async () => {
   const v = await app.run(`${SETUP}
-    const out = { state: M.st.state, stop: !document.getElementById('machStop').hidden };
+    const out = { state: M.st.state, stop: !!document.querySelector('#mach [data-m="estop"]') && document.getElementById('machStop').hidden };
     click('[data-step="10"]'); click('[data-jog="X1"]'); await until(() => Math.abs(M.st.w[0] - 10) < .01 && M.st.state === 'Idle'); out.jogged = M.st.w[0];
     click('[data-m="zeroXY"]'); click('[data-m="zeroZ"]'); await until(() => Math.abs(M.st.w[0]) < .01); out.zero = M.st.w.slice(); out.mx = M.st.m[0];
     const many = SQUARE.concat(Array.from({ length: 120 }, (_, i) => 'G1 X' + (i % 10) + ' Y' + (i % 7) + ' F3000'), ['G0 Z5']);
@@ -88,7 +88,7 @@ test("Start asks Easel's questions first, and only goes once every box is ticked
     const boxes = [...dlg.querySelectorAll('[data-ok]')]; boxes.slice(0, -1).forEach(c => { c.checked = true; }); dlg.dispatchEvent(new Event('change')); out.stillLocked = go.disabled;
     boxes[boxes.length - 1].checked = true; dlg.dispatchEvent(new Event('change')); out.unlocked = !go.disabled; dlg.querySelector('[data-d="no"]').click(); out.closed = !dlg.open && !M.job;
     return out;`);
-  assert.ok(v.sources.length >= 1 && /file 1 of 1 · .*flat/.test(v.sources[0]) && !/object/.test(v.sources[0]), "named with its bit: " + JSON.stringify(v.sources));
+  assert.ok(v.sources.length >= 1 && /file 1 of 1, .*flat/.test(v.sources[0]) && !/object/.test(v.sources[0]), "named with its bit: " + JSON.stringify(v.sources));
   assert.ok(v.open && v.locked && v.stillLocked && v.unlocked && v.closed, JSON.stringify(v));
 });
 
@@ -241,4 +241,55 @@ test("the console's Reset during a job stops it as a reset, not as the machine r
     M.restart = null; M.from = 1; return out;`);
   assert.match(v.why, /was reset/); assert.ok(!v.restart, "no Find zero again for a reset that was asked for");
   assert.ok(v.kept, "Check doesn't clear the restart or the from line");
+});
+
+test("connecting reads the machine's working area and speeds quietly; off, the typed numbers stay", async () => {
+  const v = await app.run(`
+    document.querySelectorAll('dialog[open]').forEach(d => d.close());
+    if (M.link) { M.job = null; await M.link.close(); M.link = null; clearInterval(M.poll); }
+    const keep = { ...machProfile }, out = {};
+    const go = async () => { if (M.link) { await M.link.close(); M.link = null; clearInterval(M.poll); } M.log = []; machOpen(); await machConnect(); const t0 = Date.now(); while (!(machProfile.readAt > t0 - 5000 && M.asked && !M.quiet) && Date.now() - t0 < 5000) await new Promise(r => setTimeout(r, 30)); await new Promise(r => setTimeout(r, 300)); };
+    Object.assign(machProfile, { link: 'sim', workX: 100, workY: 100, maxRate: 500, fromMachine: true, readAt: 0 }); M.simSpeed = 40; await go();
+    out.read = [machProfile.workX, machProfile.workY, machProfile.maxRate, machProfile.sMax]; out.log = M.log.map(x => x.t).join(' | ');
+    out.carveTakes = CV_DEFAULT().workX;
+    Object.assign(machProfile, { workX: 120, workY: 90, fromMachine: false }); await go(); out.kept = [machProfile.workX, machProfile.workY];
+    out.rail = document.getElementById('cvMach') ? document.getElementById('cvMach').dataset.st : 'none';
+    await M.link.close(); M.link = null; clearInterval(M.poll); machRender(); out.railOff = document.getElementById('cvMach') ? document.getElementById('cvMach').dataset.st : 'none';
+    Object.assign(machProfile, keep); machSaveProfile(); machEl.close();
+    return out;`);
+  assert.deepStrictEqual(v.read, [300, 180, 1500, 1000], "from $130, $131, $110/$111 and $30");
+  assert.match(v.log, /From the machine's own settings: working area 300 x 180 mm/);
+  assert.ok(!/\$130=|\$\$/.test(v.log), "the settings it sends back don't fill the console: " + v.log);
+  assert.strictEqual(v.carveTakes, 300, "new carvings take it");
+  assert.deepStrictEqual(v.kept, [120, 90], "with the box unticked, the typed numbers stay");
+  assert.strictEqual(v.rail, "Idle"); assert.strictEqual(v.railOff, "Off");
+});
+
+test("several machines: add one from a size, switch between them, remove it; not while connected", async () => {
+  const v = await app.run(`
+    document.querySelectorAll('dialog[open]').forEach(d => d.close());
+    if (M.link) { M.job = null; await M.link.close(); M.link = null; clearInterval(M.poll); }
+    const first = machProfile, n0 = machMachines.list.length, out = {};
+    machOpen(); machShow('profile'); machRender();
+    machEl.querySelector('[data-m-kind]').value = '4040'; machEl.querySelector('[data-m="add"]').click();
+    out.added = { n: machMachines.list.length - n0, name: machProfile.name, x: machProfile.workX, y: machProfile.workY, picked: machEl.querySelector('[data-m-use]').value === machProfile.id };
+    const sel = machEl.querySelector('[data-m-use]'); sel.value = first.id; sel.dispatchEvent(new Event('change', { bubbles: true })); out.back = machProfile === first;
+    out.stored = JSON.parse(localStorage.getItem('atelier-machines')).list.length - n0;
+    machUse(machMachines.list[machMachines.list.length - 1].id); M.link = { write() {}, close: async () => {} }; machRemove(); out.notWhileOn = machMachines.list.length - n0; M.link = null;
+    machRemove(); out.after = machMachines.list.length - n0; out.cur = machProfile === first;
+    machEl.close(); return out;`);
+  assert.deepStrictEqual(v.added, { n: 1, name: "4040", x: 400, y: 400, picked: true });
+  assert.ok(v.back, "switches back"); assert.strictEqual(v.stored, 1, "kept");
+  assert.strictEqual(v.notWhileOn, 1, "not removed while connected"); assert.strictEqual(v.after, 0); assert.ok(v.cur);
+});
+
+test("the popup: opened from the rail, tabs switch, its own STOP while open, and picking a point closes it and brings it back", async () => {
+  const v = await app.run(`${SETUP}
+    machEl.close(); const out = {}; await openCarve(); document.getElementById('cvMach').click(); out.open = machEl.open;
+    out.stopInside = !!machEl.querySelector('[data-m="estop"]'); out.floatingHidden = document.getElementById('machStop').hidden;
+    machEl.querySelector('[data-tab="console"]').click(); out.tab = !machEl.querySelector('[data-ms="console"]').hidden && machEl.querySelector('[data-ms="job"]').hidden;
+    machShow('find'); machRender(); const pick = machEl.querySelector('[data-m="pick"]'); out.canPick = !pick.disabled; pick.click(); out.closedToPick = !machEl.open && !document.getElementById('machStop').hidden;
+    machPickAt([50, 50]); out.back = machEl.open && machTab === 'find' && !!M.find; M.find = null;
+    machEl.close(); await new Promise(r => setTimeout(r, 50)); out.floating = !document.getElementById('machStop').hidden; closeCarve(); return out;`);
+  assert.deepStrictEqual(v, { open: true, stopInside: true, floatingHidden: true, tab: true, canPick: true, closedToPick: true, back: true, floating: true });
 });

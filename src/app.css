@@ -476,10 +476,8 @@ select option { background: var(--field); color: var(--ink); }
 #bitList .check { display: inline-flex; }
 
 /* ---------- bits: drawn, not listed ---------- */
-#bitsDlg { --bit-bg: var(--panel); width: min(900px, calc(100vw - 32px)); padding: 18px 20px 20px; outline: none; }
-#bitsHead { display: flex; align-items: center; justify-content: space-between; }
-#bitsHead h2 { margin: 0; font-size: 18px; font-weight: 600; }
-#bitRack { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 6px; }
+#bitsDlg { --bit-bg: var(--panel); }
+#bitRack { display: flex; gap: 22px; flex-wrap: wrap; align-content: flex-start; }
 .bitGroup h3 { font-size: 14px; font-weight: 600; margin: 0; }
 .bitGroup .note { margin: 1px 0 7px; }
 .bitRow { display: flex; gap: 8px; align-items: stretch; }
@@ -495,7 +493,6 @@ select option { background: var(--field); color: var(--ink); }
 .bitAdd { width: 34px; display: grid; place-items: center; background: none; border: 1px dashed var(--line); border-radius: 3px; color: var(--soft); cursor: pointer; }
 .bitAdd:hover { border-color: var(--ink); color: var(--ink); }
 .bitAdd .lu { width: 16px; height: 16px; }
-#bitDetail { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
 #bitBig .bitArt { border: 1px solid var(--line); border-radius: 3px; }
 #bitForm h3 { font-size: 13px; font-weight: 600; margin: 10px 0 0; }
 #bitForm .note { margin: 1px 0 6px; }
@@ -521,7 +518,7 @@ select option { background: var(--field); color: var(--ink); }
 .pickAsk { color: var(--danger); margin-top: 5px; }
 .bitStrip { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; --bit-bg: var(--panel); }
 .bitStrip span { width: 44px; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
-@media (max-width: 760px) { #bitDetail { grid-template-columns: 1fr; } .bitRow { flex-wrap: wrap; } }
+.bitRow { flex-wrap: wrap; }
 #cvSide .field select[data-cf="op.kind"] { width: 200px; }
 .bitPick span { min-height: 2.5em; }
 #bitRack { row-gap: 12px; }
@@ -700,30 +697,68 @@ details.cvmore[open] { padding-bottom: 4px; }
 #cvGcodeBar select { max-width: 200px; }
 #cvGcodeBar .gcwarn { margin: 6px 0 0; padding-left: 18px; color: var(--bad, #b93a1a); }
 #cvGcodeBar .gcok { margin: 6px 0 0; color: var(--soft); }
-/* My machine: a panel that stays open beside the work, and the emergency stop */
-#mach { position: fixed; right: 16px; top: 84px; bottom: 36px; width: 340px; z-index: 30; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 24px rgba(20, 30, 35, .22); overflow-y: auto; font-size: 13px; outline: none; }
-#mach[hidden] { display: none; }
-#mach .mhead { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; padding: 9px 10px; background: var(--bar); border-bottom: 1px solid var(--line); }
-#mach .mhead b { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#mach .mstate { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: var(--canvas); color: var(--soft); }
-#mach .mstate[data-st=Idle] { background: #d9f0e0; color: #1e6b3a; }
+/* ---------- workshop popups: Your bits and My machine share one frame ----------
+   The thing itself on the left, on the board's colour (the rack of bits, the machine's readout and jog); what to do with it
+   on the right, on the panel's colour. The header carries the rail button's icon, so it's plain which button opened it. */
+.wsDlg { width: min(1080px, calc(100vw - 32px)); height: min(720px, calc(100vh - 40px)); max-width: none; max-height: none; padding: 0; overflow: hidden; outline: none; }
+.wsDlg[open] { display: flex; flex-direction: column; }
+.wsHead { flex: none; display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.wsMark { flex: none; width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--canvas); color: var(--ink); }
+.wsMark .lu { width: 22px; height: 22px; }
+.wsTitle { flex: 1; min-width: 0; }
+.wsTitle h2 { margin: 0; font-size: 18px; font-weight: 600; line-height: 1.2; }
+.wsTitle p { margin: 2px 0 0; color: var(--soft); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wsCount { color: var(--soft); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wsBody { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 380px; }
+.wsMain { overflow: auto; padding: 16px 18px 20px; background: var(--canvas); }
+.wsSide { overflow: auto; padding: 16px 18px 20px; border-left: 1px solid var(--line); background: var(--panel); }
+.wsTabs { display: flex; flex-wrap: wrap; gap: 0 16px; margin: -6px 0 14px; border-bottom: 1px solid var(--line); }
+.wsTabs button { margin-bottom: -1px; padding: 7px 0 8px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--soft); font: inherit; cursor: pointer; }
+.wsTabs button:hover { color: var(--ink); }
+.wsTabs button[aria-selected=true] { color: var(--ink); font-weight: 600; border-bottom-color: var(--tape-deep); }
+.wsTabs button.alert::after { content: ''; display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: #c62828; vertical-align: 2px; }
+.wsDlg button:focus-visible, .wsDlg input:focus-visible, .wsDlg select:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+@media (max-width: 760px) { .wsBody, #mach .wsBody { grid-template-columns: 1fr; overflow: auto; } .wsMain, .wsSide { overflow: visible; } .wsSide { border-left: 0; border-top: 1px solid var(--line); } .wsTitle p { white-space: normal; } }
+
+/* Your bits, in that frame: the rack on the left, the open bit drawn large with its numbers on the right */
+#bitsDlg .bitTile { background: var(--panel); }
+#bitDetail { display: block; }
+#bitBig .bitArt { max-width: 100%; }
+#bitForm { margin-top: 12px; }
+#bitForm .hwform { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+/* My machine, in that frame: the readout, zero and jog on the left, the job and the rest in tabs on the right */
+#mach .wsBody { grid-template-columns: 400px minmax(0, 1fr); }
+#mach .mstate { font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 10px; background: var(--canvas); color: var(--soft); white-space: nowrap; }
+#mach .mstate[data-st=Idle], #mach .mstate[data-st=Check] { background: #d9f0e0; color: #1e6b3a; }
 #mach .mstate[data-st=Run], #mach .mstate[data-st=Jog] { background: #d8e9f7; color: #1d5a8a; }
 #mach .mstate[data-st=Hold], #mach .mstate[data-st=Door] { background: #fff1c2; color: #7a5a00; }
 #mach .mstate[data-st=Alarm] { background: #f9d9d2; color: #9b2c14; }
-#mach .mrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 10px; }
+#mach .mstop { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border: 0; border-radius: 6px; background: #c62828; color: #fff; font: 700 14px/1 inherit; letter-spacing: .06em; cursor: pointer; }
+#mach .mstop:hover { background: #a91f1f; }
+#mach .mstop .lu { width: 18px; height: 18px; stroke-width: 2.4; }
+#mach .mrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 4px 0; }
 #mach .mrow select, #mach .mrow input:not([type=range]) { min-width: 0; flex: 1; }
-#mach .mrow .mport { flex: 0 0 52px; }
-#mach .msec { border-top: 1px solid var(--line); }
-#mach .msec > summary { padding: 8px 10px; font-weight: 600; cursor: pointer; }
-#mach .mpos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 0 10px; }
-#mach .mpos > div { display: flex; flex-direction: column; align-items: center; gap: 3px; background: var(--canvas); border-radius: 4px; padding: 6px 4px; }
-#mach .mpos b { font-size: 17px; font-variant-numeric: tabular-nums; }
-#mach .mpos .btn { height: 22px; padding: 0 8px; }
-#mach .mnote { color: var(--soft); font-size: 12px; margin: 2px 10px 6px; }
+#mach .mrow .mport { flex: 0 0 64px; }
+#mach .mnote { color: var(--soft); font-size: 12px; margin: 4px 0 6px; }
 #mach .mrow .mnote { margin: 0; }
-#mach .mwarn { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: #9b2c14; background: #fbe6e0; border-radius: 4px; margin: 6px 10px; padding: 6px 8px; }
-#mach .mjog { display: grid; grid-template-columns: repeat(5, 46px); grid-template-rows: repeat(3, 40px); gap: 4px; justify-content: center; padding: 4px 10px; }
-#mach .mjog .mj { flex-direction: column; justify-content: center; gap: 0; padding: 0; height: 40px; }
+#mach .mdone { color: #1e6b3a; margin: 4px 0 8px; }
+#mach .mwarn { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: #9b2c14; background: #fbe6e0; border-radius: 4px; margin: 6px 0; padding: 7px 9px; }
+/* the readout: big, steady numbers, as on a machine's own display */
+#mach .mdro { margin: 12px 0 10px; padding: 4px 12px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+#mach .mdrow { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 5px 0; border-bottom: 1px solid var(--line); }
+#mach .mdax { font-size: 15px; font-weight: 600; color: var(--soft); }
+#mach .mdrow b { font-size: 30px; font-weight: 500; line-height: 1.15; text-align: right; font-variant-numeric: tabular-nums; letter-spacing: .01em; }
+#mach .mdrow .btn { height: 26px; padding: 0 10px; }
+#mach .mdro .mnote { margin: 6px 0 0; font-variant-numeric: tabular-nums; }
+#mach .mpaper { margin: 6px 0; padding: 8px 10px; border: 1px solid var(--line); border-left: 3px solid var(--tape-deep); border-radius: 4px; background: var(--panel); }
+#mach .mpaper p { margin: 0 0 4px; }
+#mach .mh { margin: 16px 0 6px; font-size: 13px; font-weight: 600; }
+#mach .mh.first { margin-top: 0; }
+#mach .mwhich select { font-weight: 600; }
+#mach .mfrom { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0 2px; }
+#mach .mjog { display: grid; grid-template-columns: repeat(5, 50px); grid-template-rows: repeat(3, 42px); gap: 4px; justify-content: center; padding: 2px 0 6px; }
+#mach .mjog .mj { flex-direction: column; justify-content: center; gap: 0; padding: 0; height: 42px; background: var(--panel); }
 #mach .mjog .mj small { font-size: 10px; color: var(--soft); }
 #mach .mjog .mjc { display: grid; place-items: center; color: var(--soft); }
 #mach .mseg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
@@ -731,26 +766,37 @@ details.cvmore[open] { padding-bottom: 4px; }
 #mach .mseg button + button { border-left: 1px solid var(--line); }
 #mach .mseg button[aria-checked=true] { background: var(--active-bg); color: var(--active-ink); font-weight: 600; }
 #mach .mf { display: flex; align-items: center; gap: 4px; color: var(--soft); }
-#mach .mf input { width: 56px; flex: none !important; }
-body.mach-picking #cvStage { cursor: crosshair; }
-#mach .movr { display: flex; align-items: center; gap: 4px; padding: 3px 10px; }
-#mach .movr span { width: 56px; color: var(--soft); }
-#mach .movr b { width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
-#mach .movr .btn { height: 24px; padding: 0 7px; }
-#mach .mprog { height: 8px; margin: 6px 10px 2px; background: var(--canvas); border-radius: 4px; overflow: hidden; }
+#mach .mf input { width: 60px; flex: none !important; }
+#mach .movr { display: flex; align-items: center; gap: 4px; padding: 3px 0; }
+#mach .movr span { width: 64px; color: var(--soft); }
+#mach .movr b { width: 48px; text-align: center; font-variant-numeric: tabular-nums; }
+#mach .movr .btn { height: 26px; padding: 0 8px; }
+#mach .mprog { height: 8px; margin: 10px 0 4px; background: var(--canvas); border-radius: 4px; overflow: hidden; }
 #mach .mprog div { height: 100%; background: #2f8f5b; transition: width .3s; }
-#mach .mlog { height: 150px; overflow-y: auto; margin: 0 10px; padding: 4px 6px; background: var(--canvas); border-radius: 4px; font: 11.5px/1.45 Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
+#mach .mlog { height: 300px; overflow-y: auto; padding: 6px 8px; background: var(--canvas); border: 1px solid var(--line); border-radius: 4px; font: 11.5px/1.45 Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
 #mach .mlog .out { color: var(--soft); }
 #mach .mlog .bad { color: #b93a1a; }
-#mach .field { margin: 4px 10px; }
-#machStop { position: fixed; right: 372px; bottom: 44px; z-index: 31; display: flex; align-items: center; gap: 8px; padding: 12px 20px; border: 3px solid #fff; border-radius: 10px; background: #c62828; color: #fff; font: 700 17px/1 inherit; letter-spacing: .06em; box-shadow: 0 4px 16px rgba(120, 20, 20, .45); cursor: pointer; }
+#mach .field { margin: 4px 0; }
+#mach .mform .wide { grid-column: 1 / -1; }
+#mach .mform { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 14px; margin-bottom: 6px; }
+body.mach-picking #cvStage { cursor: crosshair; }
+/* the rail button shows the machine's state while the popup is closed */
+#cvMach { position: relative; }
+#cvMach::after { content: ''; position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%; }
+#cvMach[data-st=Idle]::after, #cvMach[data-st=Check]::after { background: #2f8f5b; }
+#cvMach[data-st=Run]::after, #cvMach[data-st=Jog]::after { background: #2f7fc1; }
+#cvMach[data-st=Hold]::after, #cvMach[data-st=Door]::after, #cvMach[data-st=Connecting]::after { background: #d9a400; }
+#cvMach[data-st=Alarm]::after { background: #c62828; }
+/* the floating emergency stop, while the popup is closed */
+#machStop { position: fixed; left: 60px; bottom: 44px; z-index: 31; display: flex; align-items: center; gap: 8px; padding: 12px 20px; border: 3px solid #fff; border-radius: 10px; background: #c62828; color: #fff; font: 700 17px/1 inherit; letter-spacing: .06em; box-shadow: 0 4px 16px rgba(120, 20, 20, .45); cursor: pointer; }
 #machStop[hidden] { display: none; }
 #machStop .lu { width: 26px; height: 26px; stroke-width: 2.4; }
 #machStop:hover { background: #a91f1f; }
 #machStop:active { transform: translateY(1px); }
-#mach[hidden] ~ #machStop { right: 16px; }
 #machDlg { max-width: 460px; }
 #machDlg .check { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; }
-:root[data-theme=dark] #mach .mstate[data-st=Idle] { background: #1f3a2a; color: #8fd6a8; }
-:root[data-theme=dark] #mach .mwarn { background: #3a201b; color: #ffb4a3; }
-body.mach-open #cvGcodeBar { right: 110px; }
+:root[data-theme=dark] #mach .mstate[data-st=Idle], :root[data-theme=dark] #mach .mstate[data-st=Check] { background: #1f3a2a; color: #8fd6a8; }
+:root[data-theme=dark] #mach .mstate[data-st=Run], :root[data-theme=dark] #mach .mstate[data-st=Jog] { background: #1c3247; color: #9cc8ee; }
+:root[data-theme=dark] #mach .mstate[data-st=Hold], :root[data-theme=dark] #mach .mstate[data-st=Door] { background: #3a3218; color: #f0d27a; }
+:root[data-theme=dark] #mach .mstate[data-st=Alarm], :root[data-theme=dark] #mach .mwarn { background: #3a201b; color: #ffb4a3; }
+:root[data-theme=dark] #mach .mdone { color: #8fd6a8; }

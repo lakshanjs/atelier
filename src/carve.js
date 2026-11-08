@@ -686,7 +686,7 @@ function cvFormRender() {
   box.innerHTML = '<div class="bitTitle"><input class="bitName" data-bit="' + esc(b.id) + '" data-key="name" value="' + esc(b.name) + '" aria-label="Name of this bit"><select data-bit="' + esc(b.id) + '" data-key="type" aria-label="Kind of bit"><option value="flat" ' + (b.type === 'flat' ? 'selected' : '') + '>Flat bit</option><option value="v" ' + (b.type === 'v' ? 'selected' : '') + '>V-bit</option><option value="ball" ' + (b.type === 'ball' ? 'selected' : '') + '>Ball nose</option></select><button class="ic" data-bitcopy="' + esc(b.id) + '" title="Make a copy" aria-label="Copy ' + esc(b.name) + '">' + ic('copy') + '</button><button class="ic" data-bitdel="' + esc(b.id) + '" title="Delete this bit" aria-label="Delete ' + esc(b.name) + '">' + ic('trash-2') + '</button></div>'
     + '<div class="hwform">' + fields.filter(f => !f[4]).map(field).join('') + '</div><h3>How fast it cuts</h3><p class="note">Cautious starting points from your machine notes, untested on this bit and wood. S1000 is full speed on your machine.</p><div class="hwform">' + fields.filter(f => f[4]).map(field).join('') + '</div>';
 }
-function cvBitsRender() { cvRackRender(); cvBigRender(); cvFormRender(); }
+function cvBitsRender() { cvRackRender(); cvBigRender(); cvFormRender(); const n = cvOwned().length; cvEl('bitsCount').textContent = n === 1 ? 'You have 1 bit' : 'You have ' + n + ' bits'; }
 function cvOpenBits(focusId) { if (typeof focusId === 'string') cvOpenBit = focusId; cvBitsRender(); cvEl('bitsDlg').showModal(); cvEl('bitsDlg').focus(); }
 function cvBitsChanged() { cvBitsSave(); if (P.carve) { cvBitsSync(); persist(); } carveRender(); }
 const bitListEl = cvEl('bitList');
@@ -809,6 +809,7 @@ cvEl('modeDesign').onclick = () => { if (cvOpen()) closeCarve(); };
 cvEl('modeCarve').onclick = () => { if (!cvOpen()) openCarve(); };
 cvEl('bitsClose').onclick = () => cvEl('bitsDlg').close();
 cvEl('cvBits').onclick = () => cvOpenBits();
+cvEl('cvMach').onclick = () => machOpen();
 cvEl('cvExport').onclick = () => cvExport(false);
 cvEl('cvAir').onclick = () => cvExport(true);
 cvEl('cvPaths').onclick = () => { cvShowPaths = !cvShowPaths; carveRender(); cv3dExtras(); };
@@ -844,5 +845,5 @@ cvStage.addEventListener('pointercancel', cvStageUp);
 cvStage.addEventListener('wheel', cvWheel, { passive: false });
 cvStage.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); });
 new ResizeObserver(() => { if (cvOpen() && cvView) cvStageRender(); if (CV3D.on) cv3dSize(); }).observe(cvEl('cvStageWrap'));
-[['cv3dBtn', 'box'], ['cvAddText', 'type'], ['cvAddSvg', 'image'], ['cvAddRect', 'square'], ['cvAddCircle', 'circle'], ['cvBits', 'drill'], ['cvPaths', 'eye'], ['cvFitBtn', 'scan'], ['cvExport', 'download'], ['cvAir', 'wind'], ['cvPlayBtn', 'play'], ['cvPlayBack', 'skip-back'], ['cvPlayNext', 'skip-forward']].forEach(([id, name]) => addIcon(cvEl(id), name));
+[['cv3dBtn', 'box'], ['cvAddText', 'type'], ['cvAddSvg', 'image'], ['cvAddRect', 'square'], ['cvAddCircle', 'circle'], ['cvBits', 'drill'], ['cvMach', 'plug'], ['bitsMark', 'drill'], ['cvPaths', 'eye'], ['cvFitBtn', 'scan'], ['cvExport', 'download'], ['cvAir', 'wind'], ['cvPlayBtn', 'play'], ['cvPlayBack', 'skip-back'], ['cvPlayNext', 'skip-forward']].forEach(([id, name]) => addIcon(cvEl(id), name));
 cvBitsStart();
