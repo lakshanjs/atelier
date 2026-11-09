@@ -104,7 +104,7 @@ test("what's shown: uncut corners in red, less with a corners bit; outlines only
   assert.ok(Math.abs(v.hole - v.corners) / v.corners < .15, "a hole's corners too: " + v.hole);
   assert.strictEqual(v.none, 0, "an engraving leaves nothing"); assert.ok(v.red, "shown on the board");
   assert.ok(v.wire, "outlines only"); assert.ok(v.waste, "a wasteboard under the board"); assert.ok(v.hidden, "with the board hidden, the bit's paths show");
-  assert.strictEqual(v.rows, 5);
+  assert.strictEqual(v.rows, 6, "rulers, paths, uncut areas, outlines, the board and the wasteboard");
 });
 
 test("Design's right-click menu mirrors and lines up, and offers cut and paste", async () => {

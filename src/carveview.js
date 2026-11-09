@@ -110,7 +110,7 @@ cvCtx.addEventListener('click', e => { const b = e.target.closest('[data-cvx]');
 // ---------- what's shown ----------
 const CV_VIEW_STORE = 'atelier-carve-view';
 try { Object.assign(cvViewOpts, JSON.parse(localStorage.getItem(CV_VIEW_STORE)) || {}); } catch (e) {}
-const CV_VIEWS = [['paths', "The bit's paths"], ['uncut', 'Uncut areas'], ['wire', 'Shapes as outlines only'], ['material', 'The board, in 3D'], ['waste', 'The wasteboard, in 3D']];
+const CV_VIEWS = [['rulers', 'Rulers'], ['paths', "The bit's paths"], ['uncut', 'Uncut areas'], ['wire', 'Shapes as outlines only'], ['material', 'The board, in 3D'], ['waste', 'The wasteboard, in 3D']];
 const cvViewOn = k => (k === 'paths' ? cvShowPaths : !!cvViewOpts[k]);
 const cvViewRows = () => CV_VIEWS.map(([k, label]) => `<button data-cvx="view:${k}" role="menuitemcheckbox" aria-checked="${cvViewOn(k)}">${cvViewOn(k) ? ic('cv-check') : ic('cv-none')}${label}</button>`).join('');
 window.LUCIDE['cv-none'] = '';
@@ -238,11 +238,23 @@ function cv3dItemAt(p) {
 }
 const cv3dEditable = () => CV3D.on && !CV3D.gcode && !cvTool && !cvNodeItem();
 function cv3dScreen(q) { const el = CV3D.renderer.domElement, v = new THREE.Vector3(q[0], q[1], 0).project(CV3D.camera); return v.z > 1 ? null : [(v.x + 1) / 2 * el.clientWidth, (1 - v.y) / 2 * el.clientHeight]; }
+// Rulers in 3D: along the board's front and left edges, measured from the zero, turning with the view. Sizes follow the
+// screen, so they read the same near and far.
+function cv3dRulers() {
+  if (!CV3D.on || !P || !P.carve || !cvViewOpts.rulers) return '';
+  const cv = P.carve, { l, w } = cv.board, [zx, zy] = cvZeroAt(cv), k = cv3dK([l / 2, w / 2]), gap = 6 * k, S = cv3dScreen;
+  const seg = (a, b, wd) => { const p = S(a), q = S(b); return p && q ? `<line x1="${p[0].toFixed(1)}" y1="${p[1].toFixed(1)}" x2="${q[0].toFixed(1)}" y2="${q[1].toFixed(1)}" stroke-width="${wd}"/>` : ''; };
+  const txt = (q, t, anchor) => { const p = S(q); return p ? `<text x="${p[0].toFixed(1)}" y="${(p[1] + 4).toFixed(1)}" text-anchor="${anchor}">${t}</text>` : ''; };
+  let lines = seg([0, -gap], [l, -gap], 1) + seg([-gap, 0], [-gap, w], 1), labels = '';
+  cvRulerTicks(0, l, zx, k, 64).forEach(t => { const len = (t.major ? 9 : t.half ? 6 : 4) * k; lines += seg([t.at, -gap], [t.at, -gap - len], 1); if (t.label) labels += txt([t.at, -gap - 20 * k], t.label, 'middle'); });
+  cvRulerTicks(0, w, zy, k, 64).forEach(t => { const len = (t.major ? 9 : t.half ? 6 : 4) * k; lines += seg([-gap, t.at], [-gap - len, t.at], 1); if (t.label) labels += txt([-gap - 13 * k, t.at], t.label, 'end'); });
+  return `<g class="cv3ruler"><g stroke="#fff" stroke-opacity=".9">${lines}</g><g>${labels}</g></g>`;
+}
 function cv3dOverlay() {
   const svg = cvEl('cv3dOver'); if (!svg) return;
-  const list = CV3D.on && cv3dEditable() && P.carve ? cvPicked() : []; if (!list.length) { if (svg.innerHTML) svg.innerHTML = ''; return; }
+  const rulers = cv3dRulers(), list = CV3D.on && cv3dEditable() && P.carve ? cvPicked() : []; if (!list.length) { if (svg.innerHTML !== rulers) svg.innerHTML = rulers; return; }
   const P2 = (pts) => { const s = pts.map(cv3dScreen); return s.some(x => !x) ? null : s; }, path = s => `M${s.map(q => `${q[0].toFixed(1)} ${q[1].toFixed(1)}`).join('L')}Z`;
-  let h = '';
+  let h = rulers;
   list.forEach(it => {
     const s = cvLocal(it), place = cvPlaceFn(it), k = cv3dK([it.x, it.y]), w = Math.max(s.w, 4) / 2 + 3 * k, ht = Math.max(s.h, 4) / 2 + 3 * k, ox = s.ox || 0, oy = s.oy || 0;
     const box = P2([[-w, -ht], [w, -ht], [w, ht], [-w, ht]].map(q => place([ox + q[0], oy + q[1]]))); if (!box) return;

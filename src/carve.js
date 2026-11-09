@@ -10,7 +10,7 @@ const CV_BITS_START = [
   ...[.8, 1, 1.2, 1.4].map(d => cvCorn(d, 150, 50, .2)), ...[1.6, 1.8, 2, 2.2, 2.5].map(d => cvCorn(d, 200, 50, .3)), cvCorn(3.175, 300, 100, .5),
 ];
 // what's shown, kept per user (carveview.js reads and keeps it)
-const cvViewOpts = { wire: false, uncut: true, material: true, waste: true };
+const cvViewOpts = { wire: false, uncut: true, material: true, waste: true, rulers: true };
 let cvBits = JSON.parse(JSON.stringify(CV_BITS_START)), cvSel = null, cvShowPaths = false, cvView = null, cvOpenBit = null, cvCornOpen = false;
 // Thicknesses are the ones the design side already knows, so both sides agree.
 const CV_WOODS = {
@@ -178,6 +178,29 @@ function cvFit() {
   const svg = cvEl('cvStage'), b = cvNow().board, W = svg.clientWidth || 800, H = svg.clientHeight || 600, pad = Math.max(b.l, b.w) * .12, k = Math.max((b.l + pad * 2) / W, (b.w + pad * 2) / H);
   cvView = { x: b.l / 2 - W * k / 2, y: b.w / 2 - H * k / 2, k };
 }
+// Ruler marks between lo and hi (board mm), counted from origin (the zero), in the units shown: labels at least minPx
+// apart, with smaller marks between when there's room.
+function cvRulerTicks(lo, hi, origin, mmPerPx, minPx = 56) {
+  const inch = cvIsInch(), u = inch ? 25.4 : 1, steps = inch ? [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 6, 12, 24, 48] : [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000];
+  const s = steps.find(v => v * u / mmPerPx >= minPx) || steps[steps.length - 1], major = s * u;
+  let sub = inch ? 4 : { 1: 10, 2: 4, 5: 5 }[String(s)[0]] || 5;
+  while (sub > 1 && major / sub / mmPerPx < 6) sub = sub === 10 ? 5 : sub === 4 ? 2 : 1;
+  const minor = major / sub, n0 = Math.ceil((lo - origin) / minor - 1e-9), n1 = Math.floor((hi - origin) / minor + 1e-9), out = [];
+  if (!(n1 >= n0) || n1 - n0 > 5000) return out;
+  for (let n = n0; n <= n1; n++) { const isMajor = n % sub === 0; out.push({ at: origin + n * minor, major: isMajor, half: !isMajor && sub % 2 === 0 && n % (sub / 2) === 0, label: isMajor ? cvRulerNum(n * minor / u) : '' }); }
+  return out;
+}
+const cvRulerNum = v => { const r = Math.round(v * 1000) / 1000; return String(Object.is(r, -0) ? 0 : r).replace('-', '−'); };
+// Rulers along the top and left of the flat board, measured from the zero, as the machine counts
+function cvRulersSvg(px, W, H, zx, zy, b) {
+  const x0 = cvView.x, y0 = cvView.y, x1 = x0 + W * px, y1 = y0 + H * px, s = 20 * px, txt = (x, y, t, rot) => `<text x="${x}" y="${y}" font-size="${10 * px}"${rot ? ` transform="rotate(-90 ${x} ${y})"` : ''}>${t}</text>`;
+  let d = '', labels = '';
+  cvRulerTicks(x0 + s, x1, zx, px).forEach(t => { const len = t.major ? s * .5 : t.half ? s * .32 : s * .2; d += `M${t.at} ${y0 + s}v${-len}`; if (t.label) labels += txt(t.at + 3 * px, y0 + 10 * px, t.label); });
+  cvRulerTicks(b.w - y1, b.w - y0 - s, zy, px).forEach(t => { const len = t.major ? s * .5 : t.half ? s * .32 : s * .2, sy = b.w - t.at; d += `M${x0 + s} ${sy}h${-len}`; if (t.label) labels += txt(x0 + 10 * px, sy - 3 * px, t.label, true); });
+  return `<g pointer-events="none" class="cvRuler" font-family="Barlow,sans-serif" fill="var(--soft)"><rect x="${x0}" y="${y0}" width="${W * px}" height="${s}" fill="var(--panel)"/><rect x="${x0}" y="${y0}" width="${s}" height="${H * px}" fill="var(--panel)"/>`
+    + `<path d="${d}" stroke="var(--soft)" stroke-width="${px}" fill="none"/>${labels}<path d="M${x0} ${y0 + s}H${x1}M${x0 + s} ${y0}V${y1}" stroke="var(--line)" stroke-width="${px}"/>`
+    + `<rect x="${x0}" y="${y0}" width="${s}" height="${s}" fill="var(--panel)"/><text x="${x0 + s / 2}" y="${y0 + s / 2 + 3.5 * px}" text-anchor="middle" font-size="${9 * px}">${cvIsInch() ? 'in' : 'mm'}</text></g>`;
+}
 let cvPathsTimer = 0;
 function cvStageRender() {
   const svg = cvEl('cvStage'), cv = cvNow(), b = cv.board; if (!cvView) cvFit();
@@ -186,10 +209,10 @@ function cvStageRender() {
   const it = cvItem(), mark = 14 * px, [zx, zy] = cvZeroAt(cv), zsy = b.w - zy, zLeft = zx < b.l / 2 + .01, zFront = zy < b.w / 2 + .01;
   const wood = cvWood(b), base = cvHex(wood.rgb), gr = cvHex(wood.rgb.map(v => v * .72)), g1 = (.42 * wood.grain).toFixed(3), g2 = (.22 * wood.grain).toFixed(3);
   svg.innerHTML = `<defs><pattern id="cvGrain" width="240" height="46" patternUnits="userSpaceOnUse"><rect width="240" height="46" fill="${base}"/><path d="M0 7C60 3 110 12 240 7M0 19C80 24 150 14 240 19M0 31C50 28 170 37 240 31M0 41C90 38 140 45 240 41" fill="none" stroke="${gr}" stroke-opacity="${g1}" stroke-width=".55"/><path d="M0 13C70 16 160 9 240 13M0 25C60 22 180 29 240 25" fill="none" stroke="${gr}" stroke-opacity="${g2}" stroke-width="1.3"/></pattern></defs><rect class="cvboard" x="0" y="0" width="${b.l}" height="${b.w}" fill="url(#cvGrain)"/><path d="${grid}" stroke="#7a5a35" stroke-opacity=".12" stroke-width="${px}" fill="none" pointer-events="none"/>`
-    + cvTilesSvg(cv, px) + cv.items.map(cvItemSvg).join('') + `<g id="cvCuts" pointer-events="none"></g>`
+    + cvTilesSvg(cv, px) + cv.items.map(cvItemSvg).join('') + (typeof cvGcodeSvg === 'function' ? cvGcodeSvg(px) : '') + `<g id="cvCuts" pointer-events="none"></g>`
     + `<g pointer-events="none" id="cvZeroMark"><line x1="${zx}" y1="${zsy}" x2="${zx + mark * 2}" y2="${zsy}" stroke="#c0392b" stroke-width="${2 * px}"/><line x1="${zx}" y1="${zsy}" x2="${zx}" y2="${zsy - mark * 2}" stroke="#1e8449" stroke-width="${2 * px}"/><circle cx="${zx}" cy="${zsy}" r="${4 * px}" fill="#20262a"/><text x="${zx + (zLeft ? -6 : 6) * px}" y="${zsy + (zFront ? 14 : -8) * px}" font-size="${11 * px}" text-anchor="${zLeft ? 'end' : 'start'}" fill="var(--soft)" font-family="Barlow,sans-serif">Zero</text></g><g pointer-events="none">`
     + `<text x="${b.l / 2}" y="${-8 * px}" text-anchor="middle" font-size="${12 * px}" fill="var(--soft)" font-family="Barlow,sans-serif">${esc(cvLen(b.l))}</text><text x="${b.l + 8 * px}" y="${b.w / 2}" font-size="${12 * px}" fill="var(--soft)" font-family="Barlow,sans-serif">${esc(cvLen(b.w))}</text></g>`
-    + cvPickedSvg(px) + (typeof machPickSvg === 'function' ? machPickSvg(px) : '') + '<g id="cvPen" pointer-events="none"></g>';
+    + cvPickedSvg(px) + (typeof machPickSvg === 'function' ? machPickSvg(px) : '') + '<g id="cvPen" pointer-events="none"></g>' + (cvViewOpts.rulers ? cvRulersSvg(px, W, H, zx, zy, b) : '');
   clearTimeout(cvPathsTimer); cvPathsTimer = setTimeout(cvCutsRender, cvDrag ? 300 : 30);   // bit paths can take a moment, so the board draws first
   if (CV3D.on && typeof cv3dOverlay === 'function') cv3dOverlay();
 }
@@ -375,7 +398,7 @@ function cvPanelHtml() {
     const mine = cvOwned(), mainBits = mine.filter(b => b.family !== 'corn'), moreBits = mine.length - mainBits.length;
     h += cvSec('bits', 'Your bits', (mine.length ? '<div class="bitStrip">' + mainBits.map(b => '<span title="' + esc(b.name) + '">' + cvBitArt(b) + '</span>').join('') + '</div>' + (moreBits ? '<p class="note">And ' + moreBits + ' corn end ' + (moreBits === 1 ? 'mill' : 'mills') + '.</p>' : '') : '<p class="note">None ticked yet. Tick the bits you own so they can be used.</p>') + '<div class="rowb"><button class="btn line" data-cact="bits">' + (mine.length ? 'Change your bits' : 'Choose your bits') + '</button></div>');
     h += cvParamsHtml();
-    h += cvSec('items', 'On this board', (cv.items.length ? '<div class="cvlist">' + cv.items.map(i => '<button data-cpick="' + i.id + '">' + ic(cvTypeIcon(i.type)) + '<span>' + esc(cvItemName(i)) + '</span></button>').join('') + '</div>' : '<p class="note">Nothing yet. Add text, an SVG or a shape from the left.</p>') + (cv.items.length ? '<div class="rowb"><button class="btn line" data-cact="b-svg" title="Saves the shapes on the board as an SVG drawing, in mm">' + ic('download') + 'SVG</button><button class="btn line" data-cact="b-dxf" title="Saves the shapes on the board as a DXF drawing, in mm">' + ic('download') + 'DXF</button></div>' : ''));
+    h += cvSec('items', 'On this board', (cv.items.length ? '<div class="cvlist">' + cv.items.map(i => '<button data-cpick="' + i.id + '">' + ic(cvTypeIcon(i.type)) + '<span>' + esc(cvItemName(i)) + '</span></button>').join('') + '</div>' : (CV3D.gcode ? '<p class="note">Showing <b>' + esc(CV3D.gcode.name) + '</b>, a G-code file, as it cuts. It isn\'t one of the shapes here: Send to machine runs it as it is, and Close puts it away.</p>' : '<p class="note">Nothing yet. Add text, an SVG or a shape from the left.</p>')) + (cv.items.length ? '<div class="rowb"><button class="btn line" data-cact="b-svg" title="Saves the shapes on the board as an SVG drawing, in mm">' + ic('download') + 'SVG</button><button class="btn line" data-cact="b-dxf" title="Saves the shapes on the board as a DXF drawing, in mm">' + ic('download') + 'DXF</button></div>' : ''));
     const zero = cvZeroOf(cv), zeroName = cvZeroName(cv);
     h += cvSec('setup', 'Zero point', '<div class="zeroGrid" role="radiogroup" aria-label="Where X0 Y0 is on the board">' + CV_ZEROS.map(([x, y, name]) => '<label class="zeroBtn' + (x === zero[0] && y === zero[1] ? ' on' : '') + '" title="Zero at the ' + cvZeroPlace(name) + '"><input type="radio" name="cvZero" data-cf="zero" value="' + x + ',' + y + '" aria-label="' + name + '" ' + (x === zero[0] && y === zero[1] ? 'checked' : '') + '><i></i></label>').join('') + '</div>'
       + (cv.tile && cvTiles(cv).length > 1
@@ -452,12 +475,14 @@ function cvPanelRender() {
   });
 }
 function cvChecksRender() {
-  const cv = cvNow(), box = cvEl('cvChecks'), list = cvChecks(cv, cvBitOf, cvOwned().length > 0), plan = cvPlan(cv, cvBitOf), bad = list.filter(c => c.bad);
+  const cv = cvNow(), box = cvEl('cvChecks'), gcodeOnly = !!CV3D.gcode && !cv.items.length;
+  // a G-code file open on an empty board: nothing is wrong, there's just nothing of its own to save
+  const list = gcodeOnly ? [{ info: true, text: `${CV3D.gcode.name} is open to look at and to send to the machine. Save G-code is for shapes you put on the board.` }] : cvChecks(cv, cvBitOf, cvOwned().length > 0), plan = cvPlan(cv, cvBitOf), bad = list.filter(c => c.bad);
   let mins = 0, nfiles = 0; if (!bad.length) { try { cvJob(cv, cvBitOf, P.name).forEach(f => { mins += f.minutes; nfiles++; }); } catch (e) {} }
   const tiles = cv.tile ? cvTiles(cv).length : 1;
   const b = cv.board; cvEl('fCarve').innerHTML = '<b>' + esc(cvLen(b.l)) + '</b> x <b>' + esc(cvLen(b.w)) + '</b> x <b>' + esc(cvLen(b.t)) + '</b> board' + (!bad.length && plan.length ? '<span style="margin-left:22px">' + (tiles > 1 ? '<b>' + tiles + '</b> tiles, <b>' + nfiles + '</b> files: ' : '<b>' + plan.length + '</b> ' + (plan.length === 1 ? 'file' : 'files') + ': ') + plan.map(f => esc(cvBitOf(f.bit).name)).join(', then ') + '</span><span style="margin-left:22px">about <b>' + Math.max(1, Math.ceil(mins)) + ' min</b> of cutting</span>' : '');
   box.innerHTML = list.map(c => `<div class="cvmsg${c.bad ? ' bad' : c.info ? ' info' : ''}" ${c.id ? `data-cpick="${c.id}"` : ''}>${c.info ? '' : ic('triangle-alert')}<span>${esc(c.text)}</span></div>`).join('');
-  cvEl('cvExport').disabled = cvEl('cvAir').disabled = !!bad.length;
+  cvEl('cvExport').disabled = cvEl('cvAir').disabled = !!bad.length || gcodeOnly;
   const airTip = `Save an air test: the same job ${cvLen(cvAirOf(cv))} above the board, cutting nothing`; cvEl('cvAir').title = airTip; cvEl('cvAir').setAttribute('aria-label', airTip);
 }
 function cv3dTheme() {   // the 3D view's background follows light and dark

@@ -101,3 +101,26 @@ test("several files import at once, laid out across the board without overlappin
   assert.strictEqual(v.n, 3); assert.strictEqual(v.picked, 3);
   assert.ok(!v.overlap, "none on top of another"); assert.ok(v.inside, "all on the board");
 });
+
+test("an open .nc is drawn on the flat board too, the panel says what it is, and both views have rulers from the zero", async () => {
+  const v = await app.run(`${SETUP}
+    add({ type: 'rect', w: 40, h: 20, x: 60, y: 40 }); const text = cvJob(cv, cvBitOf, 'Test')[0].text; cv.items = [];
+    await openCarve(); cvLayoutSet('split'); await new Promise(r => setTimeout(r, 200));
+    await cvGcodeOpenText(text, 'job.nc'); await new Promise(r => setTimeout(r, 300)); carveRender(); await new Promise(r => setTimeout(r, 100));
+    const cut = document.querySelector('#cvGcode2d path:last-child'), d = cut ? cut.getAttribute('d') : '', xs = [...d.matchAll(/[ML](-?[\\d.]+) /g)].map(m => +m[1]);
+    const out = { drawn: d.length > 50, x0: Math.min(...xs), x1: Math.max(...xs),
+      note: document.getElementById('cvSide').textContent.includes('Showing job.nc'), nothingYet: document.getElementById('cvSide').textContent.includes('Nothing yet'),
+      checks: document.getElementById('cvChecks').textContent, bad: !!document.querySelector('#cvChecks .bad'), exportOff: cvEl('cvExport').disabled };
+    const lab = sel => [...document.querySelectorAll(sel)].map(t => t.textContent);
+    out.flat = lab('#cvStage .cvRuler text'); out.three = lab('#cv3dOver .cv3ruler text');
+    cvViewToggle('rulers'); out.off = !document.querySelector('#cvStage .cvRuler') && !document.querySelector('#cv3dOver .cv3ruler'); cvViewToggle('rulers');
+    document.querySelector('#cvGcodeBar [data-gc="close"]').click(); out.gone = !document.querySelector('#cvGcode2d') && document.getElementById('cvSide').textContent.includes('Nothing yet');
+    closeCarve(); return out;`);
+  assert.ok(v.drawn, "the cut is drawn on the flat board");
+  assert.ok(v.x0 > 35 && v.x1 < 85, "where the shape was, around x 40 to 80: " + v.x0 + " " + v.x1);
+  assert.ok(v.note && !v.nothingYet, "the panel says a G-code file is showing");
+  assert.match(v.checks, /job\.nc is open to look at/); assert.ok(!v.bad, "no red warning"); assert.ok(v.exportOff, "Save G-code stays off: there are no shapes of its own");
+  assert.ok(v.flat.includes("0") && (v.flat.includes("mm") || v.flat.includes("in")) && v.flat.some(t => +t >= 5), "the flat rulers count from the zero: " + v.flat.join(" "));
+  assert.ok(v.three.includes("0") && v.three.length >= 4, "rulers in 3D along the board: " + v.three.join(" "));
+  assert.ok(v.off, "Rulers in What to show turns both off"); assert.ok(v.gone, "Close takes it off the board");
+});

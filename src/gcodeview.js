@@ -98,7 +98,23 @@ async function cvGcodeOpenText(text, name) {
   }
   CV3D.gcode = { id: ++cvGcodeN, name, G, text, bit: cvGcodeGuessBit(G) };
   if (!CV3D.on) cvLayoutSet(cvLayout === 'board' ? '3d' : cvLayout); else { CV3D.key = ''; cv3dBake(); }
-  cvGcodeBar(); cv3dAim(); cv3dDraw();
+  cvGcodeBar(); cv3dAim(); cv3dDraw(); carveRender();
+}
+// The open file on the flat board, from the board's zero: cutting moves solid, moves through the air dashed and faint.
+// Built once per file and zero; only the line widths follow the zoom.
+function cvGcodeSvg(px) {
+  const g = CV3D.gcode; if (!g || !P || !P.carve) return '';
+  const [zx, zy] = cvZeroAt(P.carve), W = P.carve.board.w, key = [g.id, zx, zy, W].join(':');
+  if (g.svgKey !== key) {
+    const f = v => +v.toFixed(3), pt = q => `${f(q[0] + zx)} ${f(W - (q[1] + zy))}`, out = { cut: '', air: '' }, end = { cut: null, air: null };
+    g.G.moves.forEach(m => {
+      if (!m.a || (Math.abs(m.a[0] - m.b[0]) < 1e-6 && Math.abs(m.a[1] - m.b[1]) < 1e-6)) return;   // straight up or down: nothing to see from above
+      const k = m.rapid || (m.a[2] >= 0 && m.b[2] >= 0) ? 'air' : 'cut', a = pt(m.a), b = pt(m.b);
+      out[k] += (end[k] === a ? '' : `M${a}`) + `L${b}`; end[k] = b;
+    });
+    g.svgKey = key; g.svgCut = out.cut; g.svgAir = out.air;
+  }
+  return `<g pointer-events="none" id="cvGcode2d"><path d="${g.svgAir}" fill="none" stroke="#3d4a50" stroke-opacity=".4" stroke-width="${px}" stroke-dasharray="${3 * px} ${3 * px}"/><path d="${g.svgCut}" fill="none" stroke="#4a2410" stroke-width="${1.6 * px}" stroke-linejoin="round" stroke-linecap="round"/></g>`;
 }
 function cvGcodeClose() { CV3D.gcode = null; CV3D.key = ''; const bar = cvEl('cvGcodeBar'); if (bar) bar.hidden = true; cv3dBake(); carveRender(); }
 // sizes the board to the job with a 10 mm margin, as deep as its deepest cut, and puts the zero where the job's X0 Y0 lands

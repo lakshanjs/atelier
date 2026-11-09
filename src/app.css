@@ -593,7 +593,7 @@ body.carving #work { visibility: hidden; }
 /* the board, the carving, or both side by side */
 #cvStageWrap { display: flex; }
 #cvStage { flex: 1; min-width: 0; }
-#cvLayout { position: absolute; left: 12px; top: 10px; z-index: 6; box-shadow: 0 1px 3px rgba(20, 30, 35, .12); }
+#cvLayout { position: absolute; left: 30px; top: 28px; z-index: 6; box-shadow: 0 1px 3px rgba(20, 30, 35, .12); }
 #cvLayout button { border: 0; background: none; padding: 0; width: 32px; height: 26px; display: grid; place-items: center; color: var(--soft); cursor: default; }
 #cvLayout .lu { width: 17px; height: 17px; }
 #cvLayout button + button { border-left: 1px solid var(--line); }
@@ -812,3 +812,8 @@ body.mach-picking #cvStage { cursor: crosshair; }
 #aboutDlg .aboutUpd { min-height: 1.4em; margin: 12px 0 0; color: var(--soft); font-size: 12.5px; }
 #aboutDlg .aboutBtns { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 #aboutDlg .aboutTech { margin: 12px 0 0; color: var(--soft); font-size: 11.5px; }
+/* rulers in Carve: the flat board's sit under its layout switch; the 3D ones are white with a dark edge, to read on any wood */
+#carve.lay-3d #cvLayout { left: 12px; top: 10px; }
+#cv3dOver .cv3ruler text { font: 500 11px Barlow, sans-serif; fill: #fff; stroke: rgba(20, 26, 30, .7); stroke-width: 3px; paint-order: stroke; font-variant-numeric: tabular-nums; }
+#cv3dOver .cv3ruler line { stroke-linecap: round; }
+#cvStage .cvRuler text { font-variant-numeric: tabular-nums; }

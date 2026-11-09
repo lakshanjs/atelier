@@ -47,7 +47,8 @@ function renderChrome() {
 }
 function render() { hoverBox.visible = false; renderChrome(); renderSide(); renderStatus(); dirty = true; if (typeof carveRender === 'function') carveRender(); }
 let projectChosen = false;
-function loadProject(p) { projectChosen = true; const startDlg = document.getElementById('newDlg'); if (startDlg.open) startDlg.close(); if (P && typeof snapQuiet === 'function' && P.items.some(i => !isRoomPart(i))) snapQuiet(`Before opening ${p.name || 'another project'}`); openedName = null; setTimeout(ensureModels); P = ensureFloor(p); hwAdopt(); if (typeof cvBitsAdopt === 'function') cvBitsAdopt(); sel = []; undoS = []; redoS = []; camSet = false; Object.keys(vt).forEach(n => { vt[n] = {}; }); fileHandle = null; sect.on = false; updateSection(); syncSection(); persist(); markSaved(false); render(); if (typeof cvSyncMode === 'function') cvSyncMode(); }
+const projUid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+function loadProject(p) { projectChosen = true; const startDlg = document.getElementById('newDlg'); if (startDlg.open) startDlg.close(); if (P && typeof snapQuiet === 'function' && P.items.some(i => !isRoomPart(i))) snapQuiet(`Before opening ${p.name || 'another project'}`); openedName = null; setTimeout(ensureModels); P = ensureFloor(p); if (!P.uid) P.uid = projUid(); hwAdopt(); if (typeof cvBitsAdopt === 'function') cvBitsAdopt(); sel = []; undoS = []; redoS = []; camSet = false; Object.keys(vt).forEach(n => { vt[n] = {}; }); fileHandle = null; sect.on = false; updateSection(); syncSection(); persist(); markSaved(false); render(); if (typeof cvSyncMode === 'function') cvSyncMode(); }
 
 // ---------- plans ----------
 function renderPack() {
@@ -168,7 +169,7 @@ async function rememberFile(h) {
   fileHandle = h;
   try {
     const keep = []; for (const r of recents) if (!(await r.handle.isSameEntry(h))) keep.push(r);
-    recents = [{ name: h.name, handle: h, kind: P && typeof cvKind === 'function' ? cvKind(P) : 'design' }, ...keep].slice(0, 6); renderRecents(); await kvSet('recents', recents); await kvSet('current', h);
+    recents = [{ name: h.name, handle: h, kind: P && typeof cvKind === 'function' ? cvKind(P) : 'design' }, ...keep].slice(0, 6); renderRecents(); await kvSet('recents', recents); await kvSet('current', { h, uid: P && P.uid });
   } catch (e) {}
 }
 function markSaved(state) { unsaved = state; const el = document.getElementById('saveState'); if (el) { el.textContent = state ? 'Not saved' : fileHandle ? 'Saved' : ''; el.title = fileHandle ? fileHandle.name : ''; } updateTitle(); }
@@ -176,6 +177,14 @@ function markSaved(state) { unsaved = state; const el = document.getElementById(
 let openedName = null;
 function updateTitle() { const n = fileHandle ? fileHandle.name : openedName || (P ? P.name : ''), t = `${unsaved ? '• ' : ''}${n}${n ? ' - ' : ''}Atelier`; if (document.title !== t) document.title = t; }
 const fileMsg = t => toast(t, true);
+// Whether the file holds this project: by its id, or for files from before ids, by its name. An empty or unreadable file passes.
+async function fileIsThisProject(h) {
+  try {
+    const file = await h.getFile(); if (!file.size) return true;
+    const raw = await readZipText(await file.arrayBuffer(), 'project.json'), m = raw && JSON.parse(raw), p = m && m.project; if (!p) return true;
+    return p.uid && P.uid ? p.uid === P.uid : (p.name || '') === (P.name || '');
+  } catch (e) { return true; }
+}
 async function saveProject(asNew) {
   const types = [{ description: 'Atelier project', accept: { 'application/x-atlr': ['.atlr'] } }];
   try {
@@ -183,7 +192,9 @@ async function saveProject(asNew) {
     let h = asNew ? null : fileHandle;
     if (h && !/\.atlr$/i.test(h.name)) h = null;   // a project opened from an older .json is saved on as an Atelier file
     if (h && await h.requestPermission({ mode: 'readwrite' }) !== 'granted') h = null;
+    if (h && !(await fileIsThisProject(h))) { toast(`${h.name} holds another project, so it isn't saved over. Choose where to save this one.`); h = null; fileHandle = null; }
     if (!h) h = await showSaveFilePicker({ suggestedName: `${P.name}.atlr`, types });
+    if (!P.uid) P.uid = projUid();   // a project restored from before ids gets one now, and the file keeps it
     toast('Saving…');
     const bytes = await atelierBytes(), w = await h.createWritable(); await w.write(bytes); await w.close();
     snapQuiet('Saved'); await rememberFile(h); markSaved(false); toast(`Saved ${h.name} (${(bytes.length / 1048576).toFixed(1)} MB)`);
@@ -203,7 +214,8 @@ async function openRecent(i) {
   try { await openHandle(r.handle); }
   catch (e) { fileMsg(`Couldn't open ${r.name}: it may have been moved or deleted.`); recents.splice(i, 1); renderRecents(); kvSet('recents', recents).catch(() => {}); }
 }
-(async () => { try { recents = (await kvGet('recents')) || []; renderRecents(); const h = await kvGet('current'); if (h && !fileHandle && unsaved === false) { fileHandle = h; markSaved(false); } } catch (e) {} })();
+(async () => { try { recents = (await kvGet('recents')) || []; renderRecents(); const c = await kvGet('current'), h = c && c.h;   // only for the project it was saved from: the one restored at start may be another
+  if (h && c.uid && P && P.uid === c.uid && !fileHandle && unsaved === false) { fileHandle = h; markSaved(false); } } catch (e) {} })();
 document.getElementById('bOpen').onclick = openProject;
 document.getElementById('fileIn').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
