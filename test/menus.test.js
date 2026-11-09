@@ -150,3 +150,20 @@ test("easy to start: a short rail, the board and 3D side by side, the essentials
   assert.ok(/7 mm deep/.test(v.live[0]) && v.live[1] === 3, "the gauge follows the slider before it's let go: " + v.live); assert.strictEqual(v.set, 7);
   assert.ok(v.boardMore && v.smartShut, "the board's speeds and smart values are folded away");
 });
+
+test("Help has Check for updates and About; About shows the version, who made it, and checks for updates", async () => {
+  const v = await app.run(`
+    document.querySelectorAll('dialog[open]').forEach(d => d.close());
+    const items = [...document.querySelectorAll('[data-do="updates"], [data-do="about"]')].map(b => b.textContent.trim());
+    document.querySelector('[data-do="about"]').click(); await new Promise(r => setTimeout(r, 300));
+    const dlg = document.getElementById('aboutDlg'), a = dlg.querySelector('.aboutBy a');
+    const out = { items, open: dlg.open, ver: document.getElementById('aboutVer').textContent, by: dlg.querySelector('.aboutBy').textContent, href: a.href, tech: document.getElementById('aboutTech').textContent };
+    document.getElementById('aboutCheck').click(); await new Promise(r => setTimeout(r, 400)); out.upd = document.getElementById('aboutUpd').textContent;
+    document.getElementById('aboutClose').click(); out.closed = !dlg.open;
+    return out;`);
+  assert.deepStrictEqual(v.items, ["Check for updates…", "About Atelier"]);
+  assert.ok(v.open); assert.strictEqual(v.ver, "Version " + require("../package.json").version, "the app's own version, not Electron's"); assert.match(v.tech, /Electron/);
+  assert.match(v.by, /Made by Lakshan Jayasinghe/); assert.strictEqual(v.href, "https://lakshanj.com/");
+  assert.match(v.upd, /development copy/, "the test copy isn't installed, so it says it doesn't update itself");
+  assert.ok(v.closed);
+});

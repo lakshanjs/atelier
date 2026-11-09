@@ -800,3 +800,15 @@ body.mach-picking #cvStage { cursor: crosshair; }
 :root[data-theme=dark] #mach .mstate[data-st=Hold], :root[data-theme=dark] #mach .mstate[data-st=Door] { background: #3a3218; color: #f0d27a; }
 :root[data-theme=dark] #mach .mstate[data-st=Alarm], :root[data-theme=dark] #mach .mwarn { background: #3a201b; color: #ffb4a3; }
 :root[data-theme=dark] #mach .mdone { color: #8fd6a8; }
+/* About: the app, its version, and who made it */
+#aboutDlg { width: min(400px, calc(100vw - 32px)); padding: 22px 24px 16px; }
+#aboutDlg .aboutTop { display: flex; align-items: center; gap: 14px; }
+#aboutDlg .aboutTop img { flex: none; }
+#aboutDlg h2 { margin: 0; font-size: 22px; font-weight: 600; line-height: 1.15; }
+#aboutDlg #aboutVer { margin: 2px 0 0; color: var(--soft); font-variant-numeric: tabular-nums; }
+#aboutDlg .aboutWhat { margin: 16px 0 0; line-height: 1.45; }
+#aboutDlg .aboutBy { margin: 14px 0 0; padding-top: 12px; border-top: 1px solid var(--line); line-height: 1.5; }
+#aboutDlg .aboutBy a { color: var(--ink); font-weight: 600; text-decoration: underline; text-decoration-color: var(--tape-deep); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+#aboutDlg .aboutUpd { min-height: 1.4em; margin: 12px 0 0; color: var(--soft); font-size: 12.5px; }
+#aboutDlg .aboutBtns { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+#aboutDlg .aboutTech { margin: 12px 0 0; color: var(--soft); font-size: 11.5px; }

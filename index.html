@@ -32,7 +32,7 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
         <button data-do="fit">Fit everything<kbd>F</kbd></button><button data-do="cam">Reset 3D view</button><hr>
         <button data-do="dims">Show or hide dimensions</button><button data-do="theme">Dark interface on or off</button><button data-do="floorgrid">Floor grid on or off</button><button data-do="real">Realistic materials on or off</button><button data-do="section">Section view</button><hr><button data-do="layouts">Arrange views</button><button data-do="layreset">Reset view sizes</button><hr><button data-do="tbsep">Add toolbar separator</button><button data-do="tbreset">Reset toolbar</button><hr><button data-do="big:3d">Full size 3D view</button><button data-do="big:top">Full size top view</button><button data-do="big:front">Full size front view</button><button data-do="big:side">Full size side view</button>
       </div></div>
-      <div class="menu"><button class="mbtn">Help</button><div class="mlist" hidden><button data-do="palette">Find a command…</button><button data-do="keys">Keyboard shortcuts…</button><button data-do="help">Keyboard and mouse<kbd>F1</kbd></button></div></div>
+      <div class="menu"><button class="mbtn">Help</button><div class="mlist" hidden><button data-do="palette">Find a command…</button><button data-do="keys">Keyboard shortcuts…</button><button data-do="help">Keyboard and mouse<kbd>F1</kbd></button><hr><button data-do="updates">Check for updates…</button><button data-do="about">About Atelier</button></div></div>
     </nav>
     <div id="modes" role="tablist" aria-label="Workspace" hidden><button role="tab" id="modeDesign" aria-selected="true">Design</button><button role="tab" id="modeCarve" aria-selected="false">Carve</button></div>
     <div id="docTitle"><input id="pname" aria-label="Project name" title="Click to rename"><span id="saveState" aria-live="polite"></span></div>
@@ -128,6 +128,15 @@ if (window.atelierWin) document.documentElement.classList.add('desktop');</scrip
 </div>
 
 <div id="warnPop" hidden></div><div id="ctx" hidden role="menu"></div><div id="toast" hidden role="status"></div>
+<dialog id="aboutDlg" aria-labelledby="aboutName">
+  <div class="aboutTop"><img src="lib/icon.svg" alt="" width="56" height="56"><div><h2 id="aboutName">Atelier</h2><p id="aboutVer">Version</p></div></div>
+  <p class="aboutWhat">Design furniture from panels, see it in 3D and in plans, get the cut list, and carve on a CNC machine.</p>
+  <p class="aboutBy">Made by Lakshan Jayasinghe<br><a href="https://lakshanj.com" target="_blank" rel="noopener">lakshanj.com</a></p>
+  <p class="aboutUpd" id="aboutUpd" aria-live="polite"></p>
+  <div class="aboutBtns"><button class="btn line" id="aboutCheck">Check for updates</button><span class="grow"></span><button class="btn main" id="aboutClose">Close</button></div>
+  <p class="aboutTech" id="aboutTech"></p>
+</dialog>
+
 <dialog id="helpDlg">
   <div style="display:flex;align-items:center"><h2 style="margin:0">Keyboard and mouse</h2><span class="grow"></span><button class="btn line" id="helpKeys" style="margin-right:6px">Change shortcuts</button><button class="btn line" id="helpClose">Close</button></div>
   <h3>Looking around</h3><dl class="keys"><dt>Ctrl + drag, middle drag</dt><dd>Rotate the view</dd><dt>Drag empty space</dt><dd>Rotate the view</dd><dt>Right drag</dt><dd>Slide the view</dd><dt>Wheel</dt><dd>Zoom</dd><dt>F</dt><dd>Fit everything</dd></dl>

@@ -24,6 +24,19 @@ function sessionBegin() {
   try { lastRunCrashed = fs.existsSync(lockFile()); fs.writeFileSync(lockFile(), String(process.pid)); } catch (err) { console.error(err); }
 }
 ipcMain.on("update:waiting", (e) => { e.returnValue = updateReady; });   // for a page that reloads after the update arrived
+// app.getVersion() gives Electron's own version when the app runs unpackaged (the tests, development)
+const appVersion = () => { try { return require("./package.json").version; } catch (err) { return app.getVersion(); } };
+ipcMain.handle("app:info", () => ({ version: appVersion(), electron: process.versions.electron, chrome: process.versions.chrome, packaged: app.isPackaged }));
+// Help > Check for updates. A newer version downloads by itself (autoDownload), and the page's bar shows when it's ready.
+ipcMain.handle("update:check", async () => {
+  if (updateReady) return { state: "ready", version: updateReady };
+  if (!autoUpdater || !app.isPackaged) return { state: "dev", version: appVersion() };
+  try {
+    const r = await autoUpdater.checkForUpdates(), v = r && r.updateInfo && r.updateInfo.version;
+    const newer = r && typeof r.isUpdateAvailable === "boolean" ? r.isUpdateAvailable : !!v && v !== app.getVersion();
+    return newer ? { state: "downloading", version: v } : { state: "latest", version: appVersion() };
+  } catch (err) { return { state: "error", message: (err && err.message) || String(err) }; }
+});
 ipcMain.on("session:crashed", (e) => { e.returnValue = lastRunCrashed; lastRunCrashed = false; });
 
 // Drawings become a PDF in a hidden window of their own. Printing can stall now and then, and a stall here

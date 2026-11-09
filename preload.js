@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld("atelierWin", {
   onUpdateReady: (cb) => ipcRenderer.on("update:ready", (e, version) => cb(version)),
   updateWaiting: () => ipcRenderer.sendSync("update:waiting"),
   restartToUpdate: () => ipcRenderer.send("update:restart"),
+  checkUpdates: () => ipcRenderer.invoke("update:check"),
+  appInfo: () => ipcRenderer.invoke("app:info"),
   // the CNC machine: which USB port to pick, and GRBL over Wi-Fi (telnet)
   serialWant: (name) => ipcRenderer.send("serial:want", name),
   serialList: () => ipcRenderer.invoke("serial:list"),

@@ -137,7 +137,7 @@ const DO = {
   plans: () => document.getElementById('bPack').click(), print: () => { renderPack(); window.print(); },
   undo, redo, dup: () => { if (sel.length) edit(duplicateSel); }, del: () => { if (sel.length) edit(removeSel); }, all: () => { sel = shown().filter(i => !i.locked).map(i => i.id); render(); },
   layouts: () => toggleLayPop(true), layreset: resetLayout, machine: () => machOpen(),
-  help: () => document.getElementById('helpDlg').showModal(), tbsep: () => tbAddSeparator(), tbreset: () => tbReset(), saveas: () => saveProject(true), importsh3d: () => document.getElementById('sh3dIn').click(), libimport: () => document.getElementById('libIn').click(), libexport: libExport, picture: savePicture, dxf: () => downloadBlob(`${P.name} cut parts.dxf`, dxfText(), 'application/dxf'), stl: () => downloadBlob(`${P.name}.stl`, stlBytes(), 'model/stl'),
+  help: () => document.getElementById('helpDlg').showModal(), updates: () => checkUpdates(), about: () => openAbout(), tbsep: () => tbAddSeparator(), tbreset: () => tbReset(), saveas: () => saveProject(true), importsh3d: () => document.getElementById('sh3dIn').click(), libimport: () => document.getElementById('libIn').click(), libexport: libExport, picture: savePicture, dxf: () => downloadBlob(`${P.name} cut parts.dxf`, dxfText(), 'application/dxf'), stl: () => downloadBlob(`${P.name}.stl`, stlBytes(), 'model/stl'),
   theme: () => setTheme(!isDark()), floorgrid: () => { P.floorGrid = P.floorGrid === false; persist(); }, real: () => { P.real = !realOn(); persist(); dirty = true; }, section: () => setSection(!sect.on),
   carvecopy: () => { if (!P.carve || !P.carve.items.length) return; const c = JSON.parse(JSON.stringify(P.carve)); delete c.fromPanel; loadProject({ ...newProject(`${P.name} carving`), kind: 'carve', carve: c }); },
   copy: copySel, paste: pasteClip, cut: () => { copySel(); if (sel.length) edit(removeSel); },
@@ -178,7 +178,7 @@ applyTheme();
 [['rendAdjustBtn', 'sliders-horizontal'], ['bShot3d', 'camera'], ['cvSend', 'plug'], ['bLayout', 'layout-dashboard'], ['bSection', 'scissors-line-dashed'], ['bNew', 'file-plus'], ['bOpen', 'folder-open'], ['bSave', 'save'], ['bUndo', 'undo-2'], ['bRedo', 'redo-2'], ['bPack', 'scissors'], ['bView', 'rotate-ccw'], ['bPrint', 'printer'], ['bCsv', 'save']].forEach(([id, n]) => addIcon(document.getElementById(id), n));
 document.querySelector('.snapc').insertAdjacentHTML('beforeend', ic('magnet'));
 window.LUCIDE.keyboard = '<rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" />';
-const MENU_ICONS = { machine: 'plug', carvecopy: 'folder-plus', cnc: 'drill', drawings: 'book-open', floorgrid: 'grid-2x2', history: 'clock', hwcat: 'package', keys: 'keyboard', libimport: 'book-copy', libexport: 'archive', palette: 'search', render: 'image', resizable: 'scaling', theme: 'moon', importsh3d: 'folder-open', tbsep: 'separator-vertical', tbreset: 'rotate-ccw', layouts: 'layout-dashboard', layreset: 'rotate-ccw', help: 'circle-help', saveas: 'save-all', picture: 'camera', dxf: 'file-output', stl: 'file-box', real: 'sparkles', section: 'scissors-line-dashed', copy: 'clipboard-copy', cut: 'scissors', paste: 'clipboard-paste', dims: 'ruler', new: 'file-plus', open: 'folder-open', save: 'save', plans: 'scissors', print: 'printer', undo: 'undo-2', redo: 'redo-2', dup: 'copy', del: 'trash-2', all: 'square-mouse-pointer', group: 'group', ungroup: 'ungroup', pickmode: 'mouse-pointer-2', spin: 'rotate-cw', fit: 'scan', cam: 'rotate-ccw', 'big:3d': 'box', 'big:top': 'maximize-2', 'big:front': 'maximize-2', 'big:side': 'maximize-2' };
+const MENU_ICONS = { updates: 'refresh-cw', about: 'info', machine: 'plug', carvecopy: 'folder-plus', cnc: 'drill', drawings: 'book-open', floorgrid: 'grid-2x2', history: 'clock', hwcat: 'package', keys: 'keyboard', libimport: 'book-copy', libexport: 'archive', palette: 'search', render: 'image', resizable: 'scaling', theme: 'moon', importsh3d: 'folder-open', tbsep: 'separator-vertical', tbreset: 'rotate-ccw', layouts: 'layout-dashboard', layreset: 'rotate-ccw', help: 'circle-help', saveas: 'save-all', picture: 'camera', dxf: 'file-output', stl: 'file-box', real: 'sparkles', section: 'scissors-line-dashed', copy: 'clipboard-copy', cut: 'scissors', paste: 'clipboard-paste', dims: 'ruler', new: 'file-plus', open: 'folder-open', save: 'save', plans: 'scissors', print: 'printer', undo: 'undo-2', redo: 'redo-2', dup: 'copy', del: 'trash-2', all: 'square-mouse-pointer', group: 'group', ungroup: 'ungroup', pickmode: 'mouse-pointer-2', spin: 'rotate-cw', fit: 'scan', cam: 'rotate-ccw', 'big:3d': 'box', 'big:top': 'maximize-2', 'big:front': 'maximize-2', 'big:side': 'maximize-2' };
 document.querySelectorAll('.mlist [data-do]').forEach(b => addIcon(b, MENU_ICONS[b.dataset.do]));
 // ---------- customizable toolbar ----------
 // Drag any menu command onto the toolbar, drag things along it to reorder, drag them off to remove. It's kept per user, not per project.
@@ -287,6 +287,28 @@ render();
 // ---------- an update waiting to install ----------
 // When a new version has downloaded, a bar says so. Restart now saves the work and restarts into it; Later, or leaving
 // it, installs it when Atelier is next closed.
+// Help > Check for updates, and the same button in About. In the dev copy there's nothing to update.
+async function checkUpdates(quiet) {
+  const say = (t, bad) => { const el = document.getElementById('aboutUpd'); if (el && document.getElementById('aboutDlg').open) el.textContent = t; else if (!quiet) toast(t, bad); };
+  if (!window.atelierWin || !atelierWin.checkUpdates) { say('Updates come with the installed app.'); return; }
+  say('Checking for updates…');
+  const r = await atelierWin.checkUpdates().catch(e => ({ state: 'error', message: e && e.message }));
+  if (r.state === 'ready') { say(`Atelier ${r.version} is downloaded. Restart to install it.`); showUpdateBar(r.version); }
+  else if (r.state === 'downloading') say(`Atelier ${r.version} is out. It's downloading now; a bar shows when it's ready to install.`);
+  else if (r.state === 'latest') say(`You have the latest version, ${r.version}.`);
+  else if (r.state === 'dev') say(`This is a development copy (${r.version}), so it doesn't update itself.`);
+  else say(`Couldn't check for updates: ${r.message || 'no connection'}. Try again later, or get it from github.com/lakshanjs/atelier/releases.`, true);
+}
+async function openAbout() {
+  const dlg = document.getElementById('aboutDlg'), info = window.atelierWin && atelierWin.appInfo ? await atelierWin.appInfo().catch(() => null) : null;
+  document.getElementById('aboutVer').textContent = info ? `Version ${info.version}` : 'Version';
+  document.getElementById('aboutTech').textContent = info ? `Electron ${info.electron}, Chromium ${info.chrome}` : '';
+  document.getElementById('aboutUpd').textContent = '';
+  dlg.showModal();
+}
+document.getElementById('aboutClose').onclick = () => document.getElementById('aboutDlg').close();
+document.getElementById('aboutCheck').onclick = () => checkUpdates();
+
 function showUpdateBar(version) {
   if (!version || document.getElementById('updBar')) return;
   const bar = document.createElement('div'); bar.id = 'updBar'; bar.setAttribute('role', 'status');
